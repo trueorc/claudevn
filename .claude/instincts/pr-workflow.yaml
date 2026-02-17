@@ -1,0 +1,48 @@
+---
+id: claudevn-pr-workflow
+trigger: "when creating a pull request or completing work"
+confidence: 0.95
+domain: workflow
+source: local-repo-analysis
+---
+
+# Follow Pull Request Workflow
+
+## Action
+All code changes must go through Pull Requests:
+
+### 1. Create Feature Branch
+```bash
+git checkout -b feat/issue-{number}-{short-description}
+```
+
+### 2. Make Changes
+- Follow conventional commit format
+- Reference issue in commit messages
+- Keep changes focused on single concern
+
+### 3. Push and Create PR
+```bash
+git push -u origin feat/issue-{number}-{description}
+gh pr create --title "feat: Description (#issue-number)" --body "..."
+```
+
+### 4. PR Requirements
+- All tests must pass
+- Request code review before merge
+- Only Serving merges to main
+
+## Branch Protection
+- Never push directly to `main`
+- Compute instances can only push their own branches
+- Branch naming enforced by Git hooks
+
+## Merge Strategy
+- Squash merge for feature branches
+- PR title becomes commit message
+- Delete branch after merge
+
+## Evidence
+- 100% of changes go through PRs
+- Git hooks enforce branch naming
+- Merge commits follow PR pattern

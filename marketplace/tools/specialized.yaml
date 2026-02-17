@@ -1,0 +1,130 @@
+# Specialized Tool Definitions
+#
+# These tools require specific skills to grant access and compute instances
+# with appropriate labels to execute. Two-tier authorization:
+# 1. Skill grants intent (agent has permission to use tool)
+# 2. Compute provides capability (instance has tool installed)
+#
+# See docs/design/specifications/skill-marketplace.md for full specification.
+
+tools:
+  # Database Migration Tool
+  - id: db_migration_tool
+    name: Database Migration Tool
+    description: Execute database schema migrations safely with rollback support
+    tier: specialized
+    granted_by:
+      - database-migration
+    required_labels:
+      - database-admin
+    security_level: elevated
+    parameters:
+      type: object
+      properties:
+        migration_file:
+          type: string
+          description: Path to migration file or migration name
+        direction:
+          type: string
+          enum: [up, down]
+          description: Migration direction (up to apply, down to rollback)
+        dry_run:
+          type: boolean
+          default: false
+          description: Preview changes without applying
+      required:
+        - migration_file
+
+  # Production Deployment Tool
+  - id: deploy_prod
+    name: Deploy to Production
+    description: Deploy application to production environment with verification
+    tier: specialized
+    granted_by:
+      - prod-deployment
+    required_labels:
+      - production-access
+    security_level: admin
+    parameters:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Version or commit SHA to deploy
+        environment:
+          type: string
+          default: production
+          description: Target environment
+        rollback_on_failure:
+          type: boolean
+          default: true
+          description: Automatically rollback if deployment fails
+      required:
+        - version
+
+  # Security Scan Tool
+  - id: run_security_scan
+    name: Run Security Scan
+    description: Execute security vulnerability scans on codebase and dependencies
+    tier: specialized
+    granted_by:
+      - security-audit
+    required_labels:
+      - security-tools
+    security_level: elevated
+    parameters:
+      type: object
+      properties:
+        scan_type:
+          type: string
+          enum: [code, dependencies, full]
+          default: full
+          description: Type of security scan to run
+        severity_threshold:
+          type: string
+          enum: [critical, high, medium, low]
+          default: high
+          description: Minimum severity level to report
+        paths:
+          type: array
+          items:
+            type: string
+          description: Specific paths to scan (empty for all)
+      required: []
+
+  # API Testing Tool
+  - id: test_api_endpoint
+    name: Test API Endpoint
+    description: Execute HTTP requests to test API endpoints with validation
+    tier: specialized
+    granted_by:
+      - api-integration
+    required_labels:
+      - api-testing
+    security_level: standard
+    parameters:
+      type: object
+      properties:
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+          description: HTTP method
+        url:
+          type: string
+          description: Endpoint URL (can be relative or absolute)
+        headers:
+          type: object
+          description: Request headers
+        body:
+          type: object
+          description: Request body for POST/PUT/PATCH
+        expected_status:
+          type: integer
+          description: Expected HTTP status code
+        timeout:
+          type: integer
+          default: 30
+          description: Request timeout in seconds
+      required:
+        - method
+        - url

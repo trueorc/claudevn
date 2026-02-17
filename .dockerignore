@@ -1,0 +1,85 @@
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.eslintcache
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and data
+logs/
+*.log
+data/
+*.pid
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Examples and tests
+examples/
+tests/
+*.test.js
+*.spec.js
+
+# Environment files (should be set via docker-compose or runtime)
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Project specific
+seed_data/
+!marketplace/seed_data
+status.sh
+setup_environment.sh
+start_all.sh
+stop_all.sh
+test_*.sh
+

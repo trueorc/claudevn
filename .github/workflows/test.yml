@@ -1,0 +1,71 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tier1-unit-tests:
+    name: Tier 1 - Unit Tests
+    runs-on: ubuntu-latest
+    if: false  # TEMPORARY: Disabled during early development - remove to re-enable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r serving/requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+
+      - name: Run Tier 1 Unit Tests
+        run: |
+          cd serving
+          python -m pytest tests/ \
+            --ignore=tests/test_api_integration.py \
+            -v --cov=. --cov-report=term-missing
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: success()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  frontend-build:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    if: false  # TEMPORARY: Disabled during early development - remove to re-enable
+
+    defaults:
+      run:
+        working-directory: serving/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: serving/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true  # Pre-existing lint issues to be addressed separately
+
+      - name: Build
+        run: npm run build

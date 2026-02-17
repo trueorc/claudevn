@@ -1,0 +1,17 @@
+# Docker Compose override for integration testing
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+#
+# This override enables test-specific settings that should NEVER be used
+# in production or local development:
+#   - MCP_AUTH_BYPASS: Allows any Bearer token (skips compute key verification)
+#   - RATE_LIMIT_ENABLED: Already disabled in base config for local dev
+#
+# See: docs/audit/compute-auth-audit-2026-02-13.md (Finding F-005)
+
+services:
+  serving:
+    environment:
+      # MCP auth bypass - allow any Bearer token for integration tests only
+      - MCP_AUTH_BYPASS=true

@@ -1,0 +1,119 @@
+.workmap-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-md);
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.stat-card:hover {
+  border-color: var(--border-light);
+  background: var(--bg-hover);
+}
+
+.stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.stat-icon-total {
+  background: rgba(161, 161, 170, 0.15);
+  color: var(--text-secondary);
+}
+
+.stat-icon-ready {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--status-online);
+}
+
+.stat-icon-progress {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--status-pending);
+}
+
+.stat-icon-blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--status-offline);
+}
+
+.stat-icon-done {
+  background: rgba(113, 113, 122, 0.15);
+  color: var(--text-muted);
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.stat-value {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.progress-section {
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+
+.progress-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.progress-percent {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-hover));
+  transition: width var(--transition-normal);
+}

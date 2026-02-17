@@ -1,0 +1,68 @@
+/* Plan Page Styles */
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.error-banner {
+  padding: var(--space-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--status-offline);
+  border-radius: var(--radius-md);
+  color: var(--status-offline);
+  margin-bottom: var(--space-lg);
+  font-size: var(--font-size-sm);
+}
+
+/* Header Controls */
+.plan-header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-left: auto;
+}
+
+/* View Toggle */
+.plan-view-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.plan-view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.plan-view-btn:hover {
+  color: var(--text);
+}
+
+.plan-view-btn--active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Graph View Container */
+.plan-graph-view {
+  margin-bottom: var(--space-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-height: 400px;
+}

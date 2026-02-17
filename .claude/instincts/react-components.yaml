@@ -1,0 +1,95 @@
+---
+id: claudevn-react-components
+trigger: "when creating React components for the frontend"
+confidence: 0.85
+domain: frontend
+source: local-repo-analysis
+---
+
+# Follow React Component Patterns
+
+## Action
+Create React components in `serving/frontend/src/components/{domain}/`:
+
+### Component Structure
+```jsx
+// {ComponentName}.jsx
+import React, { useState, useEffect } from 'react';
+import './ComponentName.css';
+
+/**
+ * {Brief description of component purpose}
+ */
+export function ComponentName({ prop1, prop2, onAction }) {
+  const [state, setState] = useState(initialValue);
+
+  useEffect(() => {
+    // Side effects
+  }, [dependencies]);
+
+  const handleAction = () => {
+    onAction?.(data);
+  };
+
+  return (
+    <div className="component-name">
+      {/* Component content */}
+    </div>
+  );
+}
+
+export default ComponentName;
+```
+
+### CSS File
+```css
+/* ComponentName.css */
+.component-name {
+  /* Component styles */
+}
+
+.component-name__element {
+  /* BEM-style child elements */
+}
+
+.component-name--modifier {
+  /* State modifiers */
+}
+```
+
+### Custom Hook (if needed)
+In `serving/frontend/src/hooks/use{Feature}.js`:
+```javascript
+import { useState, useEffect, useCallback } from 'react';
+import { fetchData, updateData } from '../api/{domain}';
+
+export function use{Feature}() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await fetchData();
+      setData(result);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { data, loading, error, refresh };
+}
+```
+
+## Evidence
+- Analyzed 15+ React components
+- CSS files co-located with components
+- Custom hooks for data fetching
+- Functional components with hooks throughout

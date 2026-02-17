@@ -1,0 +1,33 @@
+---
+id: claudevn-branch-naming
+trigger: "when creating a new git branch"
+confidence: 0.92
+domain: git
+source: local-repo-analysis
+---
+
+# Use Issue-Based Branch Naming
+
+## Action
+Name branches following this pattern:
+```
+{type}/issue-{number}-{short-description}
+```
+
+Types:
+- `feat/` - New features
+- `fix/` - Bug fixes
+- `docs/` - Documentation changes
+- `refactor/` - Code restructuring
+- `test/` - Test additions/fixes
+
+## Examples
+- `feat/issue-155-shutdown-handler`
+- `fix/issue-102-failing-unit-tests`
+- `feat/issue-127-planner-catalog-query`
+- `docs/issue-149-goal-api-endpoints`
+
+## Evidence
+- Analyzed 73 feature branches
+- 92% follow `{type}/issue-{number}-` pattern
+- Git hooks enforce this naming convention

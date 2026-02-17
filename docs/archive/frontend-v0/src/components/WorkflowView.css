@@ -1,0 +1,498 @@
+/* Workflow View Styles */
+
+.workflow-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.workflow-view-empty {
+  text-align: center;
+  padding: 3rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Controls */
+.workflow-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.view-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.view-mode-toggle button,
+.workflow-actions button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.view-mode-toggle button:hover,
+.workflow-actions button:hover {
+  background: #f3f4f6;
+}
+
+.view-mode-toggle button.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.workflow-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Legend */
+.workflow-legend {
+  display: flex;
+  gap: 1.5rem;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+/* Workflow Graph */
+.workflow-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  min-height: 400px;
+}
+
+/* Activity Group */
+.activity-group {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.activity-group.collapsed .group-activities {
+  display: none;
+}
+
+.activity-group.ungrouped {
+  border-style: dashed;
+}
+
+.group-header {
+  padding: 1rem;
+  background: #f3f4f6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  user-select: none;
+}
+
+.group-header:hover {
+  background: #e5e7eb;
+}
+
+.group-toggle {
+  font-size: 1rem;
+  color: #6b7280;
+  transition: transform 0.2s;
+}
+
+.group-info {
+  flex: 1;
+}
+
+.group-info h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.125rem;
+  color: #1f2937;
+}
+
+.group-stats {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.group-status {
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.group-status.in_progress {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.group-status.completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.group-status.proposed {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Collapsed Group Summary */
+.group-collapsed-summary {
+  padding: 0.5rem 1rem 1rem;
+}
+
+.collapsed-progress {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.collapsed-progress-bar {
+  height: 100%;
+  background: #10b981;
+  transition: width 0.3s ease;
+}
+
+/* Group Activities */
+.group-activities {
+  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.group-activities.flat {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+/* Activity Node */
+.activity-node {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.activity-node:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.activity-node.selected {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.activity-node.has-blockers {
+  border-left-width: 4px;
+  border-left-color: #ef4444;
+}
+
+.activity-node.proposed {
+  border-color: #f59e0b;
+}
+
+.activity-node.in_progress {
+  border-color: #3b82f6;
+}
+
+.activity-node.goal_met {
+  border-color: #10b981;
+}
+
+.activity-node.blocked {
+  border-color: #ef4444;
+}
+
+.activity-node.revisit {
+  border-color: #8b5cf6;
+}
+
+.activity-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.activity-status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.activity-id {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.activity-goal {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #1f2937;
+  margin-bottom: 0.75rem;
+  min-height: 3rem;
+}
+
+.activity-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 0.75rem;
+}
+
+.activity-agents,
+.activity-blockers,
+.activity-dependencies {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.activity-status-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.activity-node.proposed .activity-status-label {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.activity-node.in_progress .activity-status-label {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.activity-node.goal_met .activity-status-label {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.activity-node.blocked .activity-status-label {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.activity-node.revisit .activity-status-label {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* Activity Detail Panel */
+.activity-detail-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 400px;
+  background: white;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #1f2937;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6b7280;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.close-button:hover {
+  background: #e5e7eb;
+}
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.detail-section {
+  margin-bottom: 1.5rem;
+}
+
+.detail-section label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.detail-value {
+  color: #1f2937;
+  line-height: 1.6;
+}
+
+.detail-value ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.detail-value ul li {
+  margin-bottom: 0.25rem;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.proposed {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-badge.in_progress {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.status-badge.goal_met {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.blocked {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-badge.revisit {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.detail-value.blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.blocker-item {
+  padding: 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+
+.blocker-desc {
+  color: #991b1b;
+  margin-bottom: 0.25rem;
+}
+
+.blocker-meta {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.detail-value.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .activity-detail-panel {
+    width: 100%;
+  }
+  
+  .group-activities {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .workflow-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .workflow-legend {
+    justify-content: center;
+  }
+  
+  .group-activities {
+    grid-template-columns: 1fr;
+  }
+}
+
+

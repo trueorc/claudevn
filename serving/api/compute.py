@@ -1,0 +1,2048 @@
+"""Compute instance registry API endpoints."""
+
+import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Optional, AsyncGenerator
+
+from fastapi import APIRouter, HTTPException, Query, Depends, Header, Request, status
+from fastapi.responses import StreamingResponse
+
+from models.compute import (
+    AffinityProfileResponse,
+    ComputeAuthStatus,
+    ComputeInstance,
+    InstanceStatus,
+    InstanceCapabilities,
+    RegistrationRequest,
+    RegistrationResponse,
+    HeartbeatRequest,
+    UpdateInstanceRequest,
+    UpdateProjectTagsRequest,
+    DrainRequest,
+    DrainStatusResponse,
+    InstanceListResponse,
+    AggregatedCapabilities,
+    ComputeEventRequest,
+    ComputeEventResponse,
+    KeepaliveEvent,
+    CredentialsRefreshEvent,
+    DrainEvent,
+    RefreshCredentialsRequest,
+    RefreshCredentialsResponse,
+)
+from services.registry_service import ComputeRegistry, get_compute_registry
+from services.sse_connection_manager import (
+    SSEConnectionManager,
+    get_sse_connection_manager,
+    event_generator,
+)
+
+
+logger = logging.getLogger(__name__)
+
+# SSE keepalive interval in seconds
+SSE_KEEPALIVE_INTERVAL = 30
+# SSE event check interval in seconds (how often to check for queued events)
+SSE_EVENT_CHECK_INTERVAL = 0.5
+
+router = APIRouter(prefix="/compute", tags=["compute"])
+
+
+# =============================================================================
+# SSE Connection Endpoint (Primary registration method)
+# =============================================================================
+
+
+async def _sse_event_generator(
+    compute_id: str,
+    registry: ComputeRegistry,
+    request: Request,
+    sse_manager: Optional[SSEConnectionManager] = None,
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events for a connected compute instance.
+
+    This generator yields SSE-formatted events and handles the connection lifecycle.
+    When the connection is opened, the compute is registered.
+    When the connection closes, the compute is deregistered.
+
+    Args:
+        compute_id: The compute instance ID
+        registry: The compute registry
+        request: The FastAPI request (for disconnect detection)
+        sse_manager: The SSE connection manager for work assignment events
+
+    Yields:
+        SSE-formatted event strings
+    """
+    try:
+        # Send initial connected event
+        connected_data = json.dumps({
+            "status": "connected",
+            "compute_id": compute_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        yield f"event: connected\ndata: {connected_data}\n\n"
+
+        # Track when to send next keepalive
+        last_keepalive = datetime.now(timezone.utc)
+
+        # Main event loop - check for events frequently, send keepalives periodically
+        while True:
+            # Check if client disconnected
+            if await request.is_disconnected():
+                logger.info(f"SSE client {compute_id} disconnected")
+                break
+
+            # Check if there's an event to send from the registry
+            event = await registry.get_pending_event(compute_id)
+            if event:
+                event_type = event.get("event_type", "unknown")
+                event_data = json.dumps(event.get("data", {}))
+                yield f"event: {event_type}\ndata: {event_data}\n\n"
+
+            # Check for events from SSE connection manager (work assignments, etc.)
+            if sse_manager:
+                connection = sse_manager.get_connection(compute_id)
+                if connection:
+                    try:
+                        # Non-blocking check for pending events
+                        sse_event = connection._queue.get_nowait()
+                        event_type = sse_event.get("event", "unknown")
+                        event_data = json.dumps(sse_event.get("data", {}))
+                        yield f"event: {event_type}\ndata: {event_data}\n\n"
+                    except asyncio.QueueEmpty:
+                        pass  # No pending events
+
+            # Check if it's time for a keepalive
+            now = datetime.now(timezone.utc)
+            elapsed = (now - last_keepalive).total_seconds()
+            if elapsed >= SSE_KEEPALIVE_INTERVAL:
+                # Update heartbeat in registry to keep instance marked as online
+                await registry.update_heartbeat(compute_id)
+
+                # Send keepalive
+                keepalive = KeepaliveEvent(
+                    timestamp=now.isoformat()
+                )
+                yield f"event: keepalive\ndata: {keepalive.model_dump_json()}\n\n"
+                last_keepalive = now
+
+            # Short wait before next event check (responsive to work assignments)
+            await asyncio.sleep(SSE_EVENT_CHECK_INTERVAL)
+
+    except asyncio.CancelledError:
+        logger.info(f"SSE connection for {compute_id} was cancelled")
+    except Exception as e:
+        logger.error(f"SSE error for {compute_id}: {e}")
+    finally:
+        # Deregister on disconnect
+        logger.info(f"Deregistering compute {compute_id} (SSE connection closed)")
+        await registry.remove_instance(compute_id)
+        # Also unregister from SSE connection manager
+        if sse_manager:
+            await sse_manager.unregister_connection(compute_id)
+
+        # Emit compute_deregistered event for instant UI update
+        from services.observability_event_bus import get_event_bus
+        from models.observability import ComputeDeregisteredEvent
+        import uuid
+
+        event_bus = get_event_bus()
+        if event_bus:
+            event = ComputeDeregisteredEvent(
+                event_id=f"cd_{uuid.uuid4().hex[:12]}",
+                compute_id=compute_id,
+                reason="sse_disconnect",
+                metadata={}
+            )
+            await event_bus.emit_event(event)
+            logger.debug(f"Emitted compute_deregistered event for {compute_id}")
+
+
+def _parse_capabilities(capabilities_header: Optional[str]) -> list[str]:
+    """Parse capabilities from header string.
+
+    Args:
+        capabilities_header: Comma-separated capability string
+
+    Returns:
+        List of capability strings
+    """
+    if not capabilities_header:
+        return []
+    return [c.strip() for c in capabilities_header.split(",") if c.strip()]
+
+
+def _parse_resources(resources_header: Optional[str]) -> dict:
+    """Parse resources from header string.
+
+    Args:
+        resources_header: Comma-separated key=value pairs
+
+    Returns:
+        Dictionary of resource values
+    """
+    if not resources_header:
+        return {}
+
+    resources = {}
+    for pair in resources_header.split(","):
+        if "=" in pair:
+            key, value = pair.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            # Try to parse numeric values
+            if value.isdigit():
+                resources[key] = int(value)
+            elif value.replace(".", "").isdigit():
+                resources[key] = float(value)
+            else:
+                # Handle values like "16gb" -> extract numeric part
+                numeric = "".join(c for c in value if c.isdigit() or c == ".")
+                if numeric:
+                    if "." in numeric:
+                        resources[key] = float(numeric)
+                    else:
+                        resources[key] = int(numeric)
+                else:
+                    resources[key] = value
+    return resources
+
+
+def _parse_labels(labels_header: Optional[str]) -> list[str]:
+    """Parse labels from header string.
+
+    Args:
+        labels_header: Comma-separated label string
+
+    Returns:
+        List of label strings
+    """
+    if not labels_header:
+        return []
+    return [label.strip() for label in labels_header.split(",") if label.strip()]
+
+
+def _parse_tools_available(tools_header: Optional[str]) -> list[str]:
+    """Parse tools_available from header string.
+
+    Args:
+        tools_header: Comma-separated tool string
+
+    Returns:
+        List of tool strings
+    """
+    if not tools_header:
+        return []
+    return [tool.strip() for tool in tools_header.split(",") if tool.strip()]
+
+
+@router.get("/connect")
+async def connect_sse(
+    request: Request,
+    x_compute_id: str = Header(..., alias="X-Compute-ID", description="Unique compute instance ID"),
+    x_capabilities: Optional[str] = Header(None, alias="X-Capabilities", description="Comma-separated capabilities"),
+    x_resources: Optional[str] = Header(None, alias="X-Resources", description="Resources as key=value pairs"),
+    x_labels: Optional[str] = Header(None, alias="X-Labels", description="Routing labels for work assignment (e.g., production-access,database-admin)"),
+    x_tools_available: Optional[str] = Header(None, alias="X-Tools-Available", description="Specialized tools available (e.g., deploy_prod,db_migrate)"),
+    authorization: Optional[str] = Header(None, description="Bearer token for authentication"),
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Establish SSE connection for compute registration.
+
+    This endpoint establishes a Server-Sent Events (SSE) connection that serves
+    as both registration and health signal. The connection itself indicates the
+    compute instance is alive - no separate heartbeat polling is needed.
+
+    Headers:
+        X-Compute-ID: Unique compute instance identifier (required)
+        X-Capabilities: Comma-separated list of capabilities (optional)
+        X-Resources: Resource specs as key=value pairs, e.g., "cpu=4,memory=16gb" (optional)
+        X-Labels: Routing labels for work assignment, e.g., "production-access,database-admin" (optional)
+        X-Tools-Available: Specialized tools available, e.g., "deploy_prod,db_migrate" (optional)
+        Authorization: Bearer token for authentication (optional)
+
+    Events sent from server:
+        - connected: Initial connection confirmation
+        - keepalive: Periodic pulse (every 30 seconds)
+        - work_assigned: Work assignment notification
+        - work_cancelled: Work cancellation notification
+        - shutdown: Graceful shutdown request
+        - merge_conflict: Merge conflict notification
+        - work_completed: Work completion confirmation
+
+    Returns:
+        SSE stream (text/event-stream)
+    """
+    compute_id = x_compute_id
+
+    # Check if already registered
+    existing = await registry.get_instance(compute_id)
+    if existing:
+        if registry.has_sse_connection(compute_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Compute {compute_id} is already connected"
+            )
+        # Instance exists but no SSE connection - could be pre-registered via POST /register
+        # Don't remove it; just update connection state below
+        logger.info(f"Compute {compute_id} already in registry, will update with SSE connection")
+
+    # Parse capabilities, resources, labels, and tools_available from headers
+    capabilities = _parse_capabilities(x_capabilities)
+    resources = _parse_resources(x_resources)
+    labels = _parse_labels(x_labels)
+    tools_available = _parse_tools_available(x_tools_available)
+
+    # Build instance capabilities
+    instance_capabilities = InstanceCapabilities(
+        agents=capabilities,  # For now, capabilities map to agents
+        tools=[],
+        features=[],
+        labels=labels,
+        tools_available=tools_available,
+    )
+
+    # Apply parsed resources
+    if resources:
+        from models.compute import InstanceResources
+        instance_capabilities.resources = InstanceResources(
+            cpu_count=resources.get("cpu"),
+            memory_gb=resources.get("memory"),
+            gpu_count=resources.get("gpu"),
+        )
+
+    # Create and register the instance
+    instance = ComputeInstance(
+        instance_id=compute_id,
+        name=f"Compute {compute_id}",
+        endpoint="sse",  # SSE-connected instances don't have HTTP endpoints
+        capabilities=instance_capabilities,
+        metadata={
+            "connection_type": "sse",
+            "connected_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    # Check if instance was pre-registered via POST /register
+    already_registered = existing is not None
+
+    try:
+        if not already_registered:
+            await registry.add_instance(instance)
+            logger.info(f"Registered compute {compute_id} via SSE connection")
+
+            # Emit compute_registered event for instant UI update (only if not pre-registered)
+            from services.observability_event_bus import get_event_bus
+            from models.observability import ComputeRegisteredEvent
+            import uuid
+
+            event_bus = get_event_bus()
+            if event_bus:
+                event = ComputeRegisteredEvent(
+                    event_id=f"cr_{uuid.uuid4().hex[:12]}",
+                    compute_id=compute_id,
+                    name=instance.name,
+                    capabilities=capabilities,
+                    labels=labels,
+                    tools_available=tools_available,
+                    metadata={
+                        "connection_type": "sse",
+                        "endpoint": instance.endpoint,
+                    }
+                )
+                await event_bus.emit_event(event)
+                logger.debug(f"Emitted compute_registered event for {compute_id}")
+        else:
+            # Instance was pre-registered via POST /register
+            # Update heartbeat to mark it as online
+            await registry.update_heartbeat(compute_id, metadata={"sse_connected": True})
+            logger.info(f"Compute {compute_id} pre-registered, updated heartbeat via SSE connection")
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+    # Also register with SSE connection manager for work assignment
+    sse_manager = get_sse_connection_manager()
+    await sse_manager.register_connection(
+        compute_id=compute_id,
+        capabilities=capabilities,
+        resources=resources,
+        labels=labels,
+        tools_available=tools_available
+    )
+    logger.info(f"Registered compute {compute_id} with SSE connection manager")
+
+    # Return SSE streaming response
+    return StreamingResponse(
+        _sse_event_generator(compute_id, registry, request, sse_manager),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+# =============================================================================
+# Compute Events Endpoint (Compute -> Serving)
+# =============================================================================
+
+
+@router.post("/events", response_model=ComputeEventResponse)
+async def receive_compute_event(
+    event: ComputeEventRequest,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Receive events from compute instances.
+
+    This endpoint receives events from compute instances about Claude Code
+    execution status (started, completed, failed).
+
+    Args:
+        event: The compute event
+        registry: Compute registry (injected)
+
+    Returns:
+        Event acknowledgment
+
+    Raises:
+        HTTPException: If compute is not registered
+    """
+    # Verify compute is registered
+    instance = await registry.get_instance(event.compute_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Compute {event.compute_id} is not registered"
+        )
+
+    # Process the event
+    logger.info(
+        f"Received {event.event.value} event from {event.compute_id} "
+        f"for task {event.task_id}"
+    )
+
+    # Update instance metadata with task status
+    metadata_update = {
+        f"last_{event.event.value}": event.timestamp,
+        "last_task_id": event.task_id,
+    }
+
+    if event.event.value == "claude_code_started":
+        metadata_update["current_task_id"] = event.task_id
+        metadata_update["current_instance_id"] = event.instance_id
+    elif event.event.value in ("claude_code_completed", "claude_code_failed"):
+        metadata_update["current_task_id"] = None
+        metadata_update["current_instance_id"] = None
+        if event.exit_code is not None:
+            metadata_update["last_exit_code"] = event.exit_code
+        if event.duration_seconds is not None:
+            metadata_update["last_duration_seconds"] = event.duration_seconds
+        if event.error:
+            metadata_update["last_error"] = event.error
+    elif event.event.value == "claude_code_rejected":
+        metadata_update["current_task_id"] = None
+        metadata_update["current_instance_id"] = None
+        if event.error:
+            metadata_update["last_error"] = event.error
+
+    await registry.update_instance(
+        instance_id=event.compute_id,
+        metadata=metadata_update
+    )
+
+    # Update work item status and trigger dependency cascade
+    # Skip for rejected events — re-dispatch handles the task lifecycle
+    if event.event.value != "claude_code_rejected":
+        await _handle_work_status_update(event)
+
+    # Reset SSE connection to idle so compute can pick up new work.
+    # This MUST be here (not inside _handle_work_status_update) because
+    # characterization/decomposition tasks (char-*, decomp-*) are not work
+    # items — _handle_work_status_update returns early when get_work() is
+    # None, skipping the reset if it lived there.
+    if event.event.value in ("claude_code_completed", "claude_code_failed", "claude_code_rejected"):
+        try:
+            sse_manager = get_sse_connection_manager()
+            connection = sse_manager.get_connection(event.compute_id)
+            if connection:
+                connection.status = "idle"
+                connection.current_task_id = None
+                logger.info(f"Reset SSE connection {event.compute_id} to idle")
+        except Exception as e:
+            logger.warning(
+                f"Failed to reset SSE connection for {event.compute_id}: {e}"
+            )
+
+        # Fire the WorkDispatcher — compute is now idle, may have work waiting
+        # (characterization tasks, decomposition tasks, or execution work items).
+        # This replaces the 2-second polling loop with an immediate push signal.
+        try:
+            from services.work_dispatcher import get_work_dispatcher
+            get_work_dispatcher().trigger(
+                reason=f"compute_idle:{event.compute_id}"
+            )
+        except RuntimeError:
+            pass  # Dispatcher not initialized (e.g., test environment)
+        except Exception as e:
+            logger.debug(f"Could not fire dispatcher on compute idle: {e}")
+
+    # On rejection, attempt to re-dispatch the task to another compute
+    if event.event.value == "claude_code_rejected":
+        await _handle_rejection_redispatch(event)
+
+    return ComputeEventResponse(
+        status="acknowledged",
+        event=event.event.value,
+        compute_id=event.compute_id,
+        task_id=event.task_id,
+    )
+
+
+async def _handle_work_status_update(event: ComputeEventRequest) -> None:
+    """Handle work item lifecycle transitions for all compute events.
+
+    - started: ASSIGNED -> IN_PROGRESS
+    - completed (exit_code=0): ensure IN_PROGRESS, then COMPLETED + cascade
+    - completed (exit_code!=0) or failed: ensure IN_PROGRESS, then FAILED
+
+    Args:
+        event: The compute event with task_id, exit_code, etc.
+    """
+    from services.work_map_service import get_work_map_service
+    from models.work_map import WorkStatus
+
+    try:
+        work_map = get_work_map_service()
+    except RuntimeError:
+        logger.warning("Work map service not available, skipping work status update")
+        return
+
+    work = await work_map.get_work(event.task_id)
+    if not work:
+        logger.debug(
+            f"No work item found for task_id={event.task_id}, "
+            "skipping work/issue transition"
+        )
+        return
+
+    # Handle started event
+    if event.event.value == "claude_code_started":
+        if work.status == WorkStatus.ASSIGNED:
+            await work_map.update_status(
+                work.work_id, WorkStatus.IN_PROGRESS, event.compute_id
+            )
+            logger.info(f"Work {work.work_id} started (ASSIGNED -> IN_PROGRESS)")
+        return
+
+    # Determine if this is a success or failure event
+    is_success = (
+        event.event.value == "claude_code_completed"
+        and event.exit_code is not None
+        and event.exit_code == 0
+    )
+
+    # Check if work is already in a terminal state (#829)
+    # MCP report_progress(status=COMPLETED) may have already marked it done
+    already_terminal = work.status in (WorkStatus.COMPLETED, WorkStatus.FAILED)
+
+    if already_terminal:
+        logger.info(
+            f"Work {work.work_id} already {work.status.value}, "
+            f"skipping status transition from {event.event.value}"
+        )
+    elif work.status == WorkStatus.ASSIGNED:
+        # Ensure work is IN_PROGRESS before completing/failing
+        await work_map.update_status(
+            work.work_id, WorkStatus.IN_PROGRESS, event.compute_id
+        )
+        logger.info(f"Work {work.work_id} auto-transitioned ASSIGNED -> IN_PROGRESS")
+
+    # Perform status transition (unless already terminal)
+    if not already_terminal:
+        if is_success:
+            # Verify branch was actually pushed before marking as completed (#831)
+            branch_name = event.branch_name or work.branch_name
+            branch_verified = True
+            if branch_name and work.project_id:
+                try:
+                    from git.repo_manager import RepoManager
+                    repo_mgr = RepoManager()
+                    git_project_name = _resolve_git_project_name(work.project_id)
+                    branches = repo_mgr.get_branches(git_project_name)
+                    if branch_name not in branches:
+                        logger.error(
+                            f"Branch {branch_name} not found in {work.project_id} — "
+                            f"marking work {work.work_id} as FAILED (#831)"
+                        )
+                        branch_verified = False
+                except Exception as e:
+                    logger.warning(f"Branch verification skipped for {work.work_id}: {e}")
+
+            if not branch_verified:
+                await work_map.fail_work_and_update_issue(
+                    work_id=work.work_id,
+                    error=f"Branch {branch_name} not pushed to remote",
+                    compute_id=event.compute_id,
+                )
+                logger.info(
+                    f"Work {work.work_id} failed — branch not pushed (task {event.task_id})"
+                )
+            else:
+                # Complete work WITHOUT cascade — PR must merge first (#832)
+                await work_map.complete_work(
+                    work_id=work.work_id,
+                    result={
+                        "summary": f"Completed by {event.compute_id}",
+                        "exit_code": event.exit_code,
+                        "duration_seconds": event.duration_seconds,
+                        "branch_name": event.branch_name,
+                    },
+                    compute_id=event.compute_id,
+                    trigger_cascade=False,
+                )
+                logger.info(
+                    f"Work {work.work_id} completed (task {event.task_id}), "
+                    "cascade deferred until after PR merge"
+                )
+        else:
+            error = event.error or f"Exit code {event.exit_code}"
+            await work_map.fail_work_and_update_issue(
+                work_id=work.work_id,
+                error=error,
+                compute_id=event.compute_id,
+            )
+            logger.info(
+                f"Work {work.work_id} failed (task {event.task_id}): {error}"
+            )
+
+    # Post-completion side effects run regardless of who set the terminal state,
+    # since MCP progress doesn't handle PR creation or tracking (#829)
+    if is_success or (already_terminal and work.status == WorkStatus.COMPLETED):
+        # Record specialization utilization
+        try:
+            from services.specialization_service import get_specialization_service
+            spec_service = get_specialization_service()
+            cluster_ids = work.tags if hasattr(work, 'tags') and work.tags else []
+            if cluster_ids:
+                spec_service.record_completion(event.compute_id, cluster_ids)
+        except Exception as e:
+            logger.debug(f"Specialization tracking skipped: {e}")
+
+        # Record context affinity
+        try:
+            from services.context_affinity_service import get_context_affinity_service
+            affinity_service = get_context_affinity_service()
+            affinity_cluster_ids = work.tags if hasattr(work, 'tags') and work.tags else []
+            work_type = getattr(work, 'work_type', None)
+            if affinity_cluster_ids:
+                affinity_service.record_completion(event.compute_id, affinity_cluster_ids, work_type)
+        except Exception as e:
+            logger.debug(f"Context affinity tracking skipped: {e}")
+
+        # Auto-create PR and trigger merge if branch exists, then cascade (#832)
+        branch_name = event.branch_name or work.branch_name
+        if branch_name and work.project_id:
+            await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+
+        # NOW trigger dependency cascade — dependents clone main with merged code (#832)
+        await work_map.cascade_dependents(work.work_id)
+
+
+
+async def _handle_rejection_redispatch(event: ComputeEventRequest) -> None:
+    """Re-dispatch a rejected task to another idle compute.
+
+    When a compute instance rejects a task (e.g., at capacity), this finds
+    another idle compute and re-sends the work_assigned event. For work items,
+    the rejecting compute is added to the failed_nodes exclusion list.
+
+    Args:
+        event: The rejection event with compute_id and task_id
+    """
+    task_id = event.task_id
+    rejecting_compute = event.compute_id
+
+    try:
+        sse_manager = get_sse_connection_manager()
+    except Exception as e:
+        logger.warning(f"SSE manager not available for rejection re-dispatch: {e}")
+        return
+
+    # Retrieve the original work_assigned data from the rejecting connection
+    rejecting_connection = sse_manager.get_connection(rejecting_compute)
+    work_data = rejecting_connection.last_work_assigned_data if rejecting_connection else None
+
+    if not work_data or work_data.get("task_id") != task_id:
+        logger.warning(
+            f"No stored work_assigned data for task {task_id} on {rejecting_compute}, "
+            "cannot re-dispatch"
+        )
+        # For work items, the orchestrator will eventually retry via its loop
+        return
+
+    # Clear stored data on the rejecting connection
+    if rejecting_connection:
+        rejecting_connection.last_work_assigned_data = None
+
+    # Find another idle compute, excluding the rejector
+    new_connection = sse_manager.find_matching_connection(
+        idle_only=True,
+        exclude_compute_ids={rejecting_compute},
+    )
+
+    if not new_connection:
+        logger.warning(
+            f"No alternative compute available for rejected task {task_id} "
+            f"(rejected by {rejecting_compute})"
+        )
+        # For work items, add rejector to failed_nodes so orchestrator skips it
+        _track_rejection_for_orchestrator(task_id, rejecting_compute)
+        return
+
+    # Re-dispatch to the new compute
+    logger.info(
+        f"Re-dispatching rejected task {task_id} from {rejecting_compute} "
+        f"to {new_connection.compute_id}"
+    )
+    success = await sse_manager.send_work_assigned(
+        compute_id=new_connection.compute_id,
+        task_id=work_data["task_id"],
+        title=work_data["title"],
+        description=work_data["description"],
+        branch_name=work_data["branch_name"],
+        skills=work_data["skills"],
+        context=work_data["context"],
+        mcp_config=work_data["mcp_config"],
+    )
+
+    if success:
+        logger.info(
+            f"Successfully re-dispatched task {task_id} to {new_connection.compute_id}"
+        )
+    else:
+        logger.error(
+            f"Failed to re-dispatch task {task_id} to {new_connection.compute_id}"
+        )
+        _track_rejection_for_orchestrator(task_id, rejecting_compute)
+
+
+def _track_rejection_for_orchestrator(task_id: str, compute_id: str) -> None:
+    """Track a rejection in the work orchestrator's failed_nodes for future exclusion.
+
+    Only applies to work items (not char-*/decomp-* tasks).
+
+    Args:
+        task_id: Task ID that was rejected
+        compute_id: Compute that rejected the task
+    """
+    # Characterization/decomposition tasks don't go through the orchestrator
+    if task_id.startswith(("char-", "decomp-")):
+        return
+
+    try:
+        from services.work_orchestrator import get_work_orchestrator
+        orchestrator = get_work_orchestrator()
+        if task_id not in orchestrator._failed_nodes:
+            orchestrator._failed_nodes[task_id] = set()
+        orchestrator._failed_nodes[task_id].add(compute_id)
+        logger.info(
+            f"Tracked rejection of {task_id} by {compute_id} in orchestrator failed_nodes"
+        )
+    except Exception as e:
+        logger.debug(f"Could not track rejection in orchestrator: {e}")
+
+
+def _resolve_git_project_name(project_id: str) -> str:
+    """Resolve a project_id to the git repo name used on disk.
+
+    Git bare repos are named "{project_id}_{repo_id}" (e.g. proj_abc_repo_def),
+    not just "{project_id}".  Scans the repos directory for a matching directory
+    since this is the most reliable source of truth.
+    """
+    from git.repo_manager import RepoManager
+    repos_path = RepoManager()._repos_path
+
+    # Look for {project_id}.git first (exact match)
+    exact = repos_path / f"{project_id}.git"
+    if exact.exists():
+        return project_id
+
+    # Scan for {project_id}_*.git (compound name)
+    matches = list(repos_path.glob(f"{project_id}_*.git"))
+    if len(matches) == 1:
+        resolved = matches[0].name.replace(".git", "")
+        logger.info(f"Resolved git project name: {project_id} -> {resolved}")
+        return resolved
+    elif len(matches) > 1:
+        resolved = matches[0].name.replace(".git", "")
+        logger.warning(
+            f"Multiple repos for {project_id}: {[m.name for m in matches]}, using {resolved}"
+        )
+        return resolved
+
+    logger.warning(f"No repo found for project {project_id} in {repos_path}")
+    return project_id
+
+
+async def _dispatch_conflict_resolution_work(
+    work, branch_name: str, compute_id: str, pr
+) -> None:
+    """Dispatch a conflict resolution task back to the compute that owns the branch.
+
+    Sends a work_assigned SSE event with is_conflict_resolution=True so the
+    spawner checks out the existing conflicting branch rather than creating a new one.
+
+    Args:
+        work: Original WorkItem (provides project_id and work_id)
+        branch_name: Branch name that has merge conflicts
+        compute_id: Compute instance that owns the branch
+        pr: PullRequest object (provides conflicting_files)
+    """
+    from uuid import uuid4
+    from git.repo_manager import RepoManager
+    from mcp.auth import generate_api_key, register_compute_key
+
+    try:
+        git_project_name = _resolve_git_project_name(work.project_id)
+        repo_mgr = RepoManager()
+        repo_url = repo_mgr.get_repo_url(git_project_name)
+        main_head = repo_mgr.get_branch_head(git_project_name, "main") or ""
+        conflicting_files = pr.conflicting_files or []
+
+        task_id = f"conflict-{work.work_id}-{uuid4().hex[:8]}"
+        task_api_key = generate_api_key()
+        await register_compute_key(compute_id, task_api_key)
+
+        files_list = "\n".join(f"  - `{f}`" for f in conflicting_files)
+        description = (
+            f"## Conflict Resolution Required\n\n"
+            f"Branch `{branch_name}` has merge conflicts with main.\n\n"
+            f"### Conflicting Files\n{files_list}\n\n"
+            f"### Steps\n"
+            f"1. `git fetch origin main`\n"
+            f"2. `git rebase origin/main`\n"
+            f"3. Resolve conflicts in each file (remove `<<<<<<<`, `=======`, `>>>>>>>` markers)\n"
+            f"4. `git add <file> && git rebase --continue` for each file\n"
+            f"5. `git push --force-with-lease origin {branch_name}`\n"
+            f"6. Call `claudevn_complete_task` when done\n\n"
+            f"Do NOT create new features or modify behavior."
+        )
+
+        sse_manager = get_sse_connection_manager()
+        success = await sse_manager.send_work_assigned(
+            compute_id=compute_id,
+            task_id=task_id,
+            title=f"Resolve conflicts: {branch_name}",
+            description=description,
+            branch_name=branch_name,
+            skills={
+                "merged_instructions": (
+                    "You are a conflict resolution specialist. Rebase the current branch "
+                    "onto main, resolve all merge conflicts, and push. Do NOT add features."
+                )
+            },
+            context={
+                "repository": repo_url,
+                "base_branch": "main",
+                "is_conflict_resolution": True,
+                "conflicting_files": conflicting_files,
+                "main_head": main_head,
+                "original_task_id": work.work_id,
+                "original_branch": branch_name,
+            },
+            mcp_config={
+                "server_url": "http://serving:8002",
+                "api_key": task_api_key,
+            },
+        )
+
+        if success:
+            logger.info(f"Dispatched conflict resolution task {task_id} to {compute_id}")
+        else:
+            logger.warning(
+                f"Failed to dispatch conflict resolution to {compute_id} for {branch_name}"
+            )
+
+    except Exception as e:
+        logger.error(f"Error dispatching conflict resolution work: {e}")
+
+
+async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> None:
+    """Auto-create a PR and trigger merge queue processing after work completion.
+
+    Args:
+        work: Completed WorkItem
+        branch_name: Branch name with the work's commits
+        compute_id: Compute instance that completed the work
+    """
+    from git.pr_service import PRService, PRStatus
+
+    try:
+        pr_service = PRService()
+        git_project_name = _resolve_git_project_name(work.project_id)
+
+        # Create PR
+        pr = await pr_service.create_pr(
+            project=git_project_name,
+            branch=branch_name,
+            compute_id=compute_id,
+            task_id=work.work_id,
+            title=work.title,
+        )
+        logger.info(f"Auto-created PR for branch {branch_name} (work {work.work_id})")
+
+        # If the PR already has conflicts, dispatch resolution work instead of approving.
+        if pr.status == PRStatus.CONFLICT:
+            logger.warning(
+                f"PR has conflicts on creation, dispatching conflict resolution for {branch_name}"
+            )
+            await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
+            return
+
+        # Auto-approve (work completed successfully, no conflicts)
+        await pr_service.update_status(
+            project=git_project_name,
+            branch=branch_name,
+            status=PRStatus.APPROVED,
+            reviewed_by="auto-approved",
+        )
+
+        # Trigger merge queue processing
+        results = await pr_service.process_merge_queue(git_project_name)
+        for result in results:
+            if result.get("success"):
+                logger.info(f"Auto-merged branch {result.get('branch', branch_name)}")
+            elif result.get("reason") == "conflict":
+                # A race condition caused a conflict after approval — dispatch resolution
+                logger.warning(
+                    f"Merge conflict for {branch_name} after approval, dispatching resolution"
+                )
+                await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
+            else:
+                logger.warning(f"Auto-merge failed for {branch_name}: {result.get('error')}")
+
+    except Exception as e:
+        logger.warning(f"Auto PR/merge failed for {branch_name}: {e}")
+
+
+# =============================================================================
+# Decomposition Result Endpoint (Compute -> Serving)
+# =============================================================================
+
+
+@router.post("/decomposition/{decomposition_id}/result")
+async def submit_decomposition_result(
+    decomposition_id: str,
+    result: dict,
+):
+    """Submit decomposition result from compute instance.
+
+    This endpoint allows compute instances to submit goal decomposition results
+    without using MCP (which has issues with --print mode in Claude Code 2.1.30).
+
+    Args:
+        decomposition_id: The decomposition ID
+        result: The decomposition result with issues, confidence, reasoning
+
+    Returns:
+        Acknowledgment
+    """
+    from mcp.tools.decomposition import submit_decomposition, SubmitDecompositionInput, DecomposedIssueInput
+
+    logger.info(f"Received decomposition result for {decomposition_id}")
+
+    try:
+        # Convert dict to SubmitDecompositionInput
+        issues = []
+        for issue_dict in result.get("issues", []):
+            issues.append(DecomposedIssueInput(
+                temp_id=issue_dict.get("temp_id", ""),
+                title=issue_dict.get("title", ""),
+                description=issue_dict.get("description", ""),
+                issue_type=issue_dict.get("issue_type", "feature"),
+                priority=issue_dict.get("priority", "P2"),
+                area=issue_dict.get("area", "api"),
+                required_skills=issue_dict.get("required_skills", []),
+                estimated_complexity=issue_dict.get("estimated_complexity", "m"),
+                blocked_by=issue_dict.get("blocked_by", []),
+                acceptance_criteria=issue_dict.get("acceptance_criteria", []),
+            ))
+
+        input_data = SubmitDecompositionInput(
+            decomposition_id=decomposition_id,
+            goal_id=result.get("goal_id", "unknown"),
+            issues=issues,
+            confidence=result.get("confidence", 0.5),
+            reasoning=result.get("reasoning", ""),
+        )
+
+        response, error = await submit_decomposition(input_data)
+
+        if error:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=error.message
+            )
+
+        return {
+            "status": response.status if response else "stored",
+            "decomposition_id": decomposition_id,
+            "issues_count": response.issues_count if response else len(issues),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing decomposition result: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+# =============================================================================
+# Characterization Result Endpoint (Compute -> Serving)
+# =============================================================================
+
+
+@router.post("/characterization/{characterization_id}/result")
+async def submit_characterization_result(
+    characterization_id: str,
+    result: dict,
+):
+    """Submit characterization result from compute instance.
+
+    This endpoint allows compute instances to submit characterization results
+    without using MCP (which has issues with --print mode in Claude Code).
+
+    Mirrors the MCP tool ``claudevn_submit_characterization`` but via REST,
+    enabling the compute-side spawner to POST results after parsing stdout.
+
+    Args:
+        characterization_id: The characterization ID (format: char-{uuid})
+        result: The characterization result containing:
+            - characterization_id: Tracking ID
+            - project_id: Project context
+            - characterizations: List of per-item characterization dicts
+
+    Returns:
+        Acknowledgment with stored item count
+    """
+    from mcp.tools.characterization import (
+        submit_characterization,
+        SubmitCharacterizationInput,
+        MeaningInput,
+        OntologyTagsInput,
+        DependencyInput,
+    )
+
+    logger.info(f"Received characterization result for {characterization_id}")
+
+    project_id = result.get("project_id", "unknown")
+    characterizations = result.get("characterizations", [])
+
+    if not characterizations:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No characterizations provided in result",
+        )
+
+    stored_count = 0
+    errors = []
+
+    for char_item in characterizations:
+        try:
+            # Build ontology tags input
+            raw_tags = char_item.get("ontology_tags", {})
+            ontology_tags = OntologyTagsInput(
+                work_type=raw_tags.get("work_type", "feature"),
+                lifecycle_stage=raw_tags.get("lifecycle_stage", "build"),
+                technical_domains=raw_tags.get("technical_domains", ["backend"]),
+                cluster_ids=raw_tags.get("cluster_ids", []),
+            )
+
+            # Build meaning input
+            raw_meaning = char_item.get("meaning", {})
+            meaning = MeaningInput(
+                business_summary=raw_meaning.get("business_summary", ""),
+                business_user_impact=raw_meaning.get("business_user_impact", ""),
+                business_value=raw_meaning.get("business_value", ""),
+                technical_summary=raw_meaning.get("technical_summary", ""),
+                technical_components=raw_meaning.get("technical_components", []),
+                technical_risk=raw_meaning.get("technical_risk", ""),
+                contextual_summary=raw_meaning.get("contextual_summary", ""),
+                contextual_role=raw_meaning.get("contextual_role", "incremental"),
+                related_work_summary=raw_meaning.get("related_work_summary", ""),
+            )
+
+            # Build dependencies input — handle both dict and plain string formats.
+            # Claude may return deps as ["issue-1"] or [{"target_item_id": "issue-1", ...}]
+            dependencies = []
+            for dep in char_item.get("dependencies", []):
+                if isinstance(dep, str):
+                    dependencies.append(DependencyInput(
+                        target_item_id=dep,
+                        relation="related_to",
+                    ))
+                else:
+                    dependencies.append(DependencyInput(
+                        target_item_id=dep.get("target_item_id", ""),
+                        relation=dep.get("relation", "related_to"),
+                        dependency_type=dep.get("dependency_type", "contextual"),
+                        reasoning=dep.get("reasoning", ""),
+                        confidence=dep.get("confidence", 0.8),
+                    ))
+
+            input_data = SubmitCharacterizationInput(
+                characterization_id=characterization_id,
+                project_id=char_item.get("project_id", project_id),
+                item_id=char_item.get("item_id", ""),
+                ontology_tags=ontology_tags,
+                meaning=meaning,
+                dependencies=dependencies,
+                confidence=char_item.get("confidence", 0.8),
+                evaluated_in_isolation=char_item.get("evaluated_in_isolation", True),
+                evaluated_in_context=char_item.get("evaluated_in_context", False),
+                topology_item_count=char_item.get("topology_item_count", 0),
+            )
+
+            response, error = await submit_characterization(input_data)
+
+            if error:
+                item_id = char_item.get("item_id", "unknown")
+                errors.append(f"Item {item_id}: {error.message}")
+                logger.warning(f"Failed to store characterization for item {item_id}: {error.message}")
+            else:
+                stored_count += 1
+
+        except Exception as e:
+            item_id = char_item.get("item_id", "unknown")
+            errors.append(f"Item {item_id}: {str(e)}")
+            logger.error(f"Error processing characterization item {item_id}: {e}", exc_info=True)
+
+    if stored_count == 0 and errors:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"All characterizations failed: {'; '.join(errors)}",
+        )
+
+    return {
+        "status": "stored",
+        "characterization_id": characterization_id,
+        "stored_count": stored_count,
+        "total_count": len(characterizations),
+        "errors": errors if errors else None,
+    }
+
+
+# =============================================================================
+# SSE Event Stream Endpoint (For merge notifications - uses SSEConnectionManager)
+# =============================================================================
+
+
+@router.get("/sse/stats")
+async def get_sse_stats(
+    sse_manager: SSEConnectionManager = Depends(get_sse_connection_manager)
+):
+    """Get SSE connection statistics.
+
+    Args:
+        sse_manager: SSE connection manager (injected)
+
+    Returns:
+        SSE connection statistics
+    """
+    return sse_manager.get_stats()
+
+
+@router.get("/{instance_id}/events")
+async def connect_instance_sse(
+    instance_id: str,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+    sse_manager: SSEConnectionManager = Depends(get_sse_connection_manager)
+):
+    """Establish SSE connection for receiving events (merge notifications).
+
+    This endpoint allows registered compute instances to receive real-time
+    events from Serving, including:
+    - merge_conflict: When a branch has conflicts with main
+    - work_completed: When a branch is successfully merged
+    - keepalive: Periodic ping to maintain connection
+
+    Note: This is separate from the /connect registration endpoint.
+    Use this endpoint after registration to receive merge-related events.
+
+    Args:
+        instance_id: Compute instance ID (must be registered)
+        registry: Compute registry (injected)
+        sse_manager: SSE connection manager (injected)
+
+    Returns:
+        StreamingResponse with SSE event stream
+
+    Raises:
+        HTTPException: If instance not registered
+    """
+    # Verify instance is registered
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found. Please register first."
+        )
+
+    # Register SSE connection with capabilities from the instance
+    connection = await sse_manager.register_connection(
+        compute_id=instance_id,
+        capabilities=instance.capabilities.agents if instance.capabilities else [],
+        resources={},
+        labels=instance.capabilities.labels if instance.capabilities else [],
+        tools_available=instance.capabilities.tools_available if instance.capabilities else []
+    )
+
+    logger.info(f"SSE event stream established for {instance_id}")
+
+    return StreamingResponse(
+        event_generator(connection),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+# =============================================================================
+# Project Tagging Endpoints
+# =============================================================================
+
+
+@router.put("/{instance_id}/projects", response_model=ComputeInstance)
+async def update_project_tags(
+    instance_id: str,
+    request: UpdateProjectTagsRequest,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Set project tags for a compute instance.
+
+    Controls which projects this compute can receive work from.
+    - Empty list `[]` = benched (no work assigned)
+    - Specific IDs `["proj-1", "proj-2"]` = only those projects
+    - Wildcard `["*"]` = receives work from any project
+
+    Args:
+        instance_id: Compute instance ID
+        request: Project tags update request
+        registry: Compute registry (injected)
+
+    Returns:
+        Updated compute instance
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.update_project_tags(
+        instance_id=instance_id,
+        project_ids=request.project_ids,
+    )
+
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    logger.info(f"Updated project tags for {instance_id}: {request.project_ids}")
+    return instance
+
+
+@router.get("/search/by-project/{project_id}", response_model=list[ComputeInstance])
+async def find_instances_by_project(
+    project_id: str,
+    online_only: bool = Query(True, description="Only return online instances"),
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Find compute instances tagged for a specific project.
+
+    Returns instances explicitly tagged for this project plus those with
+    the '*' wildcard (all projects).
+
+    Args:
+        project_id: Project ID to search for
+        online_only: Only return online instances
+        registry: Compute registry (injected)
+
+    Returns:
+        List of instances tagged for the project
+    """
+    return await registry.get_by_project(
+        project_id=project_id,
+        online_only=online_only,
+    )
+
+
+# =============================================================================
+# Graceful Drain Endpoints
+# =============================================================================
+
+
+@router.post("/{instance_id}/drain", response_model=ComputeInstance)
+async def drain_instance(
+    instance_id: str,
+    request: DrainRequest = DrainRequest(),
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Start graceful drain of a compute instance.
+
+    Removes all project tags (stops new work assignment) and sets status
+    to DRAINING. In-flight work continues to completion naturally.
+
+    Args:
+        instance_id: Compute instance ID
+        request: Drain options (auto_deregister)
+        registry: Compute registry (injected)
+
+    Returns:
+        Updated compute instance
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.drain_instance(
+        instance_id=instance_id,
+        auto_deregister=request.auto_deregister,
+    )
+
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    logger.info(f"Initiated drain for {instance_id} (auto_deregister={request.auto_deregister})")
+    return instance
+
+
+@router.get("/{instance_id}/drain", response_model=DrainStatusResponse)
+async def get_drain_status(
+    instance_id: str,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Get drain status for a compute instance.
+
+    Returns whether the instance is draining and how many work items
+    are still in-flight.
+
+    Args:
+        instance_id: Compute instance ID
+        registry: Compute registry (injected)
+
+    Returns:
+        Drain status with in-flight work details
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    is_draining = instance.status == InstanceStatus.DRAINING
+
+    # Find in-flight work for this compute
+    in_flight_work_ids = []
+    try:
+        from services.work_map_service import get_work_map_service
+        from models.work_map import WorkStatus
+
+        work_map = get_work_map_service()
+        all_work = await work_map.list_work()
+        in_flight_work_ids = [
+            w.work_id for w in all_work
+            if w.assigned_to == instance_id
+            and w.status in [WorkStatus.ASSIGNED, WorkStatus.IN_PROGRESS, WorkStatus.BLOCKED]
+        ]
+    except RuntimeError:
+        pass  # Work map service not available
+
+    drain_complete = is_draining and len(in_flight_work_ids) == 0
+    auto_deregister = instance.metadata.get("auto_deregister_on_drain", False)
+
+    # Auto-deregister if drain is complete and auto_deregister is enabled
+    if drain_complete and auto_deregister:
+        logger.info(f"Drain complete for {instance_id}, auto-deregistering")
+        await registry.remove_instance(instance_id)
+
+    return DrainStatusResponse(
+        instance_id=instance_id,
+        is_draining=is_draining,
+        drain_started_at=instance.drain_started_at.isoformat() if instance.drain_started_at else None,
+        in_flight_work_ids=in_flight_work_ids,
+        in_flight_count=len(in_flight_work_ids),
+        drain_complete=drain_complete,
+        auto_deregister=auto_deregister,
+    )
+
+
+@router.delete("/{instance_id}/drain", response_model=ComputeInstance)
+async def cancel_drain(
+    instance_id: str,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Cancel an in-progress drain operation.
+
+    Restores the instance to ONLINE status. Project tags remain empty
+    and must be re-assigned manually.
+
+    Args:
+        instance_id: Compute instance ID
+        registry: Compute registry (injected)
+
+    Returns:
+        Updated compute instance
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.cancel_drain(instance_id)
+
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    logger.info(f"Cancelled drain for {instance_id}")
+    return instance
+
+
+# =============================================================================
+# Context Affinity Endpoints
+# =============================================================================
+
+
+@router.get("/{instance_id}/affinity", response_model=AffinityProfileResponse)
+async def get_affinity_profile(
+    instance_id: str,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Get context affinity profile for a compute instance.
+
+    Returns the domain clusters this instance has built context in,
+    with recency and depth information.
+
+    Args:
+        instance_id: Compute instance ID
+        registry: Compute registry (injected)
+
+    Returns:
+        Affinity profile with domain entries
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    from services.context_affinity_service import get_context_affinity_service
+    affinity_service = get_context_affinity_service()
+    profile = affinity_service.get_profile(instance_id)
+
+    if not profile:
+        return AffinityProfileResponse(
+            compute_id=instance_id,
+            entries=[],
+            total_tasks_completed=0,
+            updated_at=None,
+        )
+
+    return AffinityProfileResponse(
+        compute_id=profile.compute_id,
+        entries=profile.entries,
+        total_tasks_completed=profile.total_tasks_completed,
+        updated_at=profile.updated_at,
+    )
+
+
+# =============================================================================
+# Fleet Credential Management Endpoints
+# =============================================================================
+
+
+@router.post("/refresh-credentials", response_model=RefreshCredentialsResponse)
+async def refresh_credentials(
+    request: RefreshCredentialsRequest = RefreshCredentialsRequest(),
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Send credential refresh signal to compute instances.
+
+    Sends a credentials_refresh SSE event to connected compute instances,
+    triggering them to reload credentials from disk (equivalent to SIGHUP).
+
+    If instance_ids is None, refreshes all connected instances.
+    If instance_ids is provided, refreshes only those specific instances.
+
+    Args:
+        request: Refresh request with optional instance_ids and reason
+        registry: Compute registry (injected)
+
+    Returns:
+        Response with list of notified and failed instances
+    """
+    sse_manager = get_sse_connection_manager()
+
+    # Determine target instances
+    if request.instance_ids:
+        target_ids = request.instance_ids
+    else:
+        # All connected instances
+        target_ids = list(sse_manager._connections.keys())
+
+    notified = []
+    failed = []
+
+    refresh_event = CredentialsRefreshEvent(reason=request.reason)
+
+    for compute_id in target_ids:
+        connection = sse_manager.get_connection(compute_id)
+        if connection:
+            try:
+                await connection.send_event(
+                    "credentials_refresh", refresh_event.model_dump()
+                )
+                notified.append(compute_id)
+                logger.info(f"Sent credentials_refresh to {compute_id}")
+            except Exception as e:
+                failed.append(compute_id)
+                logger.error(f"Failed to send credentials_refresh to {compute_id}: {e}")
+        else:
+            failed.append(compute_id)
+            logger.warning(f"No SSE connection for {compute_id}, cannot send refresh")
+
+    status_str = "sent" if notified else "no_instances"
+    if failed:
+        status_str = "partial" if notified else "failed"
+
+    logger.info(
+        f"Credential refresh: {len(notified)} notified, {len(failed)} failed"
+    )
+
+    return RefreshCredentialsResponse(
+        status=status_str,
+        instances_notified=notified,
+        instances_failed=failed,
+        total_notified=len(notified),
+    )
+
+
+@router.post("/{instance_id}/drain-for-restart")
+async def drain_for_restart(
+    instance_id: str,
+    grace_period: int = 300,
+    reason: str = "Credential refresh failed, draining for restart",
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Send drain event to a compute instance for graceful restart.
+
+    This is a fallback when runtime credential reload fails. The compute
+    instance stops accepting new work, waits for running tasks to complete,
+    then can be safely restarted.
+
+    Args:
+        instance_id: Compute instance ID
+        grace_period: Seconds to wait before forced stop
+        reason: Reason for the drain
+        registry: Compute registry (injected)
+
+    Returns:
+        Acknowledgment
+
+    Raises:
+        HTTPException: If instance not found or not connected
+    """
+    sse_manager = get_sse_connection_manager()
+    connection = sse_manager.get_connection(instance_id)
+
+    if not connection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No SSE connection for {instance_id}"
+        )
+
+    drain_event = DrainEvent(
+        reason=reason,
+        grace_period_seconds=grace_period,
+    )
+
+    try:
+        await connection.send_event("drain", drain_event.model_dump())
+        logger.info(
+            f"Sent drain event to {instance_id} "
+            f"(grace_period={grace_period}s, reason={reason})"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send drain event: {e}"
+        )
+
+    # Also update registry status
+    await registry.drain_instance(instance_id=instance_id, auto_deregister=False)
+
+    return {
+        "status": "drain_sent",
+        "instance_id": instance_id,
+        "grace_period_seconds": grace_period,
+        "reason": reason,
+    }
+
+
+# =============================================================================
+# Legacy Registration Endpoints (Deprecated - use SSE /connect instead)
+# =============================================================================
+
+
+@router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
+async def register_instance(
+    request: RegistrationRequest,
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Register a new compute instance.
+
+    This endpoint allows compute instances to register before establishing an SSE connection.
+    This enables fast UI updates without waiting for health checks.
+
+    Args:
+        request: Registration request
+        registry: Compute registry (injected)
+
+    Returns:
+        Registration response with heartbeat details
+
+    Raises:
+        HTTPException: If instance_id already exists or validation fails
+    """
+    try:
+        # Create ComputeInstance from request
+        instance = ComputeInstance(
+            instance_id=request.instance_id,
+            name=request.name,
+            endpoint=request.endpoint,
+            health_endpoint=request.health_endpoint,
+            capabilities=request.capabilities,
+            metadata=request.metadata,
+            version=request.version,
+            heartbeat_interval=request.heartbeat_interval,
+        )
+
+        # Register instance
+        registered = await registry.add_instance(instance)
+
+        logger.info(
+            f"Registered compute instance {request.instance_id} "
+            f"with {len(request.capabilities.agents)} agents"
+        )
+
+        # Emit compute_registered event for instant UI update
+        from services.observability_event_bus import get_event_bus
+        from models.observability import ComputeRegisteredEvent
+        import uuid
+
+        event_bus = get_event_bus()
+        if event_bus:
+            event = ComputeRegisteredEvent(
+                event_id=f"cr_{uuid.uuid4().hex[:12]}",
+                compute_id=registered.instance_id,
+                name=registered.name,
+                capabilities=request.capabilities.agents,
+                labels=request.capabilities.labels if request.capabilities.labels else [],
+                tools_available=request.capabilities.tools_available if request.capabilities.tools_available else [],
+                metadata={
+                    "connection_type": "http",
+                    "endpoint": registered.endpoint,
+                }
+            )
+            await event_bus.emit_event(event)
+            logger.debug(f"Emitted compute_registered event for {registered.instance_id}")
+
+        return RegistrationResponse(
+            status="registered",
+            instance_id=registered.instance_id,
+            heartbeat_interval=registered.heartbeat_interval,
+            heartbeat_endpoint=f"/api/v1/compute/{registered.instance_id}/health",
+            message=f"Successfully registered compute instance {registered.instance_id}"
+        )
+
+    except ValueError as e:
+        logger.error(f"Registration failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error registering instance: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during registration"
+        )
+
+
+@router.delete("/{instance_id}", status_code=status.HTTP_200_OK)
+async def deregister_instance(
+    instance_id: str,
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Deregister a compute instance.
+
+    Args:
+        instance_id: Instance ID to deregister
+        registry: Compute registry (injected)
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    # Disconnect SSE connection first to prevent work assignment to this instance
+    sse_manager = get_sse_connection_manager()
+    await sse_manager.unregister_connection(instance_id)
+
+    removed = await registry.remove_instance(instance_id)
+
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found"
+        )
+
+    logger.info(f"Deregistered compute instance {instance_id}")
+
+    # Emit compute_deregistered event for instant UI update
+    from services.observability_event_bus import get_event_bus
+    from models.observability import ComputeDeregisteredEvent
+    import uuid
+
+    event_bus = get_event_bus()
+    if event_bus:
+        event = ComputeDeregisteredEvent(
+            event_id=f"cd_{uuid.uuid4().hex[:12]}",
+            compute_id=instance_id,
+            reason="manual_deregister",
+            metadata={}
+        )
+        await event_bus.emit_event(event)
+        logger.debug(f"Emitted compute_deregistered event for {instance_id}")
+
+    return {
+        "status": "deregistered",
+        "instance_id": instance_id,
+        "message": f"Successfully deregistered instance {instance_id}"
+    }
+
+
+@router.get("", response_model=InstanceListResponse)
+async def list_instances(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of instances"),
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """List registered compute instances.
+
+    Args:
+        status: Optional status filter
+        limit: Maximum number of instances
+        registry: Compute registry (injected)
+
+    Returns:
+        List of instances with summary stats
+
+    Raises:
+        HTTPException: If status is invalid
+    """
+    # Validate status
+    status_enum = None
+    if status:
+        try:
+            status_enum = InstanceStatus(status)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status: {status}. Must be one of: {[s.value for s in InstanceStatus]}"
+            )
+
+    # Get instances
+    instances = await registry.list_instances(status=status_enum, limit=limit)
+
+    # Calculate stats
+    total = len(instances)
+    online = sum(1 for i in instances if i.status == InstanceStatus.ONLINE)
+    offline = sum(1 for i in instances if i.status == InstanceStatus.OFFLINE)
+    authorized = sum(1 for i in instances if i.auth_status == ComputeAuthStatus.AUTHORIZED)
+    unauthorized = sum(1 for i in instances if i.auth_status == ComputeAuthStatus.UNAUTHORIZED)
+
+    return InstanceListResponse(
+        instances=instances,
+        total=total,
+        online=online,
+        offline=offline,
+        authorized=authorized,
+        unauthorized=unauthorized
+    )
+
+
+@router.get("/{instance_id}", response_model=ComputeInstance)
+async def get_instance(
+    instance_id: str,
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Get details for a specific compute instance.
+
+    Args:
+        instance_id: Instance ID
+        registry: Compute registry (injected)
+
+    Returns:
+        Instance details
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.get_instance(instance_id)
+
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found"
+        )
+
+    return instance
+
+
+@router.patch("/{instance_id}", response_model=ComputeInstance)
+async def update_instance(
+    instance_id: str,
+    request: UpdateInstanceRequest,
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Update instance metadata.
+
+    Args:
+        instance_id: Instance ID
+        request: Update request
+        registry: Compute registry (injected)
+
+    Returns:
+        Updated instance
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    instance = await registry.update_instance(
+        instance_id=instance_id,
+        name=request.name,
+        capabilities=request.capabilities,
+        metadata=request.metadata
+    )
+
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found"
+        )
+
+    logger.info(f"Updated compute instance {instance_id}")
+
+    return instance
+
+
+@router.post("/{instance_id}/health", status_code=status.HTTP_200_OK, deprecated=True)
+async def heartbeat(
+    instance_id: str,
+    request: Optional[HeartbeatRequest] = None,
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Receive heartbeat from compute instance.
+
+    DEPRECATED: Use GET /connect with SSE instead. SSE connection serves as health signal.
+
+    This endpoint is called by compute instances to indicate they are alive.
+
+    Args:
+        instance_id: Instance ID
+        request: Optional heartbeat metadata
+        registry: Compute registry (injected)
+
+    Returns:
+        Acknowledgment
+
+    Raises:
+        HTTPException: If instance not found
+    """
+    metadata = request.metadata if request else None
+
+    updated = await registry.update_heartbeat(
+        instance_id=instance_id,
+        metadata=metadata
+    )
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found. Please register first."
+        )
+
+    logger.debug(f"Received heartbeat from {instance_id}")
+
+    return {
+        "status": "acknowledged",
+        "instance_id": instance_id,
+        "message": "Heartbeat received"
+    }
+
+
+@router.get("/capabilities/aggregated", response_model=AggregatedCapabilities)
+async def get_aggregated_capabilities(
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Get aggregated capabilities across all compute instances.
+
+    Args:
+        registry: Compute registry (injected)
+
+    Returns:
+        Aggregated capabilities
+    """
+    return await registry.get_aggregated_capabilities()
+
+
+@router.get("/search/by-agent/{agent_id}", response_model=list[ComputeInstance])
+async def find_instances_by_agent(
+    agent_id: str,
+    online_only: bool = Query(True, description="Only return online instances"),
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Find compute instances that have a specific agent.
+
+    Args:
+        agent_id: Agent ID to search for
+        online_only: Only return online instances
+        registry: Compute registry (injected)
+
+    Returns:
+        List of instances with the agent
+    """
+    instances = await registry.get_by_capability(
+        agent_id=agent_id,
+        online_only=online_only
+    )
+
+    return instances
+
+
+@router.get("/search/by-tool/{tool_id}", response_model=list[ComputeInstance])
+async def find_instances_by_tool(
+    tool_id: str,
+    online_only: bool = Query(True, description="Only return online instances"),
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Find compute instances that have a specific tool.
+
+    Args:
+        tool_id: Tool ID to search for
+        online_only: Only return online instances
+        registry: Compute registry (injected)
+
+    Returns:
+        List of instances with the tool
+    """
+    instances = await registry.get_by_capability(
+        tool_id=tool_id,
+        online_only=online_only
+    )
+
+    return instances
+
+
+@router.get("/search/by-label/{label}", response_model=list[ComputeInstance])
+async def find_instances_by_label(
+    label: str,
+    online_only: bool = Query(True, description="Only return online instances"),
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Find compute instances that have a specific routing label.
+
+    Labels are used for routing specialized work to appropriate compute instances.
+    Common labels include: production-access, database-admin, security-tools, gpu, standard.
+
+    Args:
+        label: Label to search for (e.g., "production-access")
+        online_only: Only return online instances
+        registry: Compute registry (injected)
+
+    Returns:
+        List of instances with the label
+    """
+    instances = await registry.get_by_label(
+        label=label,
+        online_only=online_only
+    )
+
+    return instances
+
+
+@router.get("/search/by-tool-available/{tool}", response_model=list[ComputeInstance])
+async def find_instances_by_tool_available(
+    tool: str,
+    online_only: bool = Query(True, description="Only return online instances"),
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Find compute instances that have a specific specialized tool available.
+
+    Tools_available indicates specialized tools the compute can run
+    (e.g., deploy_prod, db_migrate, security_scan).
+
+    Args:
+        tool: Tool to search for (e.g., "deploy_prod")
+        online_only: Only return online instances
+        registry: Compute registry (injected)
+
+    Returns:
+        List of instances with the tool available
+    """
+    instances = await registry.get_by_tool_available(
+        tool=tool,
+        online_only=online_only
+    )
+
+    return instances
+
+
+@router.get("/stats/summary")
+async def get_registry_stats(
+    registry: ComputeRegistry = Depends(get_compute_registry)
+):
+    """Get registry statistics.
+
+    Args:
+        registry: Compute registry (injected)
+
+    Returns:
+        Registry statistics
+    """
+    return registry.get_stats()

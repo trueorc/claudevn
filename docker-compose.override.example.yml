@@ -1,0 +1,14 @@
+# Example docker-compose.override.yml for local development
+#
+# Copy this file to docker-compose.override.yml to bind-mount
+# serving data locally for direct inspection:
+#
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   docker compose down && docker compose up -d
+#
+# See docs/guides/local-data-inspection.md for details.
+
+services:
+  serving:
+    volumes:
+      - ./data/serving:/app/data

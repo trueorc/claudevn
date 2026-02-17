@@ -1,0 +1,30 @@
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  text-align: center;
+}
+
+.empty-icon {
+  color: var(--text-muted);
+  margin-bottom: var(--space-md);
+}
+
+.empty-title {
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.empty-description {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  max-width: 300px;
+}
+
+.empty-action {
+  margin-top: var(--space-lg);
+}

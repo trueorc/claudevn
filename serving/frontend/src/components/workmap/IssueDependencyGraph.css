@@ -1,0 +1,116 @@
+.issue-dep-graph {
+  position: relative;
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* Scrollable SVG area */
+.idg-scroll {
+  overflow: auto;
+  max-height: 560px;
+  padding: var(--space-sm);
+  background: var(--bg);
+}
+
+.idg-svg {
+  display: block;
+}
+
+/* Loading state */
+.idg-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+/* Edges */
+.idg-edge {
+  fill: none;
+  stroke: var(--border-light);
+  stroke-width: 1.5;
+  transition: stroke var(--transition-fast), opacity var(--transition-fast);
+}
+
+.idg-edge--active {
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.idg-edge--dimmed {
+  opacity: 0.15;
+}
+
+/* Nodes */
+.idg-node {
+  cursor: default;
+  transition: opacity var(--transition-fast);
+}
+
+.idg-node-rect {
+  transition: stroke-width var(--transition-fast), filter var(--transition-fast);
+}
+
+.idg-node--hovered .idg-node-rect {
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.2));
+}
+
+.idg-node--dimmed {
+  opacity: 0.2;
+}
+
+/* Node text */
+.idg-node-number {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+}
+
+.idg-node-title {
+  font-size: 10px;
+  font-weight: 400;
+  fill: var(--text-secondary);
+}
+
+/* Legend */
+.idg-legend {
+  display: flex;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-xs);
+}
+
+.idg-legend-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.idg-legend-heading {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.idg-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+}
+
+.idg-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.idg-legend-edge-svg {
+  flex-shrink: 0;
+}

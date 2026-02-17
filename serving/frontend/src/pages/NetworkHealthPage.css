@@ -1,0 +1,322 @@
+/* Network & Health Combined Page Styles */
+
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+/* Page header with connection status */
+.page-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.health-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+.connection-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.connection-status.connected {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--status-online);
+}
+
+.connection-status.connected::before {
+  background: var(--status-online);
+}
+
+.connection-status.disconnected {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--status-degraded);
+}
+
+.connection-status.disconnected::before {
+  background: var(--status-degraded);
+}
+
+.last-updated {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.refresh-btn .spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Section styling */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.section-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Health Section - Top */
+.health-section {
+  margin-bottom: var(--space-xl);
+  padding: var(--space-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.health-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xl);
+}
+
+.overall-status-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.overall-status-healthy {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--status-online);
+}
+
+.overall-status-degraded {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--status-degraded);
+}
+
+.overall-status-unhealthy {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--status-offline);
+}
+
+.overall-status-unknown {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.overall-status-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.overall-status-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+}
+
+.overall-status-value {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.health-services {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+/* Compact health panel overrides */
+.health-services .health-panel {
+  flex: 1;
+  min-width: 150px;
+  max-width: 200px;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.health-services .health-panel-header {
+  padding-bottom: var(--space-xs);
+}
+
+.health-services .health-panel-title {
+  font-size: var(--font-size-sm);
+}
+
+.health-services .health-panel-content {
+  padding-top: var(--space-xs);
+}
+
+.health-services .health-metric {
+  gap: 2px;
+}
+
+.health-services .health-metric-value {
+  font-size: var(--font-size-sm);
+}
+
+.health-services .health-metric-label {
+  font-size: 10px;
+}
+
+/* Network Section - Bottom */
+.network-section-unified {
+  display: flex;
+  flex-direction: column;
+}
+
+.network-section-unified .section-header {
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-lg);
+}
+
+/* View toggle buttons */
+.view-toggle {
+  display: flex;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.view-toggle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.view-toggle-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+.view-toggle-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+/* Network grid layout */
+.network-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-xl);
+}
+
+@media (max-width: 1024px) {
+  .network-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.network-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.network-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.network-panel-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.network-panel-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .health-summary {
+    flex-direction: column;
+  }
+
+  .health-services {
+    width: 100%;
+  }
+
+  .health-services .health-panel {
+    max-width: none;
+    flex: 1 1 calc(50% - var(--space-sm));
+    min-width: 120px;
+  }
+}
+
+@media (max-width: 480px) {
+  .health-services .health-panel {
+    flex: 1 1 100%;
+  }
+}

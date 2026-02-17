@@ -1,0 +1,408 @@
+/* Network Map Container */
+.network-map {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  height: 100%;
+  min-height: 400px;
+}
+
+.map-svg {
+  flex: 1;
+  width: 100%;
+  min-height: 300px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: grab;
+  touch-action: none;
+}
+
+.map-svg.panning {
+  cursor: grabbing;
+}
+
+/* Zoom Controls */
+.zoom-controls {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs);
+  z-index: 10;
+  box-shadow: var(--shadow-md);
+}
+
+.zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.zoom-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.zoom-btn:active {
+  background: var(--bg-pressed);
+}
+
+.zoom-level {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  min-width: 36px;
+  text-align: center;
+}
+
+/* Zoomable content */
+.map-content {
+  transform-origin: center center;
+  transition: transform 0.1s ease-out;
+}
+
+/* Connection paths with bezier curves */
+.connection {
+  stroke: var(--border-light);
+  stroke-width: 0.4;
+  fill: none;
+  transition: stroke var(--transition-fast), stroke-width var(--transition-fast);
+}
+
+.connection.status-online {
+  stroke: var(--status-online);
+  stroke-opacity: 0.6;
+  stroke-dasharray: 2 1;
+  animation: flow 2s linear infinite;
+}
+
+.connection.status-degraded {
+  stroke: var(--status-degraded);
+  stroke-opacity: 0.5;
+  stroke-dasharray: 2 1;
+  animation: flow 3s linear infinite;
+}
+
+.connection.status-offline {
+  stroke: var(--status-offline);
+  stroke-opacity: 0.3;
+  stroke-dasharray: 1 2;
+}
+
+/* Animated flow effect for online connections */
+@keyframes flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* Node styles */
+.node {
+  cursor: pointer;
+}
+
+.node-circle {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 0.3;
+  transition: stroke-width var(--transition-normal), filter var(--transition-normal);
+}
+
+/* Serving node with pulsing glow */
+.node-serving {
+  filter: drop-shadow(0 0 3px rgba(124, 58, 237, 0.8));
+}
+
+.serving-glow {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 0.3;
+  stroke-opacity: 0.6;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    r: 10;
+    stroke-opacity: 0.6;
+  }
+  50% {
+    r: 12;
+    stroke-opacity: 0.2;
+  }
+}
+
+/* Node halo for online nodes */
+.node-halo {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.2;
+  stroke-opacity: 0.3;
+  animation: halo-pulse 2s ease-in-out infinite;
+}
+
+.status-online .node-halo {
+  stroke: var(--status-online);
+}
+
+@keyframes halo-pulse {
+  0%, 100% {
+    r: 6;
+    stroke-opacity: 0.3;
+  }
+  50% {
+    r: 7;
+    stroke-opacity: 0.1;
+  }
+}
+
+/* Dimmed offline nodes */
+.status-offline .node-circle {
+  opacity: 0.5;
+}
+
+.status-offline .node-label {
+  opacity: 0.6;
+}
+
+/* Node labels */
+.node-label {
+  font-size: 2.5px;
+  fill: var(--text-secondary);
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.node-label-left {
+  text-anchor: end;
+}
+
+.node-label-right {
+  text-anchor: start;
+}
+
+/* Sub-labels for port/endpoint */
+.node-sublabel {
+  font-size: 2px;
+  fill: var(--text-muted);
+  opacity: 0.8;
+}
+
+/* Capability counts */
+.node-caps {
+  font-size: 1.8px;
+  fill: var(--primary);
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+/* Enhanced hover effects */
+.marketplace-node:hover .node-circle,
+.compute-node:hover .node-circle {
+  stroke-width: 0.8;
+  filter: drop-shadow(0 0 4px currentColor) brightness(1.2);
+}
+
+.marketplace-node:hover .node-label,
+.compute-node:hover .node-label {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+.serving-node:hover .node-serving {
+  filter: drop-shadow(0 0 6px rgba(124, 58, 237, 1));
+}
+
+.serving-node:hover .node-label {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+/* Highlight connected paths on node hover */
+.node:hover ~ .connection {
+  stroke-opacity: 0.2;
+}
+
+.marketplace-node:hover .node-halo,
+.compute-node:hover .node-halo {
+  stroke-opacity: 0.6;
+  r: 8;
+}
+
+/* Legend */
+.map-legend {
+  display: flex;
+  gap: var(--space-xl);
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.legend-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.legend-title {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: var(--space-xs);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-dot.status-online {
+  background: var(--status-online);
+}
+
+.legend-dot.status-degraded {
+  background: var(--status-degraded);
+}
+
+.legend-dot.status-offline {
+  background: var(--status-offline);
+}
+
+/* Node Tooltip */
+.node-tooltip {
+  position: absolute;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  min-width: 200px;
+  max-width: 300px;
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 12px));
+}
+
+.tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  margin-bottom: var(--space-xs);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  font-size: var(--font-size-xs);
+  padding: 2px 0;
+}
+
+.tooltip-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tooltip-value {
+  color: var(--text-secondary);
+  text-align: right;
+  word-break: break-all;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tooltip-status {
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.tooltip-status.status-online {
+  color: var(--status-online);
+}
+
+.tooltip-status.status-degraded {
+  color: var(--status-degraded);
+}
+
+.tooltip-status.status-offline {
+  color: var(--status-offline);
+}
+
+.tooltip-hint {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border-light);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .network-map {
+    min-height: 300px;
+  }
+
+  .map-legend {
+    flex-wrap: wrap;
+    gap: var(--space-md);
+  }
+
+  .legend-section {
+    flex-wrap: wrap;
+  }
+
+  .node-tooltip {
+    display: none;
+  }
+
+  .zoom-controls {
+    top: var(--space-xs);
+    right: var(--space-xs);
+    padding: 2px;
+  }
+
+  .zoom-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  .zoom-level {
+    display: none;
+  }
+}

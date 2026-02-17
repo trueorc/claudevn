@@ -1,0 +1,15 @@
+# Shared Library .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+

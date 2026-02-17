@@ -1,0 +1,124 @@
+/**
+ * EvaluationStatusIndicator styles
+ *
+ * Compact visual indicator for goal comment evaluation status.
+ * Uses CSS custom properties for status colors and smooth animations.
+ */
+
+.evaluation-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Small size (default) - for inline use in comment cards */
+.evaluation-status-sm .evaluation-status-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.evaluation-status-sm .evaluation-status-label {
+  font-size: 11px;
+}
+
+/* Large size - for more prominent display */
+.evaluation-status-lg .evaluation-status-dot {
+  width: 12px;
+  height: 12px;
+}
+
+.evaluation-status-lg .evaluation-status-label {
+  font-size: 13px;
+}
+
+/* Dot indicator base */
+.evaluation-status-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: var(--status-color);
+  transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+/* Icon variants */
+.evaluation-status-dot.check,
+.evaluation-status-dot.error {
+  background-color: transparent;
+  color: var(--status-color);
+}
+
+.evaluation-status-check-icon,
+.evaluation-status-error-icon {
+  width: 100%;
+  height: 100%;
+}
+
+/* Pulsing animation for evaluating state */
+.evaluation-status-indicator.animated .evaluation-status-dot {
+  animation: evaluation-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes evaluation-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+}
+
+/* Label styling */
+.evaluation-status-label {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Status transition animation */
+.evaluation-status-dot {
+  animation: status-appear 0.2s ease-out;
+}
+
+@keyframes status-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Focus styles for accessibility when used within interactive elements */
+.evaluation-status-indicator:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .evaluation-status-dot {
+    border: 1px solid currentColor;
+  }
+
+  .evaluation-status-dot.dot {
+    border-color: var(--status-color);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .evaluation-status-indicator.animated .evaluation-status-dot {
+    animation: none;
+  }
+
+  .evaluation-status-dot {
+    animation: none;
+    transition: none;
+  }
+}

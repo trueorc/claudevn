@@ -1,0 +1,90 @@
+# ClaudeVN Platform - Remote Compute Instance Configuration
+# Standalone docker-compose for deploying compute instances independently
+#
+# Usage:
+#   cp .env.compute.example .env.compute    # Create environment file
+#   vim .env.compute                        # Configure CLAUDEVN_SERVING_URL and other settings
+#   docker compose -f docker-compose.compute.yml up -d
+#
+# This compose file is designed for remote compute instances that connect to
+# an existing ClaudeVN Serving instance running elsewhere. It does NOT include
+# Redis, Serving, or Marketplace services - those are assumed to be remote.
+#
+# Prerequisites:
+#   - Accessible Serving instance (configure CLAUDEVN_SERVING_URL in .env.compute)
+#   - Network connectivity to Serving (HTTP + SSH Git port 2222)
+#   - Full repository checkout (for build context)
+#
+# Authentication Modes:
+#   serving  - Fetch Claude credentials from remote Serving instance (default)
+#   external - Use own Claude credentials (mount volume or configure separately)
+#
+# Scaling:
+#   To run multiple compute instances, edit .env.compute and duplicate this file
+#   with unique CLAUDEVN_COMPUTE_ID, COMPUTE_PORT, and container_name values.
+
+services:
+  # Remote Compute Instance
+  compute:
+    build:
+      context: .
+      dockerfile: compute/Dockerfile
+    container_name: claudevn-compute-remote
+    ports:
+      - "${COMPUTE_PORT:-8010}:${COMPUTE_PORT:-8010}"
+    env_file:
+      - .env.compute
+    environment:
+      # Server binding
+      - COMPUTE_HOST=0.0.0.0
+      - COMPUTE_PORT=${COMPUTE_PORT:-8010}
+
+      # Instance identity
+      - COMPUTE_INSTANCE_ID=${CLAUDEVN_COMPUTE_ID:-compute-remote-001}
+      - COMPUTE_INSTANCE_NAME=${CLAUDEVN_COMPUTE_NAME:-Remote-Compute}
+
+      # Storage and logging
+      - COMPUTE_STORAGE_PATH=/app/data/compute
+      - COMPUTE_LOG_FILE=/app/logs/compute.log
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Serving registration
+      - COMPUTE_REGISTER_ON_STARTUP=true
+      - SERVING_URL=${CLAUDEVN_SERVING_URL}
+      - COMPUTE_HEARTBEAT_INTERVAL=${COMPUTE_HEARTBEAT_INTERVAL:-30}
+
+      # MCP configuration
+      - MCP_ENABLED=true
+      - CLAUDEVN_SERVING_URL=${CLAUDEVN_SERVING_URL}
+
+      # Skill/capability tags for work assignment
+      - COMPUTE_SKILLS=${CLAUDEVN_SKILLS:-code-writer}
+      - COMPUTE_CAPABILITIES=${CLAUDEVN_CAPABILITIES:-coding,testing,documentation}
+
+      # Resource limits advertised to Serving
+      - CLAUDEVN_RESOURCES_CPU=${CLAUDEVN_RESOURCES_CPU:-4}
+      - CLAUDEVN_RESOURCES_MEMORY=${CLAUDEVN_RESOURCES_MEMORY:-16gb}
+
+      # Authentication mode: serving (fetch from serving), external (own credentials)
+      - COMPUTE_AUTH_MODE=${COMPUTE_AUTH_MODE:-serving}
+      - CLAUDEVN_SERVING_AUTH_URL=${CLAUDEVN_SERVING_AUTH_URL:-${CLAUDEVN_SERVING_URL}/api/v1/auth}
+
+    volumes:
+      - compute_data:/app/data
+      - compute_logs:/app/logs
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${COMPUTE_PORT:-8010}/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+
+# Named volumes for data persistence
+volumes:
+  compute_data:
+    driver: local
+  compute_logs:
+    driver: local

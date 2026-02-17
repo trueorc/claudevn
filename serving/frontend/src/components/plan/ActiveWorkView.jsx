@@ -1,0 +1,183 @@
+import { Play, Clock, AlertCircle, Layers, XCircle, CheckCircle2 } from 'lucide-react'
+import Badge from '../common/Badge'
+import Spinner from '../common/Spinner'
+import './Plan.css'
+
+const priorityColors = {
+  P0: 'error',
+  P1: 'warning',
+  P2: 'default',
+  P3: 'info'
+}
+
+function formatDuration(startIso, endIso) {
+  if (!startIso) return null
+  const start = new Date(startIso)
+  const end = endIso ? new Date(endIso) : new Date()
+  const diffMs = end - start
+  if (diffMs < 0) return null
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  const remainMins = mins % 60
+  if (hrs < 24) return `${hrs}h ${remainMins}m`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ${hrs % 24}h`
+}
+
+function ActiveWorkView({ data, loading, onItemClick }) {
+  if (loading && !data) {
+    return (
+      <div className="plan-active-work">
+        <div className="plan-loading-state">
+          <Spinner />
+        </div>
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  const {
+    running_items = [],
+    queued_items = [],
+    blocked_items = [],
+    backlog_items = [],
+    failed_items = [],
+    done_items = [],
+  } = data
+
+  return (
+    <div className="plan-active-work">
+      <div className="plan-columns">
+        <WorkColumn
+          title="Running"
+          icon={Play}
+          iconClass="running"
+          items={running_items}
+          emptyMessage="No items running"
+          onItemClick={onItemClick}
+          showTiming
+        />
+        <WorkColumn
+          title="Up Next"
+          icon={Clock}
+          iconClass="queued"
+          items={queued_items}
+          emptyMessage="No items queued"
+          onItemClick={onItemClick}
+        />
+        <WorkColumn
+          title="Backlog"
+          icon={Layers}
+          iconClass="backlog"
+          items={backlog_items}
+          emptyMessage="No backlog items"
+          onItemClick={onItemClick}
+          showBlockers
+        />
+        {blocked_items.length > 0 && (
+          <WorkColumn
+            title="Blocked"
+            icon={AlertCircle}
+            iconClass="blocked"
+            items={blocked_items}
+            emptyMessage="No blocked items"
+            onItemClick={onItemClick}
+            showBlockers
+          />
+        )}
+        {failed_items.length > 0 && (
+          <WorkColumn
+            title="Failed"
+            icon={XCircle}
+            iconClass="failed"
+            items={failed_items}
+            emptyMessage=""
+            onItemClick={onItemClick}
+          />
+        )}
+        {done_items.length > 0 && (
+          <WorkColumn
+            title="Completed"
+            icon={CheckCircle2}
+            iconClass="done"
+            items={done_items}
+            emptyMessage=""
+            onItemClick={onItemClick}
+            showTiming
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemClick, showBlockers, showTiming }) {
+  return (
+    <div className="plan-column">
+      <div className="plan-column-header">
+        <div className={`plan-column-icon ${iconClass}`}>
+          <Icon size={14} />
+        </div>
+        <h3 className="plan-column-title">{title}</h3>
+        <span className="plan-column-count">{items.length}</span>
+      </div>
+      <div className="plan-column-items">
+        {items.length === 0 ? (
+          <div className="plan-column-empty">{emptyMessage}</div>
+        ) : (
+          items.map(item => (
+            <WorkItem
+              key={item.issue_id}
+              item={item}
+              onClick={() => onItemClick?.(item)}
+              showBlockers={showBlockers}
+              showTiming={showTiming}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkItem({ item, onClick, showBlockers, showTiming }) {
+  const { title, priority, assigned_to, depends_on, started_at, completed_at } = item
+  const displayId = item.number ? `#${item.number}` : item.issue_id?.slice(0, 8)
+  const duration = showTiming ? formatDuration(started_at, completed_at) : null
+
+  return (
+    <div className="plan-work-item" onClick={onClick}>
+      <div className="plan-work-item-header">
+        <span className="plan-work-item-id">{displayId}</span>
+        <span className="plan-work-item-title">{title}</span>
+      </div>
+      <div className="plan-work-item-meta">
+        {priority && (
+          <Badge variant={priorityColors[priority] || 'default'} size="sm">
+            {priority}
+          </Badge>
+        )}
+        {assigned_to && (
+          <span className="plan-work-item-assignee" title={assigned_to}>
+            {assigned_to.slice(0, 12)}
+          </span>
+        )}
+        {showBlockers && depends_on?.length > 0 && (
+          <span className="plan-work-item-blocker">
+            needs {depends_on.length} dep{depends_on.length !== 1 ? 's' : ''}
+          </span>
+        )}
+        {duration && (
+          <span className="plan-work-item-duration">
+            <Clock size={10} />
+            {duration}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default ActiveWorkView

@@ -1,0 +1,111 @@
+---
+id: claudevn-mcp-tools
+trigger: "when creating MCP tools for compute communication"
+confidence: 0.90
+domain: mcp
+source: local-repo-analysis
+---
+
+# Create MCP Tools Following Project Pattern
+
+## Action
+Create MCP tools in `serving/mcp/tools/{tool_name}.py`:
+
+### Tool Structure
+```python
+"""MCP tool for {purpose}."""
+
+from typing import Optional
+from pydantic import BaseModel, Field
+
+from ..models import ToolResult
+
+
+class {ToolName}Input(BaseModel):
+    """Input schema for {tool_name} tool."""
+
+    param1: str = Field(..., description="Description of param1")
+    param2: Optional[int] = Field(default=None, description="Optional param2")
+
+
+class {ToolName}Output(BaseModel):
+    """Output schema for {tool_name} tool."""
+
+    success: bool = Field(..., description="Whether operation succeeded")
+    message: str = Field(..., description="Status message")
+    data: Optional[dict] = Field(default=None, description="Result data")
+
+
+async def claudevn_{tool_name}(
+    input_data: {ToolName}Input,
+    context: Optional[dict] = None
+) -> ToolResult:
+    """
+    {Brief description of what the tool does}.
+
+    Args:
+        input_data: Tool input parameters
+        context: Optional execution context
+
+    Returns:
+        ToolResult with success status and output
+    """
+    try:
+        # Tool implementation
+        result = await perform_operation(input_data)
+
+        return ToolResult(
+            success=True,
+            output={ToolName}Output(
+                success=True,
+                message="Operation completed",
+                data=result
+            )
+        )
+    except Exception as e:
+        return ToolResult(
+            success=False,
+            error=str(e)
+        )
+```
+
+### Registration
+In `serving/mcp/tools/__init__.py`:
+```python
+from .{tool_name} import claudevn_{tool_name}, {ToolName}Input, {ToolName}Output
+```
+
+In `serving/mcp/server.py`:
+```python
+from .tools import claudevn_{tool_name}
+
+# Register tool with MCP server
+```
+
+### Tests
+In `serving/tests/test_mcp_{tool_name}.py`:
+```python
+"""Tests for claudevn_{tool_name} MCP tool."""
+
+import pytest
+from serving.mcp.tools.{tool_name} import claudevn_{tool_name}, {ToolName}Input
+
+
+@pytest.mark.asyncio
+async def test_{tool_name}_success():
+    """Test successful {tool_name} execution."""
+    input_data = {ToolName}Input(param1="value")
+    result = await claudevn_{tool_name}(input_data)
+    assert result.success is True
+```
+
+## Naming Convention
+- Tool function: `claudevn_{action}` (e.g., `claudevn_complete_task`)
+- Input model: `{Action}Input`
+- Output model: `{Action}Output`
+
+## Evidence
+- Analyzed 5 MCP tool implementations
+- All follow `claudevn_` prefix convention
+- Pydantic models for input/output validation
+- Consistent ToolResult return type

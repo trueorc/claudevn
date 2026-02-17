@@ -1,0 +1,67 @@
+---
+id: claudevn-skill-definition
+trigger: "when creating a new skill for the marketplace"
+confidence: 0.95
+domain: marketplace
+source: local-repo-analysis
+---
+
+# Define Skills in YAML Format
+
+## Action
+Create skill definitions in `marketplace/skills/system/{skill-name}.yaml`:
+
+```yaml
+id: {skill-name}
+name: {Human Readable Name}
+description: {One-line description of what the skill does}
+version: "1.0.0"
+author: system
+
+instructions: |
+  # {Skill Name}
+
+  ## Role
+  {Brief description of this skill's purpose}
+
+  ## Working Style
+  - {Key behavior 1}
+  - {Key behavior 2}
+  - {Key behavior 3}
+
+  ## Approach
+  1. {Step 1}
+  2. {Step 2}
+  3. {Step 3}
+
+  ## Before Submission
+  {Pre-submission checklist if applicable}
+
+specialized_tools: []
+
+tags:
+  - {category-tag}
+  - {function-tag}
+
+conflicts_with: []
+
+constraints:
+  - {Constraint 1}
+  - {Constraint 2}
+```
+
+## Required Fields
+- `id`: kebab-case identifier
+- `name`: Human-readable name
+- `description`: One-line summary
+- `version`: Semantic version string
+- `author`: "system" for built-in skills
+- `instructions`: Markdown-formatted Claude Code instructions
+- `tags`: List of categorization tags
+- `constraints`: List of restrictions
+
+## Evidence
+- Analyzed 7 skill YAML files
+- All follow consistent structure
+- Instructions use Markdown with headers
+- Tags enable discovery and composition

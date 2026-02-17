@@ -1,0 +1,140 @@
+/* Segmented progress bar */
+.goal-progress-segmented-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-hover);
+  width: 100%;
+}
+
+.goal-progress-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.segment-done {
+  background: var(--success, #22c55e);
+}
+
+.segment-in-progress {
+  background: var(--primary, #3b82f6);
+}
+
+.segment-blocked {
+  background: var(--warning, #f59e0b);
+}
+
+.segment-failed {
+  background: var(--status-offline, #ef4444);
+}
+
+/* Compact variant (for GoalCard) */
+.goal-progress-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.goal-progress-compact-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.goal-progress-pct {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-progress-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--warning, #f59e0b);
+  font-weight: 500;
+}
+
+/* Full variant (for main panel) */
+.goal-progress-full {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.goal-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.goal-progress-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.goal-progress-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.goal-progress-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.goal-progress-stat-warn {
+  color: var(--warning, #f59e0b);
+}
+
+.goal-progress-stat-error {
+  color: var(--status-offline, #ef4444);
+}
+
+.stat-icon {
+  flex-shrink: 0;
+}
+
+.stat-done {
+  color: var(--success, #22c55e);
+}
+
+.stat-blocked {
+  color: var(--warning, #f59e0b);
+}
+
+.stat-failed {
+  color: var(--status-offline, #ef4444);
+}
+
+.stat-char {
+  color: var(--primary, #3b82f6);
+}
+
+.stat-velocity-accelerating {
+  color: var(--success, #22c55e);
+}
+
+.stat-velocity-steady {
+  color: var(--text-muted);
+}
+
+.stat-velocity-stalling {
+  color: var(--warning, #f59e0b);
+}

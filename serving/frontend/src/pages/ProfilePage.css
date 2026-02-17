@@ -1,0 +1,190 @@
+.profile-page {
+  padding: 2rem;
+  max-width: 720px;
+}
+
+.profile-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.profile-card {
+  background: var(--bg-secondary, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.profile-card h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-field {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.profile-label {
+  min-width: 140px;
+  color: var(--text-secondary, #888);
+  font-size: 0.85rem;
+}
+
+.profile-value {
+  color: var(--text-primary, #e0e0e0);
+  font-size: 0.9rem;
+}
+
+.profile-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.profile-badge.owner {
+  background: var(--accent-blue-bg, rgba(59, 130, 246, 0.15));
+  color: var(--accent-blue, #3b82f6);
+}
+
+.profile-badge.member {
+  background: var(--accent-gray-bg, rgba(156, 163, 175, 0.15));
+  color: var(--text-secondary, #888);
+}
+
+.profile-badge.online {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.profile-badge.offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.profile-badge.auth-authorized {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.profile-badge.auth-unauthorized {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.profile-badge.auth-expired {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.profile-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--text-secondary, #888);
+  font-size: 0.85rem;
+}
+
+.profile-form input {
+  background: var(--bg-primary, #121212);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 0.9rem;
+}
+
+.profile-form input:focus {
+  outline: none;
+  border-color: var(--accent-blue, #3b82f6);
+}
+
+.profile-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.profile-btn {
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-primary, #121212);
+  color: var(--text-primary, #e0e0e0);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.profile-btn.primary {
+  background: var(--accent-blue, #3b82f6);
+  border-color: var(--accent-blue, #3b82f6);
+  color: white;
+}
+
+.profile-btn:hover {
+  opacity: 0.85;
+}
+
+.profile-error {
+  color: var(--error-color, #ef4444);
+  font-size: 0.85rem;
+}
+
+.profile-empty {
+  color: var(--text-secondary, #888);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.profile-component-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-component {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-primary, #121212);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+}
+
+.profile-component-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.profile-component-name {
+  font-size: 0.9rem;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.profile-component-expiry {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+}

@@ -1,0 +1,28 @@
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.card-clickable {
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.card-clickable:hover {
+  border-color: var(--border-light);
+}
+
+.card-header {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.card-body {
+  padding: var(--space-md);
+}

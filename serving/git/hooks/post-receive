@@ -1,0 +1,110 @@
+#!/bin/bash
+# ClaudeVN Git post-receive hook
+# Publishes push events to Redis for PR service and monitoring
+#
+# This hook is installed to bare repositories by RepoManager.
+# It notifies the ClaudeVN system about branch updates.
+
+set -e
+
+# Redis configuration (can be overridden by environment)
+REDIS_HOST="${REDIS_HOST:-localhost}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_PREFIX="${CLAUDEVN_REDIS_PREFIX:-claudevn:}"
+
+# Get project name from repository path
+# Expected format: /path/to/repos/project-name.git
+REPO_PATH=$(pwd)
+PROJECT=$(basename "$REPO_PATH" .git)
+
+# Check if redis-cli is available
+HAS_REDIS=false
+if command -v redis-cli &> /dev/null; then
+    # Test Redis connection
+    if redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping &> /dev/null; then
+        HAS_REDIS=true
+    else
+        echo "Warning: Redis not available at $REDIS_HOST:$REDIS_PORT"
+    fi
+fi
+
+# Process each updated ref
+while read oldrev newrev refname; do
+    # Skip deleted refs
+    if [ "$newrev" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # Extract branch name
+    branch="${refname#refs/heads/}"
+
+    # Skip if not a branch (e.g., tags)
+    if [ "$refname" = "$branch" ]; then
+        continue
+    fi
+
+    # Skip main/master branch events (handled separately)
+    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+        continue
+    fi
+
+    # Get current timestamp
+    timestamp=$(date -Iseconds)
+
+    # Extract compute ID from branch name
+    # Format: {type}/issue-{id}/{compute-id}
+    compute_id=$(echo "$branch" | grep -oP 'compute-[0-9]+$' || echo "unknown")
+
+    # Get commit info
+    commit_short="${newrev:0:8}"
+    commit_message=$(git log -1 --format="%s" "$newrev" 2>/dev/null || echo "")
+    commit_author=$(git log -1 --format="%an" "$newrev" 2>/dev/null || echo "unknown")
+
+    # Log the push
+    echo "Branch updated: $branch -> $commit_short"
+    echo "  Compute: $compute_id"
+    echo "  Message: $commit_message"
+
+    # Publish to Redis if available
+    if [ "$HAS_REDIS" = "true" ]; then
+        # Create JSON payload for push event
+        push_event=$(cat <<EOF
+{
+    "project": "$PROJECT",
+    "branch": "$branch",
+    "commit": "$newrev",
+    "commit_short": "$commit_short",
+    "commit_message": "$commit_message",
+    "commit_author": "$commit_author",
+    "compute_id": "$compute_id",
+    "timestamp": "$timestamp",
+    "old_rev": "$oldrev"
+}
+EOF
+)
+        # Remove newlines for Redis
+        push_event=$(echo "$push_event" | tr -d '\n' | tr -s ' ')
+
+        # Publish push event to channel
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" \
+            PUBLISH "${REDIS_PREFIX}git:${PROJECT}:push" "$push_event" > /dev/null
+
+        # Update branch metadata hash
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" HSET \
+            "${REDIS_PREFIX}branch:${PROJECT}:${branch}" \
+            "status" "pending" \
+            "last_commit" "$newrev" \
+            "compute_id" "$compute_id" \
+            "updated_at" "$timestamp" \
+            "commit_message" "$commit_message" \
+            "commit_author" "$commit_author" > /dev/null
+
+        # Add to pending branches set (for PR queue)
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" \
+            SADD "${REDIS_PREFIX}pending_branches:${PROJECT}" "$branch" > /dev/null
+
+        echo "  Redis: Push event published"
+    fi
+done
+
+exit 0

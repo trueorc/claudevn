@@ -1,0 +1,64 @@
+---
+id: claudevn-test-file-structure
+trigger: "when creating a new test file"
+confidence: 0.85
+domain: testing
+source: local-repo-analysis
+---
+
+# Follow pytest Test File Structure
+
+## Action
+Structure test files with:
+1. Module docstring describing what's tested
+2. Imports (pytest, unittest.mock, module under test)
+3. Fixtures for common test data
+4. Test classes grouped by functionality
+5. Async tests marked with `@pytest.mark.asyncio`
+
+## Template
+```python
+"""Tests for {module_name}."""
+
+import pytest
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from {module} import {ClassUnderTest}
+
+
+@pytest.fixture
+def mock_dependency():
+    """Create mock for external dependency."""
+    mock = MagicMock()
+    mock.method = AsyncMock()
+    return mock
+
+
+@pytest.fixture
+def instance(mock_dependency):
+    """Create instance for testing."""
+    return ClassUnderTest(dependency=mock_dependency)
+
+
+class Test{Feature}Init:
+    """Test initialization."""
+
+    def test_init_default(self):
+        """Test default initialization."""
+        instance = ClassUnderTest()
+        assert instance._initialized is False
+
+    @pytest.mark.asyncio
+    async def test_async_init(self, mock_dependency):
+        """Test async initialization."""
+        instance = ClassUnderTest(dependency=mock_dependency)
+        await instance.initialize()
+        assert instance._initialized is True
+```
+
+## Evidence
+- Analyzed 30+ test files
+- 100% use pytest
+- 85% follow fixture-based setup pattern
+- Consistent class grouping by feature area

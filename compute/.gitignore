@@ -1,0 +1,30 @@
+# Compute Engine .gitignore
+
+# Configuration (keep examples)
+config.json
+!config.json.example
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Agent state
+state/
+cache/
+
+# Temporary files
+tmp/
+temp/
+
+# Downloaded files
+downloads/
+

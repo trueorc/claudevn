@@ -1,0 +1,858 @@
+.goals-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 24px;
+}
+
+.goals-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-shrink: 0;
+}
+
+.goals-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.goals-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.goals-header p {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.goals-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Filter checkbox in history panel */
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.filter-checkbox:hover {
+  color: var(--text);
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"]:checked + svg {
+  color: var(--primary);
+}
+
+.filter-row-options {
+  padding-top: 4px;
+}
+
+.new-conversation-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--primary);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.new-conversation-btn:hover {
+  background: var(--primary-hover, #4f46e5);
+  transform: translateY(-1px);
+}
+
+/* Split Panel Layout */
+.goals-split-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.goals-main-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.goals-main-panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.goals-main-panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+}
+
+.goals-main-panel-description {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+  margin: 8px 0 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.goals-main-panel-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 8px 0 0 0;
+}
+
+.goals-main-panel-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Workflow content (decomposition, planning, etc.) */
+.goals-workflow {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* Step Indicator */
+.goals-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.step-dot.active {
+  background: var(--primary);
+}
+
+.step-dot.completed {
+  background: var(--success);
+}
+
+.step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  max-width: 40px;
+}
+
+.step-connector.completed {
+  background: var(--success);
+}
+
+/* Error display */
+.goals-error {
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--bg-error);
+  border: 1px solid var(--error);
+  margin: 16px;
+}
+
+.goals-error-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--error);
+  margin-bottom: 4px;
+}
+
+.goals-error-message {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* History Panel */
+.goal-history-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.history-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+  flex-shrink: 0;
+}
+
+.history-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.history-panel-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.history-panel-search {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+  flex-shrink: 0;
+}
+
+.search-input-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px 8px 32px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.filter-toggle.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.history-panel-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 12px;
+  flex-shrink: 0;
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-select {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.clear-filters {
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.clear-filters:hover {
+  text-decoration: underline;
+}
+
+/* Search clear button */
+.search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: var(--bg-hover);
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.search-clear:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* Filter badge on toggle button */
+.filter-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  background: var(--status-offline);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filter-toggle {
+  position: relative;
+}
+
+/* Sort wrapper */
+.sort-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.sort-icon {
+  position: absolute;
+  left: 8px;
+  pointer-events: none;
+  color: var(--text-muted);
+  z-index: 1;
+}
+
+.sort-select {
+  padding-left: 26px;
+}
+
+/* Active filter chips bar */
+.active-filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 10px;
+  flex-shrink: 0;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 8px;
+  background: var(--primary);
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 12px;
+}
+
+.filter-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.filter-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.history-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.history-panel-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Goal Card */
+.goal-history-card {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.goal-history-card:hover {
+  border-color: var(--primary);
+  background: var(--bg-hover);
+}
+
+.goal-history-card.selected {
+  border-color: var(--primary);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+/* Status left border - processing state visibility */
+.goal-history-card.status-no_comments {
+  border-left: 3px solid var(--text-muted);
+}
+
+.goal-history-card.status-pending {
+  border-left: 3px solid var(--warning, #f59e0b);
+}
+
+.goal-history-card.status-evaluating {
+  border-left: 3px solid var(--status-degraded, #f59e0b);
+  animation: status-border-pulse 1.5s ease-in-out infinite;
+}
+
+.goal-history-card.status-complete {
+  border-left: 3px solid var(--status-online, #22c55e);
+}
+
+@keyframes status-border-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.goal-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.goal-priority-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  border-radius: 4px;
+}
+
+.goal-id-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  color: var(--text-muted);
+  background: var(--surface-elevated);
+  border-radius: 4px;
+  cursor: help;
+}
+
+.goal-card-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.goal-card-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goal-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.goal-card-comments {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.goal-card-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-card-chevron {
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.goal-history-card:hover .goal-card-chevron {
+  opacity: 1;
+}
+
+.goal-history-card.selected .goal-card-chevron {
+  opacity: 1;
+  color: var(--primary);
+}
+
+/* Action buttons on goal card */
+.goal-card-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.goal-history-card:hover .goal-card-action {
+  opacity: 1;
+}
+
+.goal-card-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.goal-card-delete:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: var(--error) !important;
+}
+
+/* Archived goal styling */
+.goal-history-card.archived {
+  opacity: 0.6;
+  background: var(--bg);
+}
+
+.goal-history-card.archived:hover {
+  opacity: 0.8;
+}
+
+.goal-history-card.archived .goal-card-text {
+  color: var(--text-muted);
+}
+
+.goal-archived-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+/* Back button for conversation */
+.conversation-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin: 12px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.conversation-back-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* New conversation prompt */
+.new-conversation-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.new-conversation-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.new-conversation-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.new-conversation-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+/* Evaluation Summary Bar */
+.evaluation-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.evaluation-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.evaluation-summary-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evaluation-summary-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Decomposition Display */
+.decomposition-display {
+  padding: 12px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.decomposition-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.decomposition-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.decomposition-confidence {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.decomposition-reasoning {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0 0 8px 0;
+}
+
+.decomposition-issues {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.decomposition-issue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.decomposition-issue-item::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.decomposition-issue-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decomposition-issue-priority {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 1px 4px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Issue card hover */
+.issue-card {
+  transition: border-color 0.15s ease;
+}
+
+.issue-card:hover {
+  border-color: var(--primary);
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .goals-split-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .goal-history-panel {
+    max-height: 300px;
+  }
+}
+
+@media (max-width: 600px) {
+  .goals-page {
+    padding: 16px;
+  }
+
+  .goals-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .goals-header h1 {
+    font-size: 20px;
+  }
+
+  .new-conversation-btn {
+    align-self: flex-start;
+  }
+
+  .goals-split-layout {
+    gap: 16px;
+  }
+
+  .goal-history-panel {
+    max-height: 250px;
+  }
+
+  .history-panel-list {
+    padding: 0 4px 4px;
+  }
+
+  .goal-history-card {
+    padding: 10px;
+  }
+}

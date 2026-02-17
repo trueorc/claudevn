@@ -1,0 +1,46 @@
+---
+id: claudevn-pydantic-v2
+trigger: "when creating or modifying Pydantic models"
+confidence: 0.95
+domain: python
+source: local-repo-analysis
+---
+
+# Use Pydantic v2 Patterns
+
+## Action
+When creating Pydantic models:
+
+1. Use `model_config` instead of deprecated `class Config`:
+```python
+from pydantic import BaseModel, ConfigDict
+
+class MyModel(BaseModel):
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True
+    )
+```
+
+2. Use `datetime.now(timezone.utc)` instead of `datetime.utcnow()`:
+```python
+from datetime import datetime, timezone
+
+created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+```
+
+3. Use `Field()` with defaults and validation:
+```python
+from pydantic import Field
+from typing import Optional
+
+id: str = Field(..., description="Unique identifier")
+name: str = Field(default="", min_length=1)
+tags: list[str] = Field(default_factory=list)
+count: Optional[int] = Field(default=None, ge=0)
+```
+
+## Evidence
+- Analyzed model files in serving/models/ and marketplace/models.py
+- Project explicitly migrated from Config to model_config
+- Project explicitly migrated from utcnow() to timezone-aware

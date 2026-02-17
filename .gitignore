@@ -1,0 +1,198 @@
+# ClaudeVNh Root .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Environment variables
+.env
+.env-backup
+.env.local
+.env.*.local
+*.env
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Data directories (runtime data only)
+data/
+blobs/
+storage/
+uploads/
+# BUT: Allow agent definitions (these are code, not runtime data)
+!compute/data/
+!compute/data/compute/
+!compute/data/compute/agents/
+!compute/data/compute/agents/**/*.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Node.js (for frontends)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/
+.pnp.*
+
+# React build output
+build/
+dist/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# IDEs
+*.sublime-project
+*.sublime-workspace
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Secrets and credentials
+secrets/
+credentials/
+*.secret
+*_secret.*
+api_keys.*
+
+# Large files and datasets
+*.csv
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+!examples/demo-data/*.csv
+
+# Model files (ML models, not Python model definitions)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+# Only ignore ML model directories, not serving/models (Python code)
+# models/ is too broad - use specific paths for ML models if needed
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+docker.env
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# OS-specific
+.Spotlight-V100
+.Trashes
+ehthumbs_vista.db
+
+# Project-specific
+# Allow example data
+!examples/demo-data/
+!examples/**/README.md
+.claudevn.pid
+serving.pid
+*.pid

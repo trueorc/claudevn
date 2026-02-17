@@ -1,0 +1,96 @@
+#!/bin/bash
+# ClaudeVN Git pre-receive hook
+# Validates branch naming and blocks direct pushes to main/master
+#
+# This hook is installed to bare repositories by RepoManager.
+# It enforces ClaudeVN branch naming conventions:
+#   {type}/{identifier}/{compute-id}
+# Example: f/issue_ae655ba830a9/compute-001
+#
+# Types:
+#   f = feature
+#   b = bugfix
+#   r = refactor
+#   d = docs
+#   t = test
+
+set -e
+
+# Read environment configuration
+CLAUDEVN_STRICT_NAMING="${CLAUDEVN_STRICT_NAMING:-true}"
+CLAUDEVN_ALLOW_MAIN_PUSH="${CLAUDEVN_ALLOW_MAIN_PUSH:-false}"
+
+# Branch name validation regex
+# Format: {type}/{identifier}/{compute-id}
+# type: f (feature), b (bugfix), r (refactor), d (docs), t (test)
+# identifier: issue_xxx or work_xxx (hex/alphanumeric IDs)
+# compute-id: compute-NNN or compute-{name} format
+BRANCH_REGEX="^[fbrdt]/(issue|work)_[a-z0-9]+/compute-[a-z0-9-]+$"
+
+# Read stdin line by line (git sends: oldrev newrev refname)
+while read oldrev newrev refname; do
+    # Skip deleted refs
+    if [ "$newrev" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # Extract branch name from ref
+    branch="${refname#refs/heads/}"
+
+    # Skip if not a branch (e.g., tags)
+    if [ "$refname" = "$branch" ]; then
+        continue
+    fi
+
+    # STRICTLY block direct pushes to main/master
+    # Compute instances can NEVER push to main - only Serving (via merge process)
+    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+        if [ "$CLAUDEVN_ALLOW_MAIN_PUSH" != "true" ]; then
+            echo "ERROR: Direct push to $branch is FORBIDDEN." >&2
+            echo "       Only Serving can merge to main." >&2
+            echo "       Create a feature branch: {type}/{issue_id}/{compute-id}" >&2
+            exit 1
+        fi
+    fi
+
+    # Validate branch naming convention (if strict mode enabled)
+    if [ "$CLAUDEVN_STRICT_NAMING" = "true" ]; then
+        # Skip validation for special branches
+        if [ "$branch" = "main" ] || [ "$branch" = "master" ] || [ "$branch" = "develop" ]; then
+            continue
+        fi
+
+        if ! [[ "$branch" =~ $BRANCH_REGEX ]]; then
+            echo "ERROR: Invalid branch name: $branch" >&2
+            echo "" >&2
+            echo "       ClaudeVN requires branch names to follow this format:" >&2
+            echo "         {type}/{identifier}/{compute-id}" >&2
+            echo "" >&2
+            echo "       Where:" >&2
+            echo "         type       = f (feature), b (bugfix), r (refactor), d (docs), t (test)" >&2
+            echo "         identifier = issue_xxx or work_xxx (hex/alphanumeric ID)" >&2
+            echo "         compute-id = Compute instance ID (compute-001, compute-a)" >&2
+            echo "" >&2
+            echo "       Examples:" >&2
+            echo "         f/issue_ae655ba830a9/compute-001" >&2
+            echo "         b/issue_abc123/compute-003" >&2
+            echo "         r/work_def456/compute-002" >&2
+            echo "         d/issue_789abc/compute-001" >&2
+            exit 1
+        fi
+
+        # Extract compute ID from branch name for ownership verification
+        compute_id=$(echo "$branch" | grep -oP 'compute-[a-z0-9-]+$')
+
+        # Verify compute instance can only push to its own branches
+        # GIT_PUSH_COMPUTE_ID is set by the SSH server to identify the pushing compute instance
+        if [ -n "$GIT_PUSH_COMPUTE_ID" ] && [ "$compute_id" != "$GIT_PUSH_COMPUTE_ID" ]; then
+            echo "ERROR: $GIT_PUSH_COMPUTE_ID cannot push to $compute_id's branch" >&2
+            exit 1
+        fi
+    fi
+
+    echo "Accepting push to branch: $branch"
+done
+
+exit 0

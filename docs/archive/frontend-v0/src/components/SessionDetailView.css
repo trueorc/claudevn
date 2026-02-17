@@ -1,0 +1,307 @@
+/* Session Detail View Styles */
+
+.session-detail-view {
+  padding: 2rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.session-header {
+  margin-bottom: 2rem;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.breadcrumb a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.session-title-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.session-title-section h1 {
+  margin: 0;
+  font-size: 2rem;
+  color: #1f2937;
+}
+
+.connection-badge {
+  padding: 0.5rem 1rem;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.session-meta {
+  display: flex;
+  gap: 0.75rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+/* Tabs */
+.session-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 2rem;
+}
+
+.session-tabs button {
+  padding: 1rem 1.5rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  color: #6b7280;
+  transition: all 0.2s;
+  margin-bottom: -2px;
+}
+
+.session-tabs button:hover {
+  color: #3b82f6;
+}
+
+.session-tabs button.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+/* Tab Content */
+.tab-content {
+  min-height: 500px;
+}
+
+/* Overview Tab */
+.overview-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.section h2 {
+  font-size: 1.25rem;
+  color: #1f2937;
+  margin-bottom: 1rem;
+}
+
+.progress-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 2rem;
+}
+
+.progress-bar-large {
+  height: 24px;
+  background: #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%);
+  transition: width 0.5s ease;
+}
+
+.progress-stats {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* Status Grid */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.status-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  transition: transform 0.2s;
+}
+
+.status-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.status-card.completed {
+  border-left: 4px solid #10b981;
+}
+
+.status-card.in-progress {
+  border-left: 4px solid #3b82f6;
+}
+
+.status-card.proposed {
+  border-left: 4px solid #f59e0b;
+}
+
+.status-card.blocked {
+  border-left: 4px solid #ef4444;
+}
+
+.status-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.status-count {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 0.25rem;
+}
+
+.status-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* Evolution Stats */
+.evolution-stats {
+  display: flex;
+  gap: 2rem;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.evolution-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.evolution-stat .label {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.evolution-stat .value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #3b82f6;
+}
+
+/* Recent Activities */
+.recent-activities {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-status {
+  font-size: 1.25rem;
+}
+
+.activity-goal {
+  flex: 1;
+  color: #1f2937;
+}
+
+.activity-meta {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+/* Loading & Error States */
+.loading,
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem;
+  color: #6b7280;
+}
+
+.error {
+  color: #ef4444;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .session-detail-view {
+    padding: 1rem;
+  }
+  
+  .session-title-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .session-tabs {
+    overflow-x: auto;
+    gap: 0;
+  }
+  
+  .session-tabs button {
+    padding: 0.75rem 1rem;
+    white-space: nowrap;
+  }
+  
+  .status-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .evolution-stats {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+

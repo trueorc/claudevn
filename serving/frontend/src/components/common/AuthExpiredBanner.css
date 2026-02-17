@@ -1,0 +1,59 @@
+.auth-expired-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+}
+
+/* Expiring soon (yellow) */
+.auth-expired-banner.expiring {
+  background: rgba(234, 179, 8, 0.1);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.3);
+  color: #eab308;
+}
+
+.auth-expired-banner.expiring .auth-expired-btn {
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  color: #eab308;
+}
+
+.auth-expired-banner.expiring .auth-expired-btn:hover {
+  background: rgba(234, 179, 8, 0.25);
+}
+
+/* Expired (red) */
+.auth-expired-banner.expired {
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.auth-expired-banner.expired .auth-expired-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+.auth-expired-banner.expired .auth-expired-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.auth-expired-icon {
+  flex-shrink: 0;
+}
+
+.auth-expired-message {
+  flex: 1;
+}
+
+.auth-expired-btn {
+  padding: 0.35rem 1rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}

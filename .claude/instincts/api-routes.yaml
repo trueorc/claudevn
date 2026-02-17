@@ -1,0 +1,76 @@
+---
+id: claudevn-api-routes
+trigger: "when creating or modifying API endpoints"
+confidence: 0.90
+domain: api
+source: local-repo-analysis
+---
+
+# Follow FastAPI Route Patterns
+
+## Action
+Structure API routes in `serving/api/{domain}.py`:
+
+```python
+"""API routes for {domain}."""
+
+from fastapi import APIRouter, HTTPException, Depends, status
+from typing import Optional
+
+from models.{domain} import MyModel, CreateRequest, ListResponse
+from services.{domain}_service import get_service, MyService
+
+router = APIRouter(prefix="/{domain}", tags=["{domain}"])
+
+
+def get_svc() -> MyService:
+    """Dependency for service injection."""
+    return get_service()
+
+
+@router.post("/", response_model=MyModel, status_code=status.HTTP_201_CREATED)
+async def create_item(
+    request: CreateRequest,
+    svc: MyService = Depends(get_svc)
+) -> MyModel:
+    """Create a new item."""
+    return await svc.create(request)
+
+
+@router.get("/{item_id}", response_model=MyModel)
+async def get_item(
+    item_id: str,
+    svc: MyService = Depends(get_svc)
+) -> MyModel:
+    """Get item by ID."""
+    item = await svc.get(item_id)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item {item_id} not found"
+        )
+    return item
+
+
+@router.get("/", response_model=ListResponse)
+async def list_items(
+    limit: int = 50,
+    offset: int = 0,
+    svc: MyService = Depends(get_svc)
+) -> ListResponse:
+    """List items with pagination."""
+    return await svc.list(limit=limit, offset=offset)
+```
+
+## Registration
+In `serving/app.py`:
+```python
+from api.{domain} import router as {domain}_router
+app.include_router({domain}_router)
+```
+
+## Evidence
+- Analyzed 12 API route files
+- All use APIRouter with prefix and tags
+- Dependency injection for services
+- Consistent error handling with HTTPException

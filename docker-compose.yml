@@ -1,0 +1,349 @@
+# ClaudeVN Platform - Docker Compose Configuration
+# v1.0 Architecture: Serving + Marketplace + Redis + Compute Instances + Site
+#
+# Usage:
+#   docker compose up -d          # Start all services (including marketing site)
+#   docker compose down           # Stop services
+#   docker compose logs -f        # View logs
+#   docker compose build          # Rebuild after changes
+#   docker compose up -d --scale compute=3  # Scale compute instances
+#
+# Services:
+#   site         → Marketing site at http://localhost:3000
+#   serving      → Coordination hub at http://localhost:8002
+#   marketplace  → Skill marketplace at http://localhost:8003
+#   redis        → Redis at localhost:6379
+#   compute-1/2/3 → Compute agents
+#
+# Authentication (serving-centric):
+#   The Serving container owns Claude OAuth credentials. It runs `claude login`
+#   headless and stores credentials on a persistent volume. Compute containers
+#   fetch credentials from Serving's /auth/credentials endpoint at startup
+#   and refresh them via SSE credentials_refresh events.
+#   External VCN nodes can still bring their own credentials (COMPUTE_AUTH_MODE=external).
+#
+# Reauth:
+#   docker exec -it claudevn-serving /app/scripts/claude-reauth.sh
+#   Or POST to http://localhost:8002/api/v1/auth/login from the UI.
+#
+# Note: Start Docker Desktop first!
+
+services:
+  # Marketing Site - Static React/Vite site served by Nginx
+  site:
+    build: ./site
+    container_name: claudevn-site
+    ports:
+      - "3000:80"
+    networks:
+      - claudevn-network
+    restart: unless-stopped
+
+  # Redis - Required for Git PR queue management
+  redis:
+    image: redis:7-alpine
+    container_name: claudevn-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - claudevn-network
+    restart: unless-stopped
+
+  # Skill Marketplace - Standalone skill catalog
+  marketplace:
+    build:
+      context: .
+      dockerfile: marketplace/Dockerfile
+    container_name: claudevn-marketplace
+    ports:
+      - "8003:8003"
+    environment:
+      - MARKETPLACE_HOST=0.0.0.0
+      - MARKETPLACE_PORT=8003
+      - SKILLS_PATH=/app/skills
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+      - API_VERSION=v1
+      # Authentication (disabled for local dev; enable in production)
+      - MARKETPLACE_REQUIRE_AUTH=false
+      # Registration with Serving
+      - SERVING_URL=http://serving:8002
+      - REGISTER_ON_STARTUP=true
+      - HEARTBEAT_INTERVAL=60
+      - MARKETPLACE_NAME=ClaudeVN-Marketplace
+    volumes:
+      - marketplace_skills:/app/skills
+    networks:
+      - claudevn-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Serving Component - Central Orchestration Hub
+  serving:
+    build:
+      context: .
+      dockerfile: serving/Dockerfile
+    container_name: claudevn-serving
+    ports:
+      - "8002:8002"
+      - "2222:2222"  # SSH Git server for compute instances
+    environment:
+      # Server
+      - SERVING_HOST=0.0.0.0
+      - SERVING_PORT=8002
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+      - API_VERSION=v1
+      # Storage
+      - STORAGE_PATH=/app/data/serving
+      # Health monitoring
+      - HEALTH_CHECK_INTERVAL=30
+      - DEGRADED_THRESHOLD=60
+      - OFFLINE_THRESHOLD=90
+      - MAX_FAILED_CHECKS=3
+      - AUTO_DEREGISTER=false
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - "REDIS_KEY_PREFIX=claudevn:"
+      # Git infrastructure
+      - GIT_REPOS_PATH=/app/data/repos
+      - GIT_SSH_KEYS_PATH=/app/data/ssh_keys
+      - GIT_ENABLE_SSH=true
+      - GIT_HOOK_REDIS_NOTIFY=true
+      # SSH Git server
+      - SSH_GIT_PORT=2222
+      - SSH_GIT_HOST=serving
+      # Marketplace service
+      - MARKETPLACE_URL=http://marketplace:8003
+      # Rate limiting - disable for local development
+      - RATE_LIMIT_ENABLED=false
+      # Claude authentication credentials path
+      - CLAUDE_CREDENTIALS_PATH=/app/data/serving/claude-credentials
+      # Compute spawner
+      - WORKSPACES_PATH=/app/data/workspaces
+      - SERVING_PUBLIC_URL=http://serving:8002
+    volumes:
+      - serving_data:/app/data
+      - serving_logs:/app/logs
+    networks:
+      - claudevn-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      marketplace:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Compute Instance 1 - Code Writer specialist
+  compute-1:
+    build:
+      context: .
+      dockerfile: compute/Dockerfile
+    container_name: claudevn-compute-1
+    ports:
+      - "8010:8010"
+    environment:
+      - COMPUTE_HOST=0.0.0.0
+      - COMPUTE_PORT=8010
+      - COMPUTE_INSTANCE_ID=compute-001
+      - COMPUTE_INSTANCE_NAME=Compute-CodeWriter
+      - COMPUTE_STORAGE_PATH=/app/data/compute
+      - COMPUTE_LOG_FILE=/app/logs/compute.log
+      - LOG_LEVEL=INFO
+      - COMPUTE_REGISTER_ON_STARTUP=true
+      - SERVING_URL=http://serving:8002
+      - COMPUTE_HEARTBEAT_INTERVAL=30
+      # MCP configuration
+      - MCP_ENABLED=true
+      - CLAUDEVN_SERVING_URL=http://serving:8002
+      # Skill/capability tags for work assignment
+      - COMPUTE_SKILLS=code-writer,test-automator
+      - COMPUTE_CAPABILITIES=python,javascript,typescript
+      # Auth mode: serving (fetch from serving), local (mount), or external (own)
+      - COMPUTE_AUTH_MODE=serving
+      - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
+      # Max concurrent Claude Code instances per compute (default: 1)
+      - MAX_CLAUDE_INSTANCES=1
+    volumes:
+      - compute1_data:/app/data
+      - compute1_logs:/app/logs
+    networks:
+      - claudevn-network
+    depends_on:
+      serving:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  #Compute Instance 2 - Debugger specialist (TEMPORARILY DISABLED)
+  compute-2:
+    build:
+      context: .
+      dockerfile: compute/Dockerfile
+    container_name: claudevn-compute-2
+    ports:
+      - "8011:8011"
+    environment:
+      - COMPUTE_HOST=0.0.0.0
+      - COMPUTE_PORT=8011
+      - COMPUTE_INSTANCE_ID=compute-002
+      - COMPUTE_INSTANCE_NAME=Compute-Debugger
+      - COMPUTE_STORAGE_PATH=/app/data/compute
+      - COMPUTE_LOG_FILE=/app/logs/compute.log
+      - LOG_LEVEL=INFO
+      - COMPUTE_REGISTER_ON_STARTUP=true
+      - SERVING_URL=http://serving:8002
+      - COMPUTE_HEARTBEAT_INTERVAL=30
+      # MCP configuration
+      - MCP_ENABLED=true
+      - CLAUDEVN_SERVING_URL=http://serving:8002
+      # Skill/capability tags for work assignment
+      - COMPUTE_SKILLS=debugger,security-reviewer
+      - COMPUTE_CAPABILITIES=python,debugging,security
+      # Auth mode: serving (fetch from serving), local (mount), or external (own)
+      - COMPUTE_AUTH_MODE=serving
+      - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
+    volumes:
+      - compute2_data:/app/data
+      - compute2_logs:/app/logs
+    networks:
+      - claudevn-network
+    depends_on:
+      serving:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Compute Instance 3 - Documentation specialist (TEMPORARILY DISABLED)
+  # compute-3:
+  #   build:
+  #     context: .
+  #     dockerfile: compute/Dockerfile
+  #   container_name: claudevn-compute-3
+  #   ports:
+  #     - "8012:8012"
+  #   environment:
+  #     - COMPUTE_HOST=0.0.0.0
+  #     - COMPUTE_PORT=8012
+  #     - COMPUTE_INSTANCE_ID=compute-003
+  #     - COMPUTE_INSTANCE_NAME=Compute-DocWriter
+  #     - COMPUTE_STORAGE_PATH=/app/data/compute
+  #     - COMPUTE_LOG_FILE=/app/logs/compute.log
+  #     - LOG_LEVEL=INFO
+  #     - COMPUTE_REGISTER_ON_STARTUP=true
+  #     - SERVING_URL=http://serving:8002
+  #     - COMPUTE_HEARTBEAT_INTERVAL=30
+  #     # MCP configuration
+  #     - MCP_ENABLED=true
+  #     - CLAUDEVN_SERVING_URL=http://serving:8002
+  #     # Skill/capability tags for work assignment
+  #     - COMPUTE_SKILLS=doc-writer
+  #     - COMPUTE_CAPABILITIES=documentation,markdown
+  #     # Auth mode: serving (fetch from serving), local (mount), or external (own)
+  #     - COMPUTE_AUTH_MODE=serving
+  #     - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
+  #   volumes:
+  #     - compute3_data:/app/data
+  #     - compute3_logs:/app/logs
+  #   networks:
+  #     - claudevn-network
+  #   depends_on:
+  #     serving:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8012/api/v1/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 30s
+  #   restart: unless-stopped
+
+# Named volumes for data persistence
+volumes:
+  redis_data:
+    driver: local
+  serving_data:
+    driver: local
+  serving_logs:
+    driver: local
+  marketplace_skills:
+    driver: local
+  compute1_data:
+    driver: local
+  compute1_logs:
+    driver: local
+  compute2_data:  # TEMPORARILY DISABLED
+    driver: local
+  compute2_logs:  # TEMPORARILY DISABLED
+    driver: local
+  # compute3_data:  # TEMPORARILY DISABLED
+  #   driver: local
+  # compute3_logs:  # TEMPORARILY DISABLED
+  #   driver: local
+
+# Network for inter-service communication
+networks:
+  claudevn-network:
+    driver: bridge
+
+# =============================================================================
+# External VCN Node Template (for nodes joining from other hosts/subscriptions)
+# =============================================================================
+# External compute nodes can bring their own Claude OAuth credentials,
+# or use COMPUTE_AUTH_MODE=serving to fetch from a remote Serving instance.
+# To add an external node:
+#
+# 1. Create a docker-compose.override.yml with:
+#
+#   services:
+#     compute-external:
+#       build:
+#         context: .
+#         dockerfile: compute/Dockerfile
+#       container_name: claudevn-compute-external
+#       environment:
+#         - COMPUTE_INSTANCE_ID=compute-ext-001
+#         - COMPUTE_INSTANCE_NAME=Compute-External
+#         - SERVING_URL=http://<serving-host>:8002
+#         - COMPUTE_AUTH_MODE=serving  # or "external" with own credentials
+#         - CLAUDEVN_SERVING_AUTH_URL=http://<serving-host>:8002/api/v1/auth
+#         - COMPUTE_SKILLS=code-writer
+#         - COMPUTE_CAPABILITIES=python
+#       # Network: Must be able to reach Serving (e.g., via VPN, public IP, or overlay network)
+#
+# 3. For multi-host deployment, consider:
+#    - Docker Swarm overlay network
+#    - Tailscale/WireGuard VPN
+#    - Public Serving endpoint with TLS
+# =============================================================================

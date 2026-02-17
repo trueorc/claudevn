@@ -1,0 +1,78 @@
+---
+id: claudevn-service-layer
+trigger: "when adding business logic or creating a new service"
+confidence: 0.90
+domain: architecture
+source: local-repo-analysis
+---
+
+# Use Service Layer Pattern
+
+## Action
+Business logic goes in services, not API routes or models.
+
+### File naming
+- Services: `serving/services/{domain}_service.py`
+- Example: `work_map_service.py`, `registry_service.py`
+
+### Service structure
+```python
+"""Service for {domain} operations."""
+
+from typing import Optional
+from models.{domain} import MyModel, CreateRequest, UpdateRequest
+
+
+class MyService:
+    """Handles {domain} business logic."""
+
+    def __init__(self, redis_client=None):
+        """Initialize service with optional Redis."""
+        self._redis = redis_client
+        self._cache = {}
+        self._initialized = False
+
+    async def initialize(self) -> None:
+        """Initialize service resources."""
+        self._initialized = True
+
+    async def create(self, request: CreateRequest) -> MyModel:
+        """Create a new item."""
+        pass
+
+    async def get(self, item_id: str) -> Optional[MyModel]:
+        """Get item by ID."""
+        pass
+
+    async def update(self, item_id: str, request: UpdateRequest) -> MyModel:
+        """Update existing item."""
+        pass
+
+    async def delete(self, item_id: str) -> bool:
+        """Delete item."""
+        pass
+
+
+# Singleton pattern for service access
+_service: Optional[MyService] = None
+
+
+def get_service() -> MyService:
+    """Get the service singleton."""
+    global _service
+    if _service is None:
+        _service = MyService()
+    return _service
+
+
+def set_service(service: MyService) -> None:
+    """Set service (useful for testing)."""
+    global _service
+    _service = service
+```
+
+## Evidence
+- Analyzed 11 service files in serving/services/
+- All follow singleton pattern with get/set functions
+- Redis optional for in-memory fallback
+- Async methods throughout

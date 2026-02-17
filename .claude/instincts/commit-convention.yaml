@@ -1,0 +1,35 @@
+---
+id: claudevn-commit-convention
+trigger: "when writing a commit message"
+confidence: 0.88
+domain: git
+source: local-repo-analysis
+---
+
+# Use Conventional Commits with Issue References
+
+## Action
+Format commit messages as:
+```
+{type}: {description} (#{issue-number})
+```
+
+Types by frequency:
+- `feat:` - New features (most common, 59%)
+- `fix:` - Bug fixes (20%)
+- `docs:` - Documentation (9%)
+- `test:` - Test changes (8%)
+- `refactor:` - Code restructuring (2%)
+- `chore:` - Maintenance (2%)
+
+Always reference the GitHub issue number in parentheses at the end.
+
+## Examples
+- `feat: Implement shutdown SSE event handler in compute (#155)`
+- `fix: Correct race condition in SSE manager event stream test`
+- `docs: Update audit to reflect implemented dependency resolution (#151)`
+
+## Evidence
+- Analyzed 200 commits
+- 88% (176/200) follow conventional commit format
+- 73% (146/200) reference issue numbers
