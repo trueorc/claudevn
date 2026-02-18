@@ -85,7 +85,8 @@ class WorkOrchestrator:
         timeout_minutes: int = 30,
         timeout_check_interval: int = 60,
         timeout_max_retries: int = 3,
-        timeout_enabled: bool = True
+        timeout_enabled: bool = True,
+        assigned_timeout_minutes: int = 3,
     ):
         """Initialize the work orchestrator.
 
@@ -98,6 +99,8 @@ class WorkOrchestrator:
             timeout_check_interval: Seconds between timeout checks
             timeout_max_retries: Maximum retries before marking work as FAILED
             timeout_enabled: Whether to enable stuck-work detection
+            assigned_timeout_minutes: Minutes before ASSIGNED work with no
+                started_at is considered orphaned and reset to PENDING
         """
         self.poll_interval = poll_interval
         self.max_concurrent_spawns = max_concurrent_spawns
@@ -109,6 +112,7 @@ class WorkOrchestrator:
         self.timeout_check_interval = timeout_check_interval
         self.timeout_max_retries = timeout_max_retries
         self.timeout_enabled = timeout_enabled
+        self.assigned_timeout_minutes = assigned_timeout_minutes
 
         self._task: Optional[asyncio.Task] = None
         self._timeout_task: Optional[asyncio.Task] = None
@@ -136,6 +140,7 @@ class WorkOrchestrator:
             "total_timeout_retries": 0,
             "total_resource_conflicts": 0,
             "total_circuit_breaks": 0,
+            "total_assigned_recoveries": 0,
             "last_poll": None,
             "last_spawn": None,
             "last_timeout_check": None,
@@ -217,7 +222,8 @@ class WorkOrchestrator:
             "active_spawns": len(self._active_spawns),
             "pending_retries": len(self._retry_after),
             "timeout_monitoring_enabled": self.timeout_enabled,
-            "timeout_minutes": self.timeout_minutes
+            "timeout_minutes": self.timeout_minutes,
+            "assigned_timeout_minutes": self.assigned_timeout_minutes
         }
 
     async def _orchestration_loop(self) -> None:
@@ -271,20 +277,55 @@ class WorkOrchestrator:
                 await asyncio.sleep(self.timeout_check_interval)
 
     async def _detect_and_handle_stale_work(self) -> None:
-        """Detect work that has been IN_PROGRESS too long and handle it."""
+        """Detect stuck work and handle it.
+
+        Checks two categories:
+        1. IN_PROGRESS items with no activity beyond timeout_minutes.
+        2. ASSIGNED items that were never started (started_at is None)
+           beyond assigned_timeout_minutes — typically caused by SSE
+           connection state races where a compute's idle reset clobbers
+           a pending assignment.
+        """
         from services.work_map_service import get_work_map_service
 
         try:
             work_map = get_work_map_service()
 
-            # Get stale work items
+            # --- Recover stale ASSIGNED items ---
+            stale_assigned = await work_map.get_stale_assigned_work(
+                self.assigned_timeout_minutes
+            )
+            if stale_assigned:
+                logger.info(
+                    f"Found {len(stale_assigned)} stale ASSIGNED work items"
+                )
+            for work in stale_assigned:
+                try:
+                    updated = await work_map.reset_assigned_to_pending(
+                        work.work_id
+                    )
+                    if updated:
+                        self._stats["total_assigned_recoveries"] += 1
+                        logger.warning(
+                            f"Recovered stale ASSIGNED work {work.work_id} "
+                            f"(was assigned to {work.assigned_to}, "
+                            f"assigned_at={work.assigned_at})"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Error recovering stale assigned work "
+                        f"{work.work_id}: {e}"
+                    )
+
+            # --- Handle stale IN_PROGRESS items ---
             stale_work = await work_map.get_stale_work(self.timeout_minutes)
 
-            if not stale_work:
+            if not stale_work and not stale_assigned:
                 logger.debug("No stale work detected")
                 return
 
-            logger.info(f"Found {len(stale_work)} stale work items")
+            if stale_work:
+                logger.info(f"Found {len(stale_work)} stale IN_PROGRESS work items")
 
             for work in stale_work:
                 try:
@@ -1289,7 +1330,8 @@ async def start_work_orchestration(
     timeout_minutes: int = 30,
     timeout_check_interval: int = 60,
     timeout_max_retries: int = 3,
-    timeout_enabled: bool = True
+    timeout_enabled: bool = True,
+    assigned_timeout_minutes: int = 3,
 ) -> None:
     """Start the global work orchestrator.
 
@@ -1302,6 +1344,8 @@ async def start_work_orchestration(
         timeout_check_interval: Seconds between timeout checks
         timeout_max_retries: Maximum retries before marking work as FAILED
         timeout_enabled: Whether to enable stuck-work detection
+        assigned_timeout_minutes: Minutes before ASSIGNED work with no
+            started_at is considered orphaned and reset to PENDING
     """
     global _orchestrator
 
@@ -1317,7 +1361,8 @@ async def start_work_orchestration(
         timeout_minutes=timeout_minutes,
         timeout_check_interval=timeout_check_interval,
         timeout_max_retries=timeout_max_retries,
-        timeout_enabled=timeout_enabled
+        timeout_enabled=timeout_enabled,
+        assigned_timeout_minutes=assigned_timeout_minutes,
     )
 
     await _orchestrator.start()

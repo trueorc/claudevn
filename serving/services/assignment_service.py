@@ -676,6 +676,106 @@ class AssignmentService:
 
         return stale_items
 
+    async def get_stale_assigned_work(self, assigned_timeout_minutes: int) -> List[WorkItem]:
+        """Get ASSIGNED work items that were never started by a compute.
+
+        Detects work items stuck in ASSIGNED status — typically caused by a
+        race between PR auto-merge resetting the SSE connection to idle and
+        the compute's claude_code_completed event clobbering the assignment,
+        or by an assigned compute failing on a different task without
+        touching this work item.
+
+        Args:
+            assigned_timeout_minutes: Minutes after which an ASSIGNED item
+                with no started_at is considered stale.
+
+        Returns:
+            List of stale ASSIGNED work items.
+        """
+        stale_threshold = datetime.now(timezone.utc) - timedelta(minutes=assigned_timeout_minutes)
+        stale_items = []
+
+        for work in self._work_items.values():
+            if work.status != WorkStatus.ASSIGNED:
+                continue
+
+            # Only recover items that were never started
+            if work.started_at is not None:
+                continue
+
+            assigned_at = work.assigned_at or work.updated_at
+            if assigned_at < stale_threshold:
+                stale_items.append(work)
+
+        return stale_items
+
+    async def reset_assigned_to_pending(
+        self,
+        work_id: str,
+        save_callback=None
+    ) -> Optional[WorkItem]:
+        """Reset a stale ASSIGNED work item back to PENDING for re-dispatch.
+
+        Args:
+            work_id: Work item ID
+            save_callback: Async callback to persist the work item
+
+        Returns:
+            Updated work item, or None if not found / wrong status.
+        """
+        work = self._work_items.get(work_id)
+        if not work:
+            return None
+
+        if work.status != WorkStatus.ASSIGNED:
+            logger.warning(
+                f"Cannot reset work {work_id}: expected ASSIGNED, got {work.status}"
+            )
+            return None
+
+        old_assignee = work.assigned_to
+
+        # Clean up Redis indices
+        if self._redis:
+            await self._redis._redis.srem(
+                self._key("work:status:assigned"),
+                work_id
+            )
+            if old_assignee:
+                await self._redis._redis.srem(
+                    self._key(f"work:assignee:{old_assignee}"),
+                    work_id
+                )
+                await self._redis._redis.delete(
+                    self._key(f"workmap:compute:{old_assignee}:current")
+                )
+
+        recovery_note = (
+            f"[{datetime.now(timezone.utc).isoformat()}] "
+            f"Stale ASSIGNED recovery: reset to PENDING "
+            f"(was assigned to {old_assignee})"
+        )
+        work.progress_notes.append(recovery_note)
+
+        work.status = WorkStatus.PENDING
+        work.assigned_to = None
+        work.assigned_skills = []
+        work.assigned_at = None
+        work.started_at = None
+        work.last_activity_at = None
+        work.updated_at = datetime.now(timezone.utc)
+
+        if save_callback:
+            await save_callback(work)
+
+        await self._emit_status_change_event(work, WorkStatus.ASSIGNED, WorkStatus.PENDING)
+
+        logger.info(
+            f"Work {work_id} reset from ASSIGNED to PENDING "
+            f"(was assigned to {old_assignee})"
+        )
+        return work
+
     async def mark_work_timed_out(
         self,
         work_id: str,

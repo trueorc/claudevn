@@ -1285,6 +1285,16 @@ class WorkMapService:
         """Get work items that have been IN_PROGRESS for too long without activity."""
         return await self._assignment_service.get_stale_work(timeout_minutes)
 
+    async def get_stale_assigned_work(self, assigned_timeout_minutes: int) -> List[WorkItem]:
+        """Get ASSIGNED work items that were never started by a compute."""
+        return await self._assignment_service.get_stale_assigned_work(assigned_timeout_minutes)
+
+    async def reset_assigned_to_pending(self, work_id: str) -> Optional[WorkItem]:
+        """Reset a stale ASSIGNED work item back to PENDING for re-dispatch."""
+        return await self._assignment_service.reset_assigned_to_pending(
+            work_id, save_callback=self._save_to_redis
+        )
+
     async def mark_work_timed_out(
         self,
         work_id: str,
