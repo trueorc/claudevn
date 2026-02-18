@@ -1,8 +1,8 @@
-# TrueOrc Contributor License Agreement
+# ClaudeVN Contributor License Agreement
 
 ## Purpose
 
-This Contributor License Agreement ("Agreement") documents the rights granted by contributors to Guarrdon ("Maintainer") for contributions to the TrueOrc project ("Project").
+This Contributor License Agreement ("Agreement") documents the rights granted by contributors to trueorc ("Maintainer") for contributions to the ClaudeVN project ("Project").
 
 This Agreement enables dual licensing: the Project is publicly available under the GNU Affero General Public License v3.0 (AGPL-3.0), but the Maintainer may offer the Project under alternative commercial licenses to organizations that require different terms.
 
@@ -63,7 +63,7 @@ This Agreement is governed by the laws of the jurisdiction in which the Maintain
 
 ## Agreement Signature
 
-By signing below, you accept and agree to the terms of this Contributor License Agreement for your past, present, and future Contributions to the TrueOrc project.
+By signing below, you accept and agree to the terms of this Contributor License Agreement for your past, present, and future Contributions to the ClaudeVN project.
 
 **Full Name:**
 
