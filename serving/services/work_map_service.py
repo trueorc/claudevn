@@ -124,6 +124,15 @@ class WorkMapService:
                                 (v.decode() if isinstance(v, bytes) else v)
                                 for k, v in data.items()
                             }
+                            def _parse_dt(val: str) -> Optional[datetime]:
+                                """Parse an ISO datetime string, returning None for empty/invalid."""
+                                if not val:
+                                    return None
+                                try:
+                                    return datetime.fromisoformat(val)
+                                except (ValueError, TypeError):
+                                    return None
+
                             work = WorkItem(
                                 work_id=work_data.get('work_id', ''),
                                 title=work_data.get('title', ''),
@@ -146,8 +155,22 @@ class WorkMapService:
                                 branch_name=work_data.get('branch_name', ''),
                                 assigned_to=work_data.get('assigned_to') or None,
                                 assigned_skills=json.loads(work_data.get('assigned_skills', '[]')),
-                                retry_count=int(work_data.get('retry_count', 0))
+                                retry_count=int(work_data.get('retry_count', 0)),
+                                progress_percent=int(work_data.get('progress_percent', 0)),
+                                progress_notes=json.loads(work_data.get('progress_notes', '[]')),
+                                error=work_data.get('error') or None,
+                                assigned_at=_parse_dt(work_data.get('assigned_at', '')),
+                                started_at=_parse_dt(work_data.get('started_at', '')),
+                                completed_at=_parse_dt(work_data.get('completed_at', '')),
+                                last_activity_at=_parse_dt(work_data.get('last_activity_at', '')),
                             )
+                            # Restore persisted timestamps (override model defaults)
+                            raw_created = _parse_dt(work_data.get('created_at', ''))
+                            if raw_created:
+                                work.created_at = raw_created
+                            raw_updated = _parse_dt(work_data.get('updated_at', ''))
+                            if raw_updated:
+                                work.updated_at = raw_updated
                             self._work_items[work.work_id] = work
                     except Exception as e:
                         logger.error(f"Error loading work from {key_str}: {e}")
