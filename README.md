@@ -241,6 +241,16 @@ See `CONTRIBUTING.md` for guidelines.
 
 ---
 
+## Independent Project
+
+ClaudeVN is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Anthropic PBC. Claude and Claude Code are trademarks of Anthropic PBC.
+
+We built ClaudeVN because we believe Claude Code is the most capable AI coding tool in existence, and we wanted to explore what becomes possible when multiple instances work together as a distributed network. This project exists to extend those capabilities — not to replicate Anthropic's work, but to build on top of it.
+
+If you're from Anthropic and you found this: we think what you're building matters. We'd love to connect.
+
+---
+
 ## License
 
 AGPL-3.0 License — See `LICENSE` file.
