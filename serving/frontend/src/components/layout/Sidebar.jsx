@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, User, ChevronDown, Check } from 'lucide-react'
+import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check } from 'lucide-react'
 import useSystemHealth from '../../hooks/useSystemHealth'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import NotificationBell from '../notifications/NotificationBell'
@@ -172,16 +172,6 @@ function Sidebar() {
           </NavLink>
         ))}
       </div>
-
-      <div className="sidebar-divider" />
-      <NavLink
-        to="/settings/profile"
-        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-        title="Profile"
-      >
-        <User size={18} strokeWidth={1.5} />
-        <span className="nav-item-label">Profile</span>
-      </NavLink>
 
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
