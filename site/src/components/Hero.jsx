@@ -28,7 +28,7 @@ export default function Hero() {
 
         <div className="hero-actions">
           <a
-            href="https://github.com/guarrdon"
+            href="https://github.com/trueorc/claudevn"
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-primary"

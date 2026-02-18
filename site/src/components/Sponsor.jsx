@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-const SPONSOR_URL = 'https://github.com/sponsors/Guarrdon'
+const SPONSOR_URL = 'https://github.com/sponsors/trueorc'
 
 export default function Sponsor() {
   const ref = useRef(null)

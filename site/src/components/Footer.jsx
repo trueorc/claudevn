@@ -5,7 +5,7 @@ export default function Footer() {
         <div className="footer-links">
           <div className="footer-col">
             <h4 className="footer-col-title">Project</h4>
-            <a href="https://github.com/guarrdon" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="https://github.com/trueorc/claudevn" target="_blank" rel="noopener noreferrer">GitHub</a>
             <a href="#features">Features</a>
             <a href="#docs">Documentation</a>
           </div>
@@ -13,11 +13,11 @@ export default function Footer() {
             <h4 className="footer-col-title">Resources</h4>
             <a href="#how-it-works">How It Works</a>
             <a href="#demo">Demo</a>
-            <a href="https://github.com/guarrdon" target="_blank" rel="noopener noreferrer">Issues</a>
+            <a href="https://github.com/trueorc/claudevn" target="_blank" rel="noopener noreferrer">Issues</a>
           </div>
           <div className="footer-col">
             <h4 className="footer-col-title">Support</h4>
-            <a href="https://github.com/sponsors/Guarrdon" target="_blank" rel="noopener noreferrer">Sponsor</a>
+            <a href="https://github.com/sponsors/trueorc" target="_blank" rel="noopener noreferrer">Sponsor</a>
           </div>
         </div>
 

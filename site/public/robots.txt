@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://claudevn.dev/sitemap.xml
+Sitemap: https://claudevn.com/sitemap.xml

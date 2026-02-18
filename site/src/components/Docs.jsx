@@ -9,7 +9,7 @@ const resources = [
     ),
     title: 'Architecture Guide',
     description: 'How the network hub coordinates Claude Code agents and distributes work across your compute network.',
-    href: 'https://github.com/guarrdon',
+    href: 'https://github.com/trueorc/claudevn',
   },
   {
     icon: (
@@ -19,7 +19,7 @@ const resources = [
     ),
     title: 'Quick Start',
     description: 'Get ClaudeVN running locally with Docker Compose in under 5 minutes.',
-    href: 'https://github.com/guarrdon',
+    href: 'https://github.com/trueorc/claudevn',
   },
   {
     icon: (
@@ -29,7 +29,7 @@ const resources = [
     ),
     title: 'MCP Tools Reference',
     description: 'The communication protocol that enables real-time coordination between AI agents on the network.',
-    href: 'https://github.com/guarrdon',
+    href: 'https://github.com/trueorc/claudevn',
   },
 ]
 
@@ -88,7 +88,7 @@ export default function Docs() {
           <h3 className="docs-quickstart-title">Quick start</h3>
           <div className="docs-code">
             <pre><code><span className="code-comment"># Clone and start with Docker Compose</span>
-{'\n'}git clone https://github.com/guarrdon/claudevn.git
+{'\n'}git clone https://github.com/trueorc/claudevn.git
 {'\n'}cd claudevn
 {'\n'}docker compose up</code></pre>
           </div>

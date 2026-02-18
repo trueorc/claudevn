@@ -5,7 +5,7 @@ const links = [
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'Demo', href: '#demo' },
   { label: 'Docs', href: '#docs' },
-  { label: 'GitHub', href: 'https://github.com/guarrdon', external: true },
+  { label: 'GitHub', href: 'https://github.com/trueorc/claudevn', external: true },
 ]
 
 export default function Nav() {
@@ -42,7 +42,7 @@ export default function Nav() {
 
         <div className="nav-actions">
           <a
-            href="https://github.com/guarrdon"
+            href="https://github.com/trueorc/claudevn"
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-primary btn-sm"
