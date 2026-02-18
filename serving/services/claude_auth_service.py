@@ -142,6 +142,9 @@ class ClaudeAuthService:
         Returns:
             Dict with status and message.
         """
+        # Strip whitespace and newlines that may be introduced by copy-paste
+        token = "".join(token.split())
+
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=TOKEN_VALIDITY_DAYS)
 
@@ -414,6 +417,8 @@ class ClaudeAuthService:
                 "auth_token",
                 {
                     "token": raw_token,
+                    "component_id": component_id,
+                    "expires_at": token_data.get("expires_at"),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             )
