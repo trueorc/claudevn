@@ -180,7 +180,7 @@ Serving now acts as an HTTP client to the marketplace service. Any component tha
 ### 1. Build and Start Services
 
 ```bash
-cd /mnt/c/Users/guarr/Development/claudevn
+cd claudevn
 docker compose build
 docker compose up -d
 ```

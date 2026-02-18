@@ -41,7 +41,7 @@ open http://localhost:8003/docs
 ### 1. Build Services
 
 ```bash
-cd /mnt/c/Users/guarr/Development/claudevn
+cd claudevn
 docker compose build marketplace
 ```
 
