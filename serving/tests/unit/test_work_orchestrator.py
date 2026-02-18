@@ -308,6 +308,7 @@ class TestOrchestratorStaleWorkDetection:
         with patch("services.work_map_service.get_work_map_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.get_stale_work = AsyncMock(return_value=[mock_work])
+            mock_service.get_stale_assigned_work = AsyncMock(return_value=[])
             mock_service.mark_work_timed_out = AsyncMock(return_value=MagicMock(
                 status=WorkStatus.PENDING,
                 retry_count=1
@@ -330,6 +331,7 @@ class TestOrchestratorStaleWorkDetection:
         with patch("services.work_map_service.get_work_map_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.get_stale_work = AsyncMock(return_value=[mock_work])
+            mock_service.get_stale_assigned_work = AsyncMock(return_value=[])
             mock_service.mark_work_timed_out = AsyncMock(return_value=MagicMock(
                 status=WorkStatus.PENDING,
                 retry_count=1
@@ -349,6 +351,7 @@ class TestOrchestratorStaleWorkDetection:
         with patch("services.work_map_service.get_work_map_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.get_stale_work = AsyncMock(return_value=[])
+            mock_service.get_stale_assigned_work = AsyncMock(return_value=[])
             mock_get_service.return_value = mock_service
 
             await orch._detect_and_handle_stale_work()
@@ -366,6 +369,7 @@ class TestOrchestratorStaleWorkDetection:
         with patch("services.work_map_service.get_work_map_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.get_stale_work = AsyncMock(return_value=[mock_work])
+            mock_service.get_stale_assigned_work = AsyncMock(return_value=[])
             mock_service.mark_work_timed_out = AsyncMock(return_value=MagicMock(
                 status=WorkStatus.FAILED,
                 retry_count=3
@@ -377,6 +381,31 @@ class TestOrchestratorStaleWorkDetection:
             assert orch._stats["total_timeouts"] == 1
             # FAILED status should not increment retry count
             assert orch._stats["total_timeout_retries"] == 0
+
+    @pytest.mark.asyncio
+    async def test_detect_stale_assigned_work_recovers(self):
+        """Test that stale ASSIGNED items are recovered to PENDING."""
+        orch = WorkOrchestrator(timeout_minutes=30, assigned_timeout_minutes=3)
+
+        mock_stale = MagicMock()
+        mock_stale.work_id = "work_orphan"
+        mock_stale.assigned_to = "compute-001"
+        mock_stale.assigned_at = "2026-01-01T00:00:00Z"
+
+        with patch("services.work_map_service.get_work_map_service") as mock_get_service:
+            mock_service = MagicMock()
+            mock_service.get_stale_work = AsyncMock(return_value=[])
+            mock_service.get_stale_assigned_work = AsyncMock(return_value=[mock_stale])
+            mock_service.reset_assigned_to_pending = AsyncMock(return_value=MagicMock(
+                status=WorkStatus.PENDING
+            ))
+            mock_get_service.return_value = mock_service
+
+            await orch._detect_and_handle_stale_work()
+
+            mock_service.get_stale_assigned_work.assert_called_once_with(3)
+            mock_service.reset_assigned_to_pending.assert_called_once_with("work_orphan")
+            assert orch._stats["total_assigned_recoveries"] == 1
 
 
 class TestOrchestratorSSEWorkAssignment:

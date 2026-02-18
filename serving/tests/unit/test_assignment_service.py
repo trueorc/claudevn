@@ -825,3 +825,175 @@ class TestMarkWorkForRetry:
         mock_redis._redis.delete.assert_any_call(
             "claudevn:workmap:workmap:compute:compute-001:current"
         )
+
+
+class TestGetStaleAssignedWork:
+    """Test detection of ASSIGNED work items that were never started."""
+
+    @pytest.mark.asyncio
+    async def test_returns_stale_assigned_items(self, service):
+        """ASSIGNED items older than threshold with no started_at are returned."""
+        work = WorkItem(
+            work_id="work_stale",
+            title="Stale Assigned",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.ASSIGNED,
+            assigned_to="compute-001",
+            assigned_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            started_at=None,
+        )
+        service._work_items = {"work_stale": work}
+
+        result = await service.get_stale_assigned_work(assigned_timeout_minutes=3)
+        assert len(result) == 1
+        assert result[0].work_id == "work_stale"
+
+    @pytest.mark.asyncio
+    async def test_ignores_recently_assigned(self, service):
+        """ASSIGNED items within the threshold are not returned."""
+        work = WorkItem(
+            work_id="work_fresh",
+            title="Fresh Assigned",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.ASSIGNED,
+            assigned_to="compute-001",
+            assigned_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+            started_at=None,
+        )
+        service._work_items = {"work_fresh": work}
+
+        result = await service.get_stale_assigned_work(assigned_timeout_minutes=3)
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_ignores_started_items(self, service):
+        """ASSIGNED items with started_at set are not returned."""
+        work = WorkItem(
+            work_id="work_started",
+            title="Started",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.ASSIGNED,
+            assigned_to="compute-001",
+            assigned_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        )
+        service._work_items = {"work_started": work}
+
+        result = await service.get_stale_assigned_work(assigned_timeout_minutes=3)
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_ignores_non_assigned_statuses(self, service):
+        """Only ASSIGNED items are returned, not PENDING or IN_PROGRESS."""
+        pending = WorkItem(
+            work_id="work_pending",
+            title="Pending",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.PENDING,
+        )
+        in_progress = WorkItem(
+            work_id="work_ip",
+            title="In Progress",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.IN_PROGRESS,
+            assigned_to="compute-001",
+            assigned_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        service._work_items = {
+            "work_pending": pending,
+            "work_ip": in_progress,
+        }
+
+        result = await service.get_stale_assigned_work(assigned_timeout_minutes=3)
+        assert len(result) == 0
+
+
+class TestResetAssignedToPending:
+    """Test resetting stale ASSIGNED work items back to PENDING."""
+
+    @pytest.mark.asyncio
+    async def test_resets_to_pending(self, service):
+        """Successfully resets ASSIGNED item to PENDING."""
+        work = WorkItem(
+            work_id="work_reset",
+            title="Reset Me",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.ASSIGNED,
+            assigned_to="compute-001",
+            assigned_skills=["code-writer"],
+            assigned_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        service._work_items = {"work_reset": work}
+
+        result = await service.reset_assigned_to_pending("work_reset")
+
+        assert result is not None
+        assert result.status == WorkStatus.PENDING
+        assert result.assigned_to is None
+        assert result.assigned_skills == []
+        assert result.assigned_at is None
+        assert result.started_at is None
+        assert len(result.progress_notes) == 1
+        assert "Stale ASSIGNED recovery" in result.progress_notes[0]
+        assert "compute-001" in result.progress_notes[0]
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_missing(self, service):
+        """Returns None when work_id not found."""
+        service._work_items = {}
+        result = await service.reset_assigned_to_pending("nonexistent")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_assigned_status(self, service):
+        """Returns None when work item is not in ASSIGNED status."""
+        work = WorkItem(
+            work_id="work_pending",
+            title="Pending",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.PENDING,
+        )
+        service._work_items = {"work_pending": work}
+
+        result = await service.reset_assigned_to_pending("work_pending")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_redis(self, service_with_redis, mock_redis):
+        """Verifies Redis index cleanup on reset."""
+        work = WorkItem(
+            work_id="work_redis",
+            title="Redis Reset",
+            description="desc",
+            project_id="proj-001",
+            status=WorkStatus.ASSIGNED,
+            assigned_to="compute-002",
+            assigned_skills=["code-writer"],
+            assigned_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        service_with_redis._work_items = {"work_redis": work}
+
+        save_cb = AsyncMock()
+        result = await service_with_redis.reset_assigned_to_pending(
+            "work_redis", save_callback=save_cb
+        )
+
+        assert result.status == WorkStatus.PENDING
+        mock_redis._redis.srem.assert_any_call(
+            "claudevn:workmap:work:status:assigned", "work_redis"
+        )
+        mock_redis._redis.srem.assert_any_call(
+            "claudevn:workmap:work:assignee:compute-002", "work_redis"
+        )
+        mock_redis._redis.delete.assert_any_call(
+            "claudevn:workmap:workmap:compute:compute-002:current"
+        )
+        save_cb.assert_awaited_once()
