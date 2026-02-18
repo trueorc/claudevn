@@ -671,6 +671,9 @@ exit 0
                 result.stderr
             )
 
+        # Re-chown so SSH pushes (as git user) still work after fetch
+        self._chown_to_git_user(repo_path)
+
         return {
             "success": True,
             "project": project,

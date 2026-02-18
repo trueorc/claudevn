@@ -848,6 +848,9 @@ class PRService:
                 logger.error(f"Push failed for {project}/{branch}: {push_result.stderr}")
                 raise ValueError(f"Push failed: {push_result.stderr}")
 
+            # Re-chown bare repo so SSH pushes (as git user) still work
+            self._repo_manager._chown_to_git_user(repo_path)
+
             # 5. Get merge commit
             commit_result = subprocess.run(
                 ["git", "-C", str(work_dir), "rev-parse", "HEAD"],
