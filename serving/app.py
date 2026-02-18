@@ -711,12 +711,30 @@ async def lifespan(app: FastAPI):
     # =========================================================================
     if sse_manager and claude_auth_service:
         async def _on_compute_reconnect_auth(compute_id: str) -> None:
-            """Re-push stored token when compute reconnects."""
+            """Re-push stored token and sync registry auth_status when compute reconnects."""
             try:
                 auth_svc = get_claude_auth_service()
                 if not auth_svc:
                     return
-                await auth_svc.push_token_to_compute(compute_id)
+                pushed = await auth_svc.push_token_to_compute(compute_id)
+                if pushed:
+                    # Sync registry auth_status so the UI reflects the real state
+                    from models.compute import ComputeAuthStatus
+                    from services.registry_service import get_compute_registry
+                    reg = get_compute_registry()
+                    if reg:
+                        token_data = auth_svc._tokens.get(compute_id, {})
+                        expires_at_str = token_data.get("expires_at")
+                        expires_at = (
+                            datetime.fromisoformat(expires_at_str)
+                            if expires_at_str else None
+                        )
+                        await reg.update_auth_status(
+                            compute_id,
+                            ComputeAuthStatus.AUTHORIZED,
+                            auth_expires_at=expires_at,
+                        )
+                        logger.info(f"Synced registry auth_status for {compute_id} to AUTHORIZED on reconnect")
             except Exception as e:
                 logger.debug(f"Token re-push on reconnect for {compute_id}: {e}")
 
