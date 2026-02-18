@@ -185,6 +185,8 @@ async def lifespan(app: FastAPI):
         credentials_path=config.credentials_path,
         check_interval=config.credential_check_interval,
         expiry_warning_days=config.credential_expiry_warning_days,
+        auth_mode=config.auth_mode,
+        serving_auth_url=config.serving_auth_url,
     )
     logger.info(f"Credential monitor initialized (status={credential_monitor.status.value})")
 

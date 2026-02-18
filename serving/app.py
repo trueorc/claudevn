@@ -4,6 +4,7 @@ FastAPI application for ClaudeVN Serving Component.
 
 import os
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -713,8 +714,9 @@ async def lifespan(app: FastAPI):
             """Re-push stored token when compute reconnects."""
             try:
                 auth_svc = get_claude_auth_service()
-                if auth_svc:
-                    await auth_svc.push_token_to_compute(compute_id)
+                if not auth_svc:
+                    return
+                await auth_svc.push_token_to_compute(compute_id)
             except Exception as e:
                 logger.debug(f"Token re-push on reconnect for {compute_id}: {e}")
 
