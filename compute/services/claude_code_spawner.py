@@ -953,11 +953,6 @@ sys.exit(1)
         if context.get("base_branch"):
             env_vars["CLAUDEVN_BASE_BRANCH"] = context["base_branch"]
 
-        # Forward Claude OAuth token so the SDK subprocess can authenticate
-        oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
-        if oauth_token:
-            env_vars["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
-
         # Set GIT_SSH_COMMAND so Claude Code can push/pull via SSH
         ssh_key_path = context.get("ssh_key_path") or self.ssh_key_path
         if ssh_key_path:

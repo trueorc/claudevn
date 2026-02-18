@@ -711,33 +711,14 @@ async def lifespan(app: FastAPI):
     # =========================================================================
     if sse_manager and claude_auth_service:
         async def _on_compute_reconnect_auth(compute_id: str) -> None:
-            """Push auth token when compute connects/reconnects.
-
-            Tries per-compute token first, falls back to the serving
-            token so compute always gets a valid Anthropic OAuth token.
-            """
+            """Re-push stored token when compute reconnects."""
             try:
                 auth_svc = get_claude_auth_service()
                 if not auth_svc:
                     return
-                # Try per-compute token first
-                pushed = await auth_svc.push_token_to_compute(compute_id)
-                if not pushed:
-                    # No per-compute token — push the serving token instead
-                    serving_token = await auth_svc.get_token("serving")
-                    if serving_token and auth_svc._send_event_callback:
-                        await auth_svc._send_event_callback(
-                            compute_id,
-                            "auth_token",
-                            {
-                                "token": serving_token,
-                                "component_id": compute_id,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            },
-                        )
-                        logger.info(f"Pushed serving token to {compute_id} (fallback)")
+                await auth_svc.push_token_to_compute(compute_id)
             except Exception as e:
-                logger.debug(f"Token push on connect for {compute_id}: {e}")
+                logger.debug(f"Token re-push on reconnect for {compute_id}: {e}")
 
         sse_manager.on_connect(_on_compute_reconnect_auth)
         logger.info("Token re-push on reconnect handler registered")
