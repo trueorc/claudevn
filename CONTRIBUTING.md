@@ -46,8 +46,8 @@ All contributions require signing our [Contributor License Agreement](CLA.md). T
 
 ```bash
 # Clone the repository
-git clone https://github.com/Guarrdon/trueorc.git
-cd trueorc
+git clone https://github.com/trueorc/claudevn.git
+cd claudevn
 
 # Create a Python virtual environment
 python3 -m venv .venv
