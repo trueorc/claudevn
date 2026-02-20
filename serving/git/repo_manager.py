@@ -6,7 +6,6 @@ and basic Git operations.
 
 import logging
 import os
-import pwd
 import shutil
 import subprocess
 import tempfile
@@ -38,47 +37,13 @@ class RepoManager:
         self._repos_path.mkdir(parents=True, exist_ok=True)
 
     def _git_cmd(self, repo_path: Path, *args: str, **kwargs) -> subprocess.CompletedProcess:
-        """Run a git command against a repo, bypassing safe.directory checks.
+        """Run a git command against a repo.
 
-        Serving runs as root but repos are owned by the git user.  Without
-        this, git refuses to operate on the repo (CVE-2022-24765).
+        With HTTP transport, serving owns all repos directly (no git user),
+        so no safe.directory bypass is needed.
         """
         cmd = ["git", "-C", str(repo_path), *args]
-        env = {**os.environ, "GIT_CONFIG_COUNT": "1",
-               "GIT_CONFIG_KEY_0": "safe.directory",
-               "GIT_CONFIG_VALUE_0": "*"}
-        return subprocess.run(cmd, capture_output=True, text=True, env=env, **kwargs)
-
-    def _chown_to_git_user(self, path: Path) -> None:
-        """Change ownership of a path to the git user.
-
-        When sshd authenticates compute instances as the git user,
-        git-upload-pack/git-receive-pack runs as that user. Git's
-        safe.directory check (CVE-2022-24765) rejects repositories
-        owned by a different user. Since serving runs as root but
-        SSH access runs as the git user, we must chown repos after
-        creation.
-
-        Args:
-            path: Path to chown (typically a bare repo directory)
-        """
-        git_user = self._config.git_user
-        try:
-            pw = pwd.getpwnam(git_user)
-            uid, gid = pw.pw_uid, pw.pw_gid
-            # Recursively chown the entire repo directory
-            for dirpath, dirnames, filenames in os.walk(path):
-                os.chown(dirpath, uid, gid)
-                for filename in filenames:
-                    os.chown(os.path.join(dirpath, filename), uid, gid)
-            logger.debug(f"Changed ownership of {path} to {git_user} ({uid}:{gid})")
-        except KeyError:
-            logger.warning(
-                f"Git user '{git_user}' not found, skipping chown. "
-                "SSH Git access may fail with 'dubious ownership' errors."
-            )
-        except OSError as e:
-            logger.warning(f"Failed to chown {path} to {git_user}: {e}")
+        return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
     def _seed_initial_commit(self, repo_path: Path) -> None:
         """Create an initial empty commit in a bare repository.
@@ -185,6 +150,13 @@ class RepoManager:
             capture_output=True
         )
 
+        # Enable HTTP push (git-http-backend requires this for receive-pack)
+        subprocess.run(
+            ["git", "-C", str(repo_path), "config", "http.receivepack", "true"],
+            check=True,
+            capture_output=True
+        )
+
         # Seed initial commit so refs/heads/main actually exists
         # Without this, `git clone --branch main` fails because the
         # symbolic ref points to a nonexistent ref
@@ -193,11 +165,6 @@ class RepoManager:
         # Install hooks if requested
         if install_hooks:
             self.install_hooks(project)
-
-        # Chown repo to git user so SSH-based access works
-        # (prevents "dubious ownership" errors when git-upload-pack
-        # runs as the git user but the repo was created by root)
-        self._chown_to_git_user(repo_path)
 
         logger.info(f"Repository created: {project}")
         return repo_path
@@ -544,18 +511,20 @@ exit 0
         logger.info(f"Deleted branch {branch} from {project}")
         return True
 
-    def get_repo_url(self, project: str) -> str:
-        """Get SSH URL for repository.
+    def get_repo_url(self, project: str, host: Optional[str] = None) -> str:
+        """Get HTTP URL for repository.
 
         Args:
             project: Project name
+            host: Override hostname (defaults to GIT_HTTP_HOST env var or 'serving')
 
         Returns:
-            SSH URL for cloning
+            HTTP URL for cloning
         """
-        git_user = self._config.git_user
-        repo_path = self._repo_path(project)
-        return f"{git_user}@localhost:{repo_path}"
+        if host is None:
+            host = os.getenv("GIT_HTTP_HOST", "serving")
+        port = os.getenv("SERVING_PORT", "8002")
+        return f"http://{host}:{port}/git/{project}.git"
 
     def clone_from_url(
         self,
@@ -617,11 +586,15 @@ exit 0
             capture_output=True
         )
 
+        # Enable HTTP push
+        subprocess.run(
+            ["git", "-C", str(repo_path), "config", "http.receivepack", "true"],
+            check=True,
+            capture_output=True
+        )
+
         # Install hooks
         self.install_hooks(project)
-
-        # Chown repo to git user for SSH access
-        self._chown_to_git_user(repo_path)
 
         logger.info(f"Repository cloned: {project} from {url}")
         return repo_path

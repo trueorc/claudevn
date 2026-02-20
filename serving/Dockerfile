@@ -20,12 +20,10 @@ RUN apt-get update && \
     curl \
     git \
     openssh-client \
-    openssh-server \
     redis-tools \
     gnupg \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /run/sshd
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 and Claude CLI for serving-side OAuth login
 RUN mkdir -p /etc/apt/keyrings \
@@ -35,13 +33,6 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @anthropic-ai/claude-code
-
-# Create git user for SSH Git server access.
-# Compute containers connect as git@serving:2222 — sshd requires
-# this user to exist in /etc/passwd for authentication to proceed.
-RUN useradd -m -d /home/git -s "$(which git-shell)" git && \
-    usermod -p '*' git && \
-    git config --global --add safe.directory '*'
 
 # Copy VERSION file and shared library, then install
 COPY VERSION /app/VERSION
@@ -61,8 +52,8 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # Create necessary directories
 RUN mkdir -p data/serving logs db data/repos data/ssh_keys marketplace/skills/system marketplace/skills/user
 
-# Expose ports (API and SSH Git)
-EXPOSE 8002 2222
+# Expose port (API with built-in Git Smart HTTP)
+EXPOSE 8002
 
 # Set environment variables
 ENV SERVING_HOST=0.0.0.0
@@ -85,13 +76,7 @@ ENV REDIS_KEY_PREFIX=claudevn:
 # Git infrastructure
 ENV GIT_REPOS_PATH=/app/data/repos
 ENV GIT_SSH_KEYS_PATH=/app/data/ssh_keys
-ENV GIT_USER=git
-ENV GIT_ENABLE_SSH=true
 ENV GIT_HOOK_REDIS_NOTIFY=true
-
-# SSH Git server
-ENV SSH_GIT_PORT=2222
-ENV SSH_GIT_HOST=localhost
 
 # Claude authentication credentials path
 ENV CLAUDE_CREDENTIALS_PATH=/app/data/serving/claude-credentials

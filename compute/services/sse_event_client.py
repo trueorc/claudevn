@@ -115,15 +115,15 @@ class SSEEventClient:
         self._shutdown_callback: Optional[ShutdownCallback] = None
         self._shutdown_task: Optional[asyncio.Task] = None
 
-        # SSH key path received from Serving
-        self._ssh_key_path: Optional[str] = None
+        # Git token received from Serving (for HTTP auth)
+        self._git_token: Optional[str] = None
 
         # Register built-in handlers
         self._register_builtin_handlers()
 
     def _register_builtin_handlers(self) -> None:
-        """Register built-in event handlers for work_assigned, work_cancelled, work_completed, merge_conflict, ssh_key_provisioned, credentials_refresh, and auth_token."""
-        self.on("ssh_key_provisioned", self._handle_ssh_key_provisioned)
+        """Register built-in event handlers for work_assigned, work_cancelled, work_completed, merge_conflict, git_token_provisioned, credentials_refresh, and auth_token."""
+        self.on("git_token_provisioned", self._handle_git_token_provisioned)
         self.on("work_assigned", self._handle_work_assigned)
         self.on("work_cancelled", self._handle_work_cancelled)
         self.on("work_completed", self._handle_work_completed)
@@ -131,29 +131,20 @@ class SSEEventClient:
         self.on("credentials_refresh", self._handle_credentials_refresh)
         self.on("auth_token", self._handle_auth_token)
 
-    async def _handle_ssh_key_provisioned(self, event_type: str, data: dict[str, Any]) -> None:
-        """Handle ssh_key_provisioned event by saving private key to disk.
+    async def _handle_git_token_provisioned(self, event_type: str, data: dict[str, Any]) -> None:
+        """Handle git_token_provisioned event by storing the token.
 
         Args:
-            event_type: Event type (ssh_key_provisioned)
-            data: Event data containing private_key
+            event_type: Event type (git_token_provisioned)
+            data: Event data containing token
         """
-        private_key = data.get("private_key")
-        if not private_key:
-            logger.error("Received ssh_key_provisioned without private_key")
+        token = data.get("token")
+        if not token:
+            logger.error("Received git_token_provisioned without token")
             return
 
-        try:
-            key_dir = Path(f"/tmp/.ssh-{self.compute_id}")
-            key_dir.mkdir(mode=0o700, exist_ok=True)
-            key_path = key_dir / "id_ed25519"
-            key_path.write_text(private_key)
-            key_path.chmod(0o600)
-
-            self._ssh_key_path = str(key_path)
-            logger.info(f"SSH key stored at {self._ssh_key_path}")
-        except Exception as e:
-            logger.error(f"Failed to store SSH key: {e}")
+        self._git_token = token
+        logger.info(f"Git token stored for {self.compute_id}")
 
     async def _handle_work_assigned(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle work_assigned event by spawning Claude Code.
@@ -166,10 +157,10 @@ class SSEEventClient:
 
         logger.info(f"Received work_assigned: task_id={data.get('task_id')}")
 
-        # Inject SSH key path into context if available
-        if self._ssh_key_path:
+        # Inject Git token into context if available
+        if self._git_token:
             context = data.get("context", {})
-            context["ssh_key_path"] = self._ssh_key_path
+            context["git_token"] = self._git_token
             data = {**data, "context": context}
 
         spawner = get_claude_code_spawner()

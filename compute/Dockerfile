@@ -8,7 +8,6 @@ WORKDIR /app
 
 # Install system dependencies
 # Network utilities for integration tests (procps for pgrep, iputils-ping, netcat)
-# openssh-client is required for git clone over SSH (used by ClaudeCodeSpawner)
 # gosu is used by entrypoint to drop from root to compute user after credential setup
 #
 # NOTE: Node.js is no longer needed. The claude-agent-sdk Python package bundles
@@ -17,7 +16,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     git \
-    openssh-client \
     ca-certificates \
     gosu \
     procps \
@@ -30,17 +28,6 @@ RUN apt-get update && \
 RUN useradd -m -s /bin/bash -u 1000 compute && \
     mkdir -p /home/compute/.claude && \
     chown -R compute:compute /home/compute
-
-# Configure SSH for compute user to trust Serving's SSH Git server.
-# Compute containers operate in a trusted Docker network, so strict host key checking
-# is disabled for the 'serving' host. This prevents "Host key verification failed"
-# errors when cloning repos via ssh://git@serving:2222/...
-# Note: Only compute user needs SSH config since the service runs as compute (via gosu)
-RUN mkdir -p /home/compute/.ssh && \
-    printf "Host serving\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n" > /home/compute/.ssh/config && \
-    chmod 700 /home/compute/.ssh && \
-    chmod 600 /home/compute/.ssh/config && \
-    chown -R compute:compute /home/compute/.ssh
 
 # Copy VERSION file and shared library, then install
 COPY VERSION /app/VERSION
@@ -95,7 +82,7 @@ ENV COMPUTE_CAPABILITIES=python,javascript
 ENV COMPUTE_AUTH_MODE=serving
 ENV CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
 # The entire service runs as 'compute' user (uid 1000) via gosu in entrypoint.
-# This eliminates root/compute ownership mismatches for git repos and SSH keys.
+# Git authentication uses HTTP tokens provisioned by Serving via SSE.
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

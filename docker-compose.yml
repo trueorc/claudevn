@@ -99,7 +99,6 @@ services:
     container_name: claudevn-serving
     ports:
       - "8002:8002"
-      - "2222:2222"  # SSH Git server for compute instances
     environment:
       # Server
       - SERVING_HOST=0.0.0.0
@@ -123,11 +122,7 @@ services:
       # Git infrastructure
       - GIT_REPOS_PATH=/app/data/repos
       - GIT_SSH_KEYS_PATH=/app/data/ssh_keys
-      - GIT_ENABLE_SSH=true
       - GIT_HOOK_REDIS_NOTIFY=true
-      # SSH Git server
-      - SSH_GIT_PORT=2222
-      - SSH_GIT_HOST=serving
       # Marketplace service
       - MARKETPLACE_URL=http://marketplace:8003
       # Rate limiting - disable for local development

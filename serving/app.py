@@ -328,26 +328,37 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to initialize rate limiter: {e}. Rate limiting disabled.")
 
     # =========================================================================
-    # OPTIONAL: SSH Git Server
-    # Provides Git access for compute instances to push/pull branches.
-    # Can be disabled via GIT_ENABLE_SSH=false.
-    # If unavailable, compute instances cannot use Git for state sync.
+    # OPTIONAL: Git Token Service
+    # Manages authentication tokens for Git Smart HTTP access.
+    # Replaces SSH key-based authentication with token-based auth.
     # =========================================================================
-    ssh_server = None
     try:
-        enable_ssh = os.getenv('GIT_ENABLE_SSH', 'true').lower() == 'true'
-        if enable_ssh:
-            from git.ssh_server import start_ssh_server, get_ssh_server
-            ssh_server = await start_ssh_server()
-            if ssh_server:
-                status = ssh_server.get_status()
-                logger.info(f"SSH Git server started on port {status['port']}")
-            else:
-                logger.warning("SSH Git server failed to start. Compute Git push/pull disabled.")
-        else:
-            logger.info("SSH Git server disabled via GIT_ENABLE_SSH=false")
+        from git.git_token_service import GitTokenService, set_git_token_service
+        git_token_service = GitTokenService(redis_client=redis_client)
+        set_git_token_service(git_token_service)
+        logger.info("Git token service initialized")
     except Exception as e:
-        logger.warning(f"SSH Git server not available: {e}. Compute Git push/pull disabled.")
+        from git.git_token_service import set_git_token_service
+        set_git_token_service(None)
+        logger.warning(f"Git token service not available: {e}. Git auth disabled.")
+
+    # =========================================================================
+    # OPTIONAL: Migrate existing repos to enable HTTP push
+    # Ensures http.receivepack=true is set on all bare repos.
+    # =========================================================================
+    try:
+        from git.repo_manager import RepoManager
+        repo_mgr = RepoManager()
+        for project in repo_mgr.list_repos():
+            repo_path = repo_mgr._repo_path(project)
+            import subprocess as _sp
+            _sp.run(
+                ["git", "-C", str(repo_path), "config", "http.receivepack", "true"],
+                capture_output=True
+            )
+        logger.info("Migrated existing repos for HTTP push support")
+    except Exception as e:
+        logger.debug(f"Repo migration check: {e}")
 
     # =========================================================================
     # REQUIRED: Work Map Service
@@ -742,43 +753,45 @@ async def lifespan(app: FastAPI):
         logger.info("Token re-push on reconnect handler registered")
 
     # =========================================================================
-    # OPTIONAL: SSH Key Provisioning for Compute Lifecycle
-    # Generates and delivers SSH keys when compute instances connect via SSE,
-    # enabling them to clone/push Git repos. Revokes keys on disconnect.
+    # OPTIONAL: Git Token Provisioning for Compute Lifecycle
+    # Generates and delivers Git HTTP tokens when compute instances connect
+    # via SSE, enabling them to clone/push Git repos. Revokes on disconnect.
     # =========================================================================
     if sse_manager:
         try:
-            from git.ssh_key_manager import SSHKeyManager
-            ssh_key_mgr = SSHKeyManager()
+            from git.git_token_service import get_git_token_service
 
-            async def _on_compute_connect(compute_id: str) -> None:
-                """Generate and deliver SSH key pair when compute connects."""
+            async def _on_compute_connect_git(compute_id: str) -> None:
+                """Generate and deliver Git token when compute connects."""
                 try:
-                    private_key, public_key = ssh_key_mgr.generate_key_pair(compute_id)
-                    ssh_key_mgr.register_key(compute_id, public_key)
-                    ssh_key_mgr.sync_to_system()
-                    await sse_manager.send_event(compute_id, "ssh_key_provisioned", {
-                        "private_key": private_key,
+                    token_svc = get_git_token_service()
+                    if not token_svc:
+                        return
+                    token = await token_svc.create_compute_token(compute_id)
+                    await sse_manager.send_event(compute_id, "git_token_provisioned", {
+                        "token": token,
                         "compute_id": compute_id,
                     })
-                    logger.info(f"SSH key provisioned for {compute_id}")
+                    logger.info(f"Git token provisioned for {compute_id}")
                 except Exception as e:
-                    logger.error(f"Failed to provision SSH key for {compute_id}: {e}")
+                    logger.error(f"Failed to provision Git token for {compute_id}: {e}")
 
-            async def _on_compute_disconnect(compute_id: str) -> None:
-                """Revoke SSH key when compute disconnects."""
+            async def _on_compute_disconnect_git(compute_id: str) -> None:
+                """Revoke Git token when compute disconnects."""
                 try:
-                    ssh_key_mgr.revoke_key(compute_id)
-                    ssh_key_mgr.sync_to_system()
-                    logger.info(f"SSH key revoked for {compute_id}")
+                    token_svc = get_git_token_service()
+                    if not token_svc:
+                        return
+                    await token_svc.revoke_compute_token(compute_id)
+                    logger.info(f"Git token revoked for {compute_id}")
                 except Exception as e:
-                    logger.warning(f"Failed to revoke SSH key for {compute_id}: {e}")
+                    logger.warning(f"Failed to revoke Git token for {compute_id}: {e}")
 
-            sse_manager.on_connect(_on_compute_connect)
-            sse_manager.on_disconnect(_on_compute_disconnect)
-            logger.info("SSH key provisioning handlers registered")
+            sse_manager.on_connect(_on_compute_connect_git)
+            sse_manager.on_disconnect(_on_compute_disconnect_git)
+            logger.info("Git token provisioning handlers registered")
         except Exception as e:
-            logger.warning(f"SSH key provisioning not available: {e}")
+            logger.warning(f"Git token provisioning not available: {e}")
 
     # =========================================================================
     # OPTIONAL: Work Dispatcher (event-driven)
@@ -949,14 +962,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error stopping health monitoring: {e}")
 
-    # Stop SSH Git server
-    try:
-        from git.ssh_server import stop_ssh_server
-        await stop_ssh_server()
-        logger.info("SSH Git server stopped")
-    except Exception as e:
-        logger.debug(f"SSH server cleanup: {e}")
-
     # Close Redis connection
     try:
         from git.redis_client import close_redis
@@ -1033,6 +1038,10 @@ app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix
 # Note: Skill marketplace is a separate service on port 8003 - use MarketplaceClient
 app.include_router(observability.router)  # Already has /api/v1 in router prefix
+
+# Git Smart HTTP backend (mounted at /git/ for clean clone URLs)
+from git.http_backend import router as git_http_router
+app.include_router(git_http_router)
 
 
 # Health check endpoint

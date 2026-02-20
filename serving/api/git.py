@@ -1,6 +1,6 @@
 """Git infrastructure API endpoints.
 
-Provides REST API for Git repository management, SSH keys, and PR operations.
+Provides REST API for Git repository management, token auth, and PR operations.
 """
 
 import logging
@@ -11,8 +11,6 @@ from pydantic import BaseModel, Field
 
 from git.pr_service import PRService, PRStatus, PullRequest
 from git.repo_manager import RepoManager
-from git.ssh_key_manager import SSHKeyManager
-from git.ssh_server import get_ssh_server
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +19,6 @@ router = APIRouter(prefix="/git", tags=["git"])
 # Service instances (created lazily)
 _pr_service: Optional[PRService] = None
 _repo_manager: Optional[RepoManager] = None
-_ssh_manager: Optional[SSHKeyManager] = None
 
 
 def get_pr_service() -> PRService:
@@ -40,14 +37,6 @@ def get_repo_manager() -> RepoManager:
     return _repo_manager
 
 
-def get_ssh_manager() -> SSHKeyManager:
-    """Get SSH key manager singleton."""
-    global _ssh_manager
-    if _ssh_manager is None:
-        _ssh_manager = SSHKeyManager()
-    return _ssh_manager
-
-
 # ==========================================================================
 # Request/Response Models
 # ==========================================================================
@@ -61,7 +50,7 @@ class CreateRepoRequest(BaseModel):
 class RepoResponse(BaseModel):
     """Repository information response."""
     project: str
-    ssh_url: str
+    clone_url: str
     exists: bool
 
 
@@ -84,7 +73,7 @@ class RepoStatusResponse(BaseModel):
     """Extended repository status response with hook info."""
     project: str
     path: str
-    ssh_url: str
+    clone_url: str
     origin_url: Optional[str] = None
     default_branch: Optional[str] = None
     branches: List[str] = []
@@ -110,17 +99,27 @@ class MigrateHooksResponse(BaseModel):
     results: dict
 
 
-class RegisterKeyRequest(BaseModel):
-    """Request to register SSH key."""
-    compute_id: str = Field(..., description="Compute instance ID")
-    public_key: str = Field(..., description="SSH public key")
+class CreatePATRequest(BaseModel):
+    """Request to create a personal access token."""
+    owner: str = Field(..., description="Token owner")
+    description: str = Field(default="", description="Token description")
 
 
-class GenerateKeyResponse(BaseModel):
-    """Response with generated key pair."""
-    compute_id: str
-    public_key: str
-    private_key: str
+class CreatePATResponse(BaseModel):
+    """Response with created PAT (token shown only once)."""
+    token: str
+    owner: str
+    description: str
+
+
+class TokenListItem(BaseModel):
+    """Token metadata (without the actual token value)."""
+    type: str
+    token_hash_prefix: str
+    created_at: Optional[str] = None
+    compute_id: Optional[str] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
 
 
 class CreatePRRequest(BaseModel):
@@ -204,17 +203,7 @@ def pr_to_response(pr: PullRequest) -> PRResponse:
 
 @router.post("/repos", response_model=RepoResponse, status_code=status.HTTP_201_CREATED)
 async def create_repository(request: CreateRepoRequest):
-    """Create a new Git repository.
-
-    Args:
-        request: Create repo request
-
-    Returns:
-        Repository information
-
-    Raises:
-        HTTPException: If repository already exists
-    """
+    """Create a new Git repository."""
     repo_manager = get_repo_manager()
 
     if repo_manager.repo_exists(request.project):
@@ -225,13 +214,13 @@ async def create_repository(request: CreateRepoRequest):
 
     try:
         repo_manager.create_repo(request.project, install_hooks=request.install_hooks)
-        ssh_url = repo_manager.get_repo_url(request.project)
+        clone_url = repo_manager.get_repo_url(request.project)
 
         logger.info(f"Created repository: {request.project}")
 
         return RepoResponse(
             project=request.project,
-            ssh_url=ssh_url,
+            clone_url=clone_url,
             exists=True
         )
     except Exception as e:
@@ -244,28 +233,14 @@ async def create_repository(request: CreateRepoRequest):
 
 @router.get("/repos", response_model=List[str])
 async def list_repositories():
-    """List all repositories.
-
-    Returns:
-        List of project names
-    """
+    """List all repositories."""
     repo_manager = get_repo_manager()
     return repo_manager.list_repos()
 
 
 @router.get("/repos/{project}", response_model=RepoResponse)
 async def get_repository(project: str):
-    """Get repository information.
-
-    Args:
-        project: Project name
-
-    Returns:
-        Repository information
-
-    Raises:
-        HTTPException: If repository not found
-    """
+    """Get repository information."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.repo_exists(project):
@@ -276,24 +251,14 @@ async def get_repository(project: str):
 
     return RepoResponse(
         project=project,
-        ssh_url=repo_manager.get_repo_url(project),
+        clone_url=repo_manager.get_repo_url(project),
         exists=True
     )
 
 
 @router.delete("/repos/{project}", status_code=status.HTTP_200_OK)
 async def delete_repository(project: str):
-    """Delete a repository.
-
-    Args:
-        project: Project name
-
-    Returns:
-        Success message
-
-    Raises:
-        HTTPException: If repository not found
-    """
+    """Delete a repository."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.delete_repo(project):
@@ -303,20 +268,12 @@ async def delete_repository(project: str):
         )
 
     logger.warning(f"Deleted repository: {project}")
-
     return {"status": "deleted", "project": project}
 
 
 @router.get("/repos/{project}/branches", response_model=List[str])
 async def list_branches(project: str):
-    """List branches in a repository.
-
-    Args:
-        project: Project name
-
-    Returns:
-        List of branch names
-    """
+    """List branches in a repository."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.repo_exists(project):
@@ -330,20 +287,7 @@ async def list_branches(project: str):
 
 @router.delete("/repos/{project}/branches/{branch:path}", response_model=DeleteBranchResponse)
 async def delete_branch(project: str, branch: str):
-    """Delete a branch from the repository.
-
-    Protected branches (main, master) cannot be deleted.
-
-    Args:
-        project: Project name
-        branch: Branch name to delete
-
-    Returns:
-        Deletion result
-
-    Raises:
-        HTTPException: If repository not found, branch not found, or branch is protected
-    """
+    """Delete a branch from the repository."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.repo_exists(project):
@@ -355,7 +299,6 @@ async def delete_branch(project: str, branch: str):
     try:
         deleted = repo_manager.delete_branch(project, branch)
     except ValueError as e:
-        # Protected branch
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e)
@@ -368,27 +311,12 @@ async def delete_branch(project: str, branch: str):
         )
 
     logger.info(f"Deleted branch {branch} from {project}")
-
-    return DeleteBranchResponse(
-        project=project,
-        branch=branch,
-        deleted=True
-    )
+    return DeleteBranchResponse(project=project, branch=branch, deleted=True)
 
 
 @router.get("/repos/{project}/status", response_model=RepoStatusResponse)
 async def get_repository_status(project: str):
-    """Get detailed repository status including hook status.
-
-    Args:
-        project: Project name
-
-    Returns:
-        Extended repository status with hook information
-
-    Raises:
-        HTTPException: If repository not found
-    """
+    """Get detailed repository status including hook status."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.repo_exists(project):
@@ -397,7 +325,6 @@ async def get_repository_status(project: str):
             detail=f"Repository not found: {project}"
         )
 
-    # Get basic repo status
     repo_status = repo_manager.get_repo_status(project)
     if not repo_status:
         raise HTTPException(
@@ -405,13 +332,12 @@ async def get_repository_status(project: str):
             detail=f"Failed to get repository status: {project}"
         )
 
-    # Get hook status
     hook_status = repo_manager.verify_hooks(project)
 
     return RepoStatusResponse(
         project=project,
         path=repo_status["path"],
-        ssh_url=repo_manager.get_repo_url(project),
+        clone_url=repo_manager.get_repo_url(project),
         origin_url=repo_status.get("origin_url"),
         default_branch=repo_status.get("default_branch"),
         branches=repo_status.get("branches", []),
@@ -430,17 +356,7 @@ async def get_repository_status(project: str):
 
 @router.get("/repos/{project}/hooks", response_model=HookStatusResponse)
 async def get_hook_status(project: str):
-    """Get Git hook installation status for a repository.
-
-    Args:
-        project: Project name
-
-    Returns:
-        Hook installation status
-
-    Raises:
-        HTTPException: If repository not found
-    """
+    """Get Git hook installation status for a repository."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.repo_exists(project):
@@ -467,22 +383,7 @@ async def get_hook_status(project: str):
 
 @router.post("/repos/{project}/hooks", response_model=InstallHooksResponse)
 async def install_hooks(project: str):
-    """Install or reinstall Git hooks for a repository.
-
-    This endpoint can be used to:
-    - Install hooks on a repository that doesn't have them
-    - Update hooks to the latest version
-    - Fix broken hook installations
-
-    Args:
-        project: Project name
-
-    Returns:
-        Installation result
-
-    Raises:
-        HTTPException: If repository not found or installation fails
-    """
+    """Install or reinstall Git hooks for a repository."""
     repo_manager = get_repo_manager()
 
     if not repo_manager.repo_exists(project):
@@ -509,14 +410,7 @@ async def install_hooks(project: str):
 
 @router.post("/repos/hooks/migrate", response_model=MigrateHooksResponse)
 async def migrate_hooks():
-    """Install hooks on all existing repositories.
-
-    This endpoint is used for migrating existing repositories to include
-    the latest Git hooks. Safe to run multiple times (idempotent).
-
-    Returns:
-        Migration results for all repositories
-    """
+    """Install hooks on all existing repositories."""
     repo_manager = get_repo_manager()
 
     try:
@@ -534,105 +428,90 @@ async def migrate_hooks():
 
 
 # ==========================================================================
-# SSH Key Endpoints
+# Clone URL Endpoint
 # ==========================================================================
 
-@router.post("/ssh/keys", status_code=status.HTTP_201_CREATED)
-async def register_ssh_key(request: RegisterKeyRequest):
-    """Register an SSH public key for a compute instance.
-
-    Args:
-        request: Register key request
-
-    Returns:
-        Registration status
-
-    Raises:
-        HTTPException: If key format is invalid
-    """
-    ssh_manager = get_ssh_manager()
-
-    try:
-        registered = ssh_manager.register_key(request.compute_id, request.public_key)
-
-        return {
-            "status": "registered" if registered else "unchanged",
-            "compute_id": request.compute_id,
-            "message": "SSH key registered" if registered else "Key already registered"
-        }
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-
-
-@router.delete("/ssh/keys/{compute_id}", status_code=status.HTTP_200_OK)
-async def revoke_ssh_key(compute_id: str):
-    """Revoke SSH key for a compute instance.
-
-    Args:
-        compute_id: Compute instance ID
-
-    Returns:
-        Revocation status
-
-    Raises:
-        HTTPException: If key not found
-    """
-    ssh_manager = get_ssh_manager()
-
-    if not ssh_manager.revoke_key(compute_id):
+@router.get("/clone-url/{project}")
+async def get_clone_url(project: str):
+    """Get HTTP clone URL for a project."""
+    repo_manager = get_repo_manager()
+    if not repo_manager.repo_exists(project):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No SSH key found for: {compute_id}"
+            detail=f"Repository not found: {project}"
         )
 
-    return {"status": "revoked", "compute_id": compute_id}
+    return {
+        "project": project,
+        "clone_url": repo_manager.get_repo_url(project)
+    }
 
 
-@router.get("/ssh/keys", response_model=List[str])
-async def list_ssh_keys():
-    """List compute instances with registered SSH keys.
+# ==========================================================================
+# Token Management Endpoints (PAT)
+# ==========================================================================
 
-    Returns:
-        List of compute IDs
-    """
-    ssh_manager = get_ssh_manager()
-    return ssh_manager.list_registered()
+@router.post("/tokens", response_model=CreatePATResponse, status_code=status.HTTP_201_CREATED)
+async def create_personal_access_token(request: CreatePATRequest):
+    """Create a personal access token for external Git access."""
+    from git.git_token_service import get_git_token_service
 
-
-@router.post("/ssh/keys/{compute_id}/generate", response_model=GenerateKeyResponse)
-async def generate_ssh_key(compute_id: str):
-    """Generate a new SSH key pair for a compute instance.
-
-    This creates a new key pair and automatically registers the public key.
-
-    Args:
-        compute_id: Compute instance ID
-
-    Returns:
-        Generated key pair (private key should be sent to compute securely)
-    """
-    ssh_manager = get_ssh_manager()
-
-    try:
-        private_key, public_key = ssh_manager.generate_key_pair(compute_id)
-        ssh_manager.register_key(compute_id, public_key)
-
-        logger.info(f"Generated SSH key pair for: {compute_id}")
-
-        return GenerateKeyResponse(
-            compute_id=compute_id,
-            public_key=public_key,
-            private_key=private_key
-        )
-    except Exception as e:
-        logger.error(f"Failed to generate key pair: {e}")
+    token_service = get_git_token_service()
+    if not token_service:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Token service not available"
         )
+
+    token = await token_service.create_personal_access_token(
+        owner=request.owner,
+        description=request.description
+    )
+
+    return CreatePATResponse(
+        token=token,
+        owner=request.owner,
+        description=request.description
+    )
+
+
+@router.get("/tokens", response_model=List[TokenListItem])
+async def list_tokens(token_type: Optional[str] = Query(None, alias="type")):
+    """List all Git access tokens (metadata only)."""
+    from git.git_token_service import get_git_token_service
+
+    token_service = get_git_token_service()
+    if not token_service:
+        return []
+
+    tokens = await token_service.list_tokens(token_type=token_type)
+    return [TokenListItem(**t) for t in tokens]
+
+
+@router.delete("/tokens/{token_hash_prefix}")
+async def revoke_token(token_hash_prefix: str):
+    """Revoke a personal access token."""
+    from git.git_token_service import get_git_token_service
+
+    token_service = get_git_token_service()
+    if not token_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Token service not available"
+        )
+
+    # Find the full hash matching the prefix
+    tokens = await token_service.list_tokens(token_type="pat")
+    for t in tokens:
+        full_hash = t.get("token_hash", "")
+        if full_hash.startswith(token_hash_prefix) or t.get("token_hash_prefix", "").startswith(token_hash_prefix):
+            if await token_service.revoke_pat(full_hash):
+                return {"status": "revoked"}
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Token not found"
+    )
 
 
 # ==========================================================================
@@ -641,17 +520,7 @@ async def generate_ssh_key(compute_id: str):
 
 @router.post("/prs", response_model=PRResponse, status_code=status.HTTP_201_CREATED)
 async def create_pull_request(request: CreatePRRequest):
-    """Create a new pull request.
-
-    Args:
-        request: Create PR request
-
-    Returns:
-        Created pull request
-
-    Raises:
-        HTTPException: If branch doesn't exist or PR already exists
-    """
+    """Create a new pull request."""
     pr_service = get_pr_service()
 
     try:
@@ -665,7 +534,6 @@ async def create_pull_request(request: CreatePRRequest):
         )
 
         logger.info(f"Created PR: {request.project}/{request.branch}")
-
         return pr_to_response(pr)
     except ValueError as e:
         raise HTTPException(
@@ -680,16 +548,7 @@ async def list_pull_requests(
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     compute_id: Optional[str] = Query(None, description="Filter by compute ID")
 ):
-    """List pull requests for a project.
-
-    Args:
-        project: Project name
-        status_filter: Optional status filter
-        compute_id: Optional compute ID filter
-
-    Returns:
-        List of pull requests
-    """
+    """List pull requests for a project."""
     pr_service = get_pr_service()
 
     status_enum = None
@@ -708,18 +567,7 @@ async def list_pull_requests(
 
 @router.get("/prs/{project}/{branch}", response_model=PRResponse)
 async def get_pull_request(project: str, branch: str):
-    """Get pull request details.
-
-    Args:
-        project: Project name
-        branch: Branch name
-
-    Returns:
-        Pull request details
-
-    Raises:
-        HTTPException: If PR not found
-    """
+    """Get pull request details."""
     pr_service = get_pr_service()
 
     pr = await pr_service.get_pr(project, branch)
@@ -734,19 +582,7 @@ async def get_pull_request(project: str, branch: str):
 
 @router.patch("/prs/{project}/{branch}", response_model=PRResponse)
 async def update_pull_request(project: str, branch: str, request: UpdatePRRequest):
-    """Update pull request status.
-
-    Args:
-        project: Project name
-        branch: Branch name
-        request: Update request
-
-    Returns:
-        Updated pull request
-
-    Raises:
-        HTTPException: If PR not found or invalid status
-    """
+    """Update pull request status."""
     pr_service = get_pr_service()
 
     try:
@@ -775,16 +611,7 @@ async def approve_pull_request(
     branch: str,
     reviewed_by: str = Query(..., description="Reviewer identifier")
 ):
-    """Approve a pull request.
-
-    Args:
-        project: Project name
-        branch: Branch name
-        reviewed_by: Reviewer identifier
-
-    Returns:
-        Updated pull request
-    """
+    """Approve a pull request."""
     pr_service = get_pr_service()
 
     try:
@@ -803,16 +630,7 @@ async def reject_pull_request(
     branch: str,
     reviewed_by: str = Query(..., description="Reviewer identifier")
 ):
-    """Reject a pull request.
-
-    Args:
-        project: Project name
-        branch: Branch name
-        reviewed_by: Reviewer identifier
-
-    Returns:
-        Updated pull request
-    """
+    """Reject a pull request."""
     pr_service = get_pr_service()
 
     try:
@@ -827,16 +645,7 @@ async def reject_pull_request(
 
 @router.post("/prs/{project}/{branch}/merge", response_model=MergeResponse)
 async def merge_pull_request(project: str, branch: str, request: Optional[MergeRequest] = None):
-    """Merge a pull request.
-
-    Args:
-        project: Project name
-        branch: Branch name
-        request: Optional merge options
-
-    Returns:
-        Merge result
-    """
+    """Merge a pull request."""
     pr_service = get_pr_service()
     delete_branch = request.delete_branch if request else True
 
@@ -855,15 +664,7 @@ async def merge_pull_request(project: str, branch: str, request: Optional[MergeR
 
 @router.get("/prs/{project}/{branch}/mergeable")
 async def check_mergeable(project: str, branch: str):
-    """Check if a PR can be merged.
-
-    Args:
-        project: Project name
-        branch: Branch name
-
-    Returns:
-        Mergeability status
-    """
+    """Check if a PR can be merged."""
     pr_service = get_pr_service()
     return await pr_service.check_mergeable(project, branch)
 
@@ -874,14 +675,7 @@ async def check_mergeable(project: str, branch: str):
 
 @router.get("/queues/{project}/prs", response_model=List[PRResponse])
 async def get_pr_queue(project: str):
-    """Get PRs in queue order.
-
-    Args:
-        project: Project name
-
-    Returns:
-        List of PRs in queue order
-    """
+    """Get PRs in queue order."""
     pr_service = get_pr_service()
     prs = await pr_service.get_pr_queue(project)
     return [pr_to_response(pr) for pr in prs]
@@ -889,28 +683,14 @@ async def get_pr_queue(project: str):
 
 @router.get("/queues/{project}/merges", response_model=List[str])
 async def get_merge_queue(project: str):
-    """Get branches in merge queue.
-
-    Args:
-        project: Project name
-
-    Returns:
-        List of branch names
-    """
+    """Get branches in merge queue."""
     pr_service = get_pr_service()
     return await pr_service.get_merge_queue(project)
 
 
 @router.post("/queues/{project}/process-merges")
 async def process_merge_queue(project: str):
-    """Process pending merges from the queue.
-
-    Args:
-        project: Project name
-
-    Returns:
-        List of merge results
-    """
+    """Process pending merges from the queue."""
     pr_service = get_pr_service()
     return await pr_service.process_merge_queue(project)
 
@@ -921,14 +701,7 @@ async def process_merge_queue(project: str):
 
 @router.get("/compute/{compute_id}/prs", response_model=List[PRResponse])
 async def get_compute_prs(compute_id: str):
-    """Get all PRs owned by a compute instance.
-
-    Args:
-        compute_id: Compute instance ID
-
-    Returns:
-        List of PRs
-    """
+    """Get all PRs owned by a compute instance."""
     pr_service = get_pr_service()
     prs = await pr_service.get_compute_prs(compute_id)
     return [pr_to_response(pr) for pr in prs]
@@ -936,71 +709,11 @@ async def get_compute_prs(compute_id: str):
 
 @router.post("/compute/{compute_id}/cleanup")
 async def cleanup_compute(compute_id: str):
-    """Clean up when a compute instance is deregistered.
-
-    Closes all pending PRs from the compute instance.
-
-    Args:
-        compute_id: Compute instance ID
-
-    Returns:
-        Cleanup result
-    """
+    """Clean up when a compute instance is deregistered."""
     pr_service = get_pr_service()
     closed = await pr_service.cleanup_compute(compute_id)
 
     return {
         "compute_id": compute_id,
         "prs_closed": closed
-    }
-
-
-# ==========================================================================
-# SSH Server Endpoints
-# ==========================================================================
-
-@router.get("/ssh/server/status")
-async def get_ssh_server_status():
-    """Get SSH Git server status.
-
-    Returns:
-        SSH server status including running state, port, and configuration
-    """
-    ssh_server = get_ssh_server()
-    if ssh_server:
-        return ssh_server.get_status()
-    return {
-        "running": False,
-        "port": None,
-        "message": "SSH server not initialized"
-    }
-
-
-@router.get("/ssh/server/clone-url/{project}")
-async def get_clone_url(project: str):
-    """Get SSH clone URL for a project.
-
-    Args:
-        project: Project name
-
-    Returns:
-        SSH clone URL
-    """
-    ssh_server = get_ssh_server()
-    if not ssh_server or not ssh_server.is_running():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="SSH server is not running"
-        )
-
-    repo_manager = get_repo_manager()
-    if not repo_manager.repo_exists(project):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Repository not found: {project}"
-        )
-
-    return {
-        "project": project,
-        "clone_url": ssh_server.get_clone_url(project)
     }

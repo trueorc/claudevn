@@ -39,25 +39,14 @@ def mock_repo_manager():
     """Create a mock RepoManager."""
     manager = MagicMock()
     manager.create_repo.return_value = "/repos/test.git"
-    manager.get_repo_url.return_value = "git@localhost:/repos/test.git"
+    manager.get_repo_url.return_value = "http://serving:8002/git/test.git"
     manager.delete_repo.return_value = True
     return manager
 
 
-@pytest.fixture
-def mock_ssh_server():
-    """Create a mock SSH server."""
-    server = MagicMock()
-    server.get_clone_url.return_value = "ssh://git@serving:2222/repos/test.git"
-    return server
-
-
-def _patch_git(mock_repo_manager, mock_ssh_server=None):
-    """Return context managers to patch git dependencies used by project_service."""
-    return (
-        patch("api.git.get_repo_manager", return_value=mock_repo_manager),
-        patch("git.ssh_server.get_ssh_server", return_value=mock_ssh_server),
-    )
+def _patch_git(mock_repo_manager):
+    """Return context manager to patch git dependencies used by project_service."""
+    return patch("api.git.get_repo_manager", return_value=mock_repo_manager)
 
 
 # =============================================================================
@@ -68,14 +57,13 @@ class TestCreateInternalRepo:
     """Test creating internal Git repositories."""
 
     @pytest.mark.asyncio
-    async def test_create_internal_repo_with_ssh(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+    async def test_create_internal_repo_url(
+        self, service, create_request, mock_repo_manager
     ):
-        """Test creating an internal repo uses SSH URL when available."""
+        """Test creating an internal repo uses HTTP URL from repo_manager."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="my-repo")
@@ -85,36 +73,18 @@ class TestCreateInternalRepo:
         assert repo.repo_id.startswith("repo_")
         assert repo.name == "my-repo"
         assert repo.is_internal is True
-        assert repo.url == "ssh://git@serving:2222/repos/test.git"
+        assert repo.url == "http://serving:8002/git/test.git"
         assert repo.default_branch == "main"
         assert "git_project_name" in repo.metadata
 
     @pytest.mark.asyncio
-    async def test_create_internal_repo_without_ssh(
-        self, service, create_request, mock_repo_manager
-    ):
-        """Test creating an internal repo falls back to local URL without SSH server."""
-        project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, None)
-
-        with p1, p2:
-            repo = await service.create_internal_repo(
-                project.project_id,
-                RepoCreateInternalRequest(name="my-repo")
-            )
-
-        assert repo is not None
-        assert repo.url == "git@localhost:/repos/test.git"
-
-    @pytest.mark.asyncio
     async def test_create_internal_repo_custom_branch(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test creating an internal repo with custom default branch."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="my-repo", default_branch="develop")
@@ -124,13 +94,12 @@ class TestCreateInternalRepo:
 
     @pytest.mark.asyncio
     async def test_create_internal_repo_sets_primary_if_first(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that first internal repo becomes primary."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="first-repo")
@@ -141,13 +110,12 @@ class TestCreateInternalRepo:
 
     @pytest.mark.asyncio
     async def test_create_internal_repo_second_not_primary(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that second internal repo doesn't override primary."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             first = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="first")
@@ -163,12 +131,10 @@ class TestCreateInternalRepo:
 
     @pytest.mark.asyncio
     async def test_create_internal_repo_nonexistent_project(
-        self, service, mock_repo_manager, mock_ssh_server
+        self, service, mock_repo_manager
     ):
         """Test creating internal repo for non-existent project returns None."""
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
-
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             result = await service.create_internal_repo(
                 "nonexistent",
                 RepoCreateInternalRequest(name="my-repo")
@@ -179,13 +145,12 @@ class TestCreateInternalRepo:
 
     @pytest.mark.asyncio
     async def test_create_internal_repo_calls_repo_manager(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that create_internal_repo calls RepoManager.create_repo."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="my-repo")
@@ -197,13 +162,12 @@ class TestCreateInternalRepo:
 
     @pytest.mark.asyncio
     async def test_create_internal_repo_stores_git_project_name(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that git_project_name is stored in repo metadata."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="my-repo")
@@ -223,13 +187,12 @@ class TestRemoveInternalRepo:
 
     @pytest.mark.asyncio
     async def test_remove_internal_repo_deletes_git_repo(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that removing an internal repo deletes the bare Git repo."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="my-repo")
@@ -261,13 +224,12 @@ class TestRemoveInternalRepo:
 
     @pytest.mark.asyncio
     async def test_remove_internal_repo_handles_cleanup_error(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that cleanup errors are logged but don't fail removal."""
         project = await service.create_project(create_request)
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
 
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             repo = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="my-repo")
@@ -316,7 +278,7 @@ class TestBackwardCompatibility:
 
     @pytest.mark.asyncio
     async def test_mixed_repos_in_project(
-        self, service, create_request, mock_repo_manager, mock_ssh_server
+        self, service, create_request, mock_repo_manager
     ):
         """Test that a project can have both internal and external repos."""
         project = await service.create_project(create_request)
@@ -328,8 +290,7 @@ class TestBackwardCompatibility:
         )
 
         # Add internal repo
-        p1, p2 = _patch_git(mock_repo_manager, mock_ssh_server)
-        with p1, p2:
+        with _patch_git(mock_repo_manager):
             internal = await service.create_internal_repo(
                 project.project_id,
                 RepoCreateInternalRequest(name="internal")
@@ -370,7 +331,7 @@ class TestCreateInternalRepoAPI:
         mock_repo = RepoConfig(
             repo_id="repo_abc12345",
             name="my-repo",
-            url="ssh://git@serving:2222/repos/test.git",
+            url="http://serving:8002/git/test.git",
             default_branch="main",
             is_internal=True,
             metadata={"git_project_name": "proj_test_repo_abc12345"}
@@ -386,7 +347,7 @@ class TestCreateInternalRepoAPI:
         data = response.json()
         assert data["name"] == "my-repo"
         assert data["is_internal"] is True
-        assert data["url"] == "ssh://git@serving:2222/repos/test.git"
+        assert data["url"] == "http://serving:8002/git/test.git"
         assert data["repo_id"] == "repo_abc12345"
 
     def test_create_internal_repo_404_project_not_found(
@@ -409,7 +370,7 @@ class TestCreateInternalRepoAPI:
         mock_repo = RepoConfig(
             repo_id="repo_abc12345",
             name="my-repo",
-            url="ssh://git@serving:2222/repos/test.git",
+            url="http://serving:8002/git/test.git",
             default_branch="develop",
             is_internal=True
         )

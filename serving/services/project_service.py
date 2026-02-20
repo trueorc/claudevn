@@ -297,7 +297,6 @@ class ProjectService:
             return None
 
         from api.git import get_repo_manager
-        from git.ssh_server import get_ssh_server
 
         repo_id = f"repo_{uuid.uuid4().hex[:8]}"
         git_project_name = f"{project_id}_{repo_id}"
@@ -306,12 +305,8 @@ class ProjectService:
         repo_manager = get_repo_manager()
         repo_manager.create_repo(git_project_name)
 
-        # Get SSH clone URL (preferred) or fallback to local URL
-        ssh_server = get_ssh_server()
-        if ssh_server:
-            repo_url = ssh_server.get_clone_url(git_project_name)
-        else:
-            repo_url = repo_manager.get_repo_url(git_project_name)
+        # Get HTTP clone URL
+        repo_url = repo_manager.get_repo_url(git_project_name)
 
         repo = RepoConfig(
             repo_id=repo_id,
