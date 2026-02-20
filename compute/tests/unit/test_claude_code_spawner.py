@@ -135,7 +135,7 @@ class TestEnsureServingRepo:
 
                 mock_git.assert_called_once_with(
                     ["clone", "--depth", "1", "git@github.com:Guarrdon/trueorc.git", str(fake_repo_path)],
-                    ssh_key_path=None,
+                    git_token=None,
                 )
 
     def test_pulls_when_repo_exists(self, tmp_path):
@@ -151,7 +151,7 @@ class TestEnsureServingRepo:
                 mock_git.assert_called_once_with(
                     ["pull", "--ff-only", "origin", "main"],
                     cwd=fake_repo_path,
-                    ssh_key_path=None,
+                    git_token=None,
                 )
 
     def test_non_blocking_on_git_failure(self, tmp_path):
@@ -174,12 +174,12 @@ class TestEnsureServingRepo:
             with patch.object(spawner, "_run_git_command", side_effect=OSError("disk full")):
                 spawner._ensure_serving_repo()
 
-    def test_uses_ssh_key_path_when_set(self, tmp_path):
-        """SSH key is forwarded to git commands when configured."""
+    def test_uses_git_token_when_set(self, tmp_path):
+        """Git token is forwarded to git commands when configured."""
         spawner = make_spawner(
             tmp_path,
-            serving_repo_url="git@github.com:Guarrdon/trueorc.git",
-            ssh_key_path="/home/user/.ssh/id_ed25519",
+            serving_repo_url="http://serving:8002/git/trueorc.git",
+            git_token="cvn-ct-testtoken123",
         )
         fake_repo_path = tmp_path / "serving_repo"
 
@@ -188,8 +188,8 @@ class TestEnsureServingRepo:
                 spawner._ensure_serving_repo()
 
                 mock_git.assert_called_once_with(
-                    ["clone", "--depth", "1", "git@github.com:Guarrdon/trueorc.git", str(fake_repo_path)],
-                    ssh_key_path="/home/user/.ssh/id_ed25519",
+                    ["clone", "--depth", "1", "http://serving:8002/git/trueorc.git", str(fake_repo_path)],
+                    git_token="cvn-ct-testtoken123",
                 )
 
 
@@ -552,24 +552,28 @@ class TestStartTask:
         assert env.get("CLAUDEVN_BASE_BRANCH") == "develop"
 
     @pytest.mark.asyncio
-    async def test_start_task_sets_git_ssh_command_from_context(self, tmp_path):
-        """Test that GIT_SSH_COMMAND is set when ssh_key_path is in context."""
+    async def test_start_task_sets_git_askpass_from_context(self, tmp_path):
+        """Test that GIT_ASKPASS is set when git_token is in context."""
         spawner = make_spawner(tmp_path)
 
         instance_workspace = tmp_path / "instance"
         instance_workspace.mkdir()
 
+        # Create the directory where GIT_ASKPASS script will be written
+        askpass_dir = tmp_path / "workspace" / "cc-token"
+        askpass_dir.mkdir(parents=True, exist_ok=True)
+
         event = {
-            "task_id": "task-ssh",
+            "task_id": "task-token",
             "context": {
-                "ssh_key_path": "/tmp/.ssh-compute-001/id_ed25519",
-                "repository": "ssh://git@serving:2222/repo.git"
+                "git_token": "cvn-ct-testtoken123",
+                "repository": "http://serving:8002/git/repo.git"
             }
         }
 
-        spawner._instances["task-ssh"] = {
-            "instance_id": "cc-ssh",
-            "task_id": "task-ssh",
+        spawner._instances["task-token"] = {
+            "instance_id": "cc-token",
+            "task_id": "task-token",
             "workspace": str(instance_workspace),
             "started_at": datetime.now(timezone.utc)
         }
@@ -580,9 +584,9 @@ class TestStartTask:
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
-            await spawner._start_task("task-ssh", "cc-ssh", instance_workspace, event, {})
+            await spawner._start_task("task-token", "cc-token", instance_workspace, event, {})
 
-        task = spawner._execution_tasks.get("task-ssh")
+        task = spawner._execution_tasks.get("task-token")
         if task:
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
@@ -590,21 +594,25 @@ class TestStartTask:
                 pass
 
         env = captured.get("env_vars", {})
-        assert "GIT_SSH_COMMAND" in env
-        assert "/tmp/.ssh-compute-001/id_ed25519" in env["GIT_SSH_COMMAND"]
-        assert "StrictHostKeyChecking=no" in env["GIT_SSH_COMMAND"]
+        assert "GIT_ASKPASS" in env
+        assert "GIT_TERMINAL_PROMPT" in env
+        assert env["GIT_TERMINAL_PROMPT"] == "0"
 
     @pytest.mark.asyncio
-    async def test_start_task_sets_git_ssh_command_from_spawner_key(self, tmp_path):
-        """Test that GIT_SSH_COMMAND falls back to spawner's ssh_key_path."""
-        spawner = make_spawner(tmp_path, ssh_key_path="/home/compute/.ssh/id_ed25519")
+    async def test_start_task_sets_git_askpass_from_spawner_token(self, tmp_path):
+        """Test that GIT_ASKPASS falls back to spawner's git_token."""
+        spawner = make_spawner(tmp_path, git_token="cvn-ct-spawnertoken")
 
         instance_workspace = tmp_path / "instance"
         instance_workspace.mkdir()
 
+        # Create the directory where GIT_ASKPASS script will be written
+        askpass_dir = tmp_path / "workspace" / "cc-fb"
+        askpass_dir.mkdir(parents=True, exist_ok=True)
+
         event = {
             "task_id": "task-fb",
-            "context": {}  # No ssh_key_path in context
+            "context": {}  # No git_token in context
         }
 
         spawner._instances["task-fb"] = {
@@ -630,13 +638,12 @@ class TestStartTask:
                 pass
 
         env = captured.get("env_vars", {})
-        assert "GIT_SSH_COMMAND" in env
-        assert "/home/compute/.ssh/id_ed25519" in env["GIT_SSH_COMMAND"]
+        assert "GIT_ASKPASS" in env
 
     @pytest.mark.asyncio
-    async def test_start_task_no_git_ssh_command_without_key(self, tmp_path):
-        """Test that GIT_SSH_COMMAND is NOT set when no SSH key is available."""
-        spawner = make_spawner(tmp_path)  # No ssh_key_path
+    async def test_start_task_no_git_askpass_without_token(self, tmp_path):
+        """Test that GIT_ASKPASS is NOT set when no Git token is available."""
+        spawner = make_spawner(tmp_path)  # No git_token
 
         instance_workspace = tmp_path / "instance"
         instance_workspace.mkdir()
@@ -669,8 +676,7 @@ class TestStartTask:
                 pass
 
         env = captured.get("env_vars", {})
-        git_ssh_cmd = env.get("GIT_SSH_COMMAND", "")
-        assert "-i" not in git_ssh_cmd
+        assert "GIT_ASKPASS" not in env
 
 
 class TestRunAndHandleResult:
@@ -1422,20 +1428,20 @@ class TestGlobalSpawnerFunctions:
         # Cleanup
         set_claude_code_spawner(None)
 
-    def test_initialize_claude_code_spawner_ignores_deprecated_cli_path(self, tmp_path):
-        """Test that initialize_claude_code_spawner accepts deprecated claude_cli_path."""
+    def test_initialize_claude_code_spawner_with_git_token(self, tmp_path):
+        """Test that initialize_claude_code_spawner accepts git_token."""
         workspace = str(tmp_path / "workspace")
 
-        # Should not raise even with deprecated param
         spawner = initialize_claude_code_spawner(
             workspace_path=workspace,
             compute_id="compute-002",
             api_key="init-key",
-            claude_cli_path="/custom/claude",
+            git_token="cvn-ct-testtoken",
         )
 
         assert spawner is not None
         assert get_claude_code_spawner() is spawner
+        assert spawner.git_token == "cvn-ct-testtoken"
 
         # Cleanup
         set_claude_code_spawner(None)
@@ -1478,40 +1484,33 @@ class TestRunGitCommand:
         assert kwargs["cwd"] == str(tmp_path)
         assert kwargs["check"] is True
 
-    def test_run_git_command_always_disables_host_key_checking(self, tmp_path):
-        """Test that git commands always disable SSH host key checking.
-
-        This is critical for compute-to-serving communication in Docker networks.
-        Regression test for #660: SSH host key verification fails on compute nodes.
-        """
+    def test_run_git_command_sets_askpass_with_token(self, tmp_path):
+        """Test that git commands use GIT_ASKPASS when a token is provided."""
         spawner = make_spawner(tmp_path)
 
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
-            spawner._run_git_command(["clone", "ssh://git@serving:2222/repo.git"])
+            spawner._run_git_command(["clone", "http://serving:8002/git/repo.git"], git_token="cvn-ct-testtoken")
 
         args, kwargs = mock_run.call_args
         env = kwargs["env"]
-        assert "GIT_SSH_COMMAND" in env, "GIT_SSH_COMMAND must always be set even without ssh_key_path"
-        assert "StrictHostKeyChecking=no" in env["GIT_SSH_COMMAND"]
-        assert "UserKnownHostsFile=/dev/null" in env["GIT_SSH_COMMAND"]
+        assert "GIT_ASKPASS" in env
+        assert "GIT_TERMINAL_PROMPT" in env
+        assert env["GIT_TERMINAL_PROMPT"] == "0"
 
-    def test_run_git_command_with_ssh_key(self, tmp_path):
-        """Test running git command with SSH key configuration."""
+    def test_run_git_command_no_askpass_without_token(self, tmp_path):
+        """Test that GIT_ASKPASS is not set when no token is provided."""
         spawner = make_spawner(tmp_path)
 
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
-            spawner._run_git_command(["clone", "repo"], ssh_key_path="/path/to/key")
+            spawner._run_git_command(["clone", "http://serving:8002/git/repo.git"])
 
         args, kwargs = mock_run.call_args
         env = kwargs["env"]
-        assert "GIT_SSH_COMMAND" in env
-        assert "-i /path/to/key" in env["GIT_SSH_COMMAND"]
-        assert "-o StrictHostKeyChecking=no" in env["GIT_SSH_COMMAND"]
-        assert "UserKnownHostsFile=/dev/null" in env["GIT_SSH_COMMAND"]
+        assert "GIT_ASKPASS" not in env
 
     def test_run_git_command_failure(self, tmp_path):
         """Test that failed git commands raise CalledProcessError."""
@@ -1540,7 +1539,7 @@ class TestSetupBranch:
                 repo_url="git@github.com:test/repo.git",
                 base_branch="main",
                 feature_branch="work/compute-001/task-123",
-                ssh_key_path="/path/to/key"
+                git_token="cvn-ct-testtoken"
             )
 
         assert result == instance_workspace / "repo"
@@ -1555,7 +1554,7 @@ class TestSetupBranch:
         assert "main" in clone_call.args[0]
         assert "git@github.com:test/repo.git" in clone_call.args[0]
         assert str(instance_workspace / "repo") in clone_call.args[0]
-        assert clone_call.kwargs["ssh_key_path"] == "/path/to/key"
+        assert clone_call.kwargs["git_token"] == "cvn-ct-testtoken"
 
         # Second call: checkout -b feature branch
         checkout_call = mock_git.call_args_list[1]
@@ -2073,26 +2072,26 @@ class TestCleanupInstanceWithWorkspace:
         assert "task-123" not in spawner._execution_tasks
 
 
-class TestInitializeWithSshKey:
-    """Tests for initialization with SSH key path."""
+class TestInitializeWithGitToken:
+    """Tests for initialization with Git token."""
 
-    def test_init_with_ssh_key_path(self, tmp_path):
-        """Test initialization with SSH key path."""
-        spawner = make_spawner(tmp_path, ssh_key_path="/home/user/.ssh/id_rsa")
-        assert spawner.ssh_key_path == "/home/user/.ssh/id_rsa"
+    def test_init_with_git_token(self, tmp_path):
+        """Test initialization with Git token."""
+        spawner = make_spawner(tmp_path, git_token="cvn-ct-testtoken")
+        assert spawner.git_token == "cvn-ct-testtoken"
 
-    def test_initialize_function_with_ssh_key(self, tmp_path):
-        """Test initialize_claude_code_spawner with SSH key."""
+    def test_initialize_function_with_git_token(self, tmp_path):
+        """Test initialize_claude_code_spawner with Git token."""
         workspace = str(tmp_path / "workspace")
 
         spawner = initialize_claude_code_spawner(
             workspace_path=workspace,
             compute_id="compute-002",
             api_key="test-key",
-            ssh_key_path="/path/to/ssh/key"
+            git_token="cvn-ct-mytoken"
         )
 
-        assert spawner.ssh_key_path == "/path/to/ssh/key"
+        assert spawner.git_token == "cvn-ct-mytoken"
         assert get_claude_code_spawner() is spawner
 
         # Cleanup
@@ -2695,7 +2694,7 @@ class TestCommitAndPushSshKey:
     @pytest.mark.asyncio
     async def test_uses_task_specific_ssh_key(self, tmp_path):
         """Test that _commit_and_push_changes uses SSH key from event context."""
-        spawner = make_spawner(tmp_path, ssh_key_path="/default/spawner/key")
+        spawner = make_spawner(tmp_path, git_token="cvn-ct-defaulttoken")
 
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -2704,7 +2703,7 @@ class TestCommitAndPushSshKey:
             "repo_path": str(repo_dir),
             "event": {
                 "context": {
-                    "ssh_key_path": "/task/specific/key"
+                    "git_token": "cvn-ct-tasktoken"
                 }
             }
         }
@@ -2717,16 +2716,16 @@ class TestCommitAndPushSshKey:
 
             await spawner._commit_and_push_changes("task-1", "cc-1", instance)
 
-        # The push call (second call) should use the task-specific key
+        # The push call (second call) should use the task-specific token
         push_call = mock_run.call_args_list[1]
         env = push_call.kwargs.get("env") or push_call[1].get("env", {})
-        assert "/task/specific/key" in env.get("GIT_SSH_COMMAND", "")
-        assert "/default/spawner/key" not in env.get("GIT_SSH_COMMAND", "")
+        assert "GIT_ASKPASS" in env
+        assert "GIT_TERMINAL_PROMPT" in env
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_spawner_ssh_key(self, tmp_path):
-        """Test fallback to spawner SSH key when event context has no key."""
-        spawner = make_spawner(tmp_path, ssh_key_path="/default/spawner/key")
+    async def test_falls_back_to_spawner_git_token(self, tmp_path):
+        """Test fallback to spawner git_token when event context has no token."""
+        spawner = make_spawner(tmp_path, git_token="cvn-ct-defaulttoken")
 
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -2748,12 +2747,12 @@ class TestCommitAndPushSshKey:
 
         push_call = mock_run.call_args_list[1]
         env = push_call.kwargs.get("env") or push_call[1].get("env", {})
-        assert "/default/spawner/key" in env.get("GIT_SSH_COMMAND", "")
+        assert "GIT_ASKPASS" in env
 
     @pytest.mark.asyncio
     async def test_falls_back_when_no_event(self, tmp_path):
         """Test fallback when instance has no event key."""
-        spawner = make_spawner(tmp_path, ssh_key_path="/default/spawner/key")
+        spawner = make_spawner(tmp_path, git_token="cvn-ct-defaulttoken")
 
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -2772,7 +2771,7 @@ class TestCommitAndPushSshKey:
 
         push_call = mock_run.call_args_list[1]
         env = push_call.kwargs.get("env") or push_call[1].get("env", {})
-        assert "/default/spawner/key" in env.get("GIT_SSH_COMMAND", "")
+        assert "GIT_ASKPASS" in env
 
 
 class TestSpawnNoChownNeeded:
@@ -2788,7 +2787,7 @@ class TestSpawnNoChownNeeded:
             "context": {
                 "repository": "ssh://git@serving:2222/app/data/repos/project.git",
                 "base_branch": "main",
-                "ssh_key_path": "/tmp/key"
+                "git_token": "cvn-ct-tmptoken"
             },
             "branch_name": "feat/test"
         }
@@ -2939,7 +2938,7 @@ class TestSetupExistingBranch:
 
         git_calls = []
 
-        def mock_run_git(args, cwd=None, ssh_key_path=None):
+        def mock_run_git(args, cwd=None, git_token=None):
             git_calls.append(args)
             # Create the repo directory for clone
             if args[0] == "clone":
@@ -2952,7 +2951,7 @@ class TestSetupExistingBranch:
                 instance_workspace=instance_workspace,
                 repo_url="git@server:repo.git",
                 branch="feat/existing-branch",
-                ssh_key_path="/tmp/key"
+                git_token="cvn-ct-tmptoken"
             )
 
         # Should have cloned and checked out
@@ -2969,7 +2968,7 @@ class TestSetupExistingBranch:
         instance_workspace = tmp_path / "instance"
         instance_workspace.mkdir()
 
-        def mock_run_git(args, cwd=None, ssh_key_path=None):
+        def mock_run_git(args, cwd=None, git_token=None):
             raise subprocess.CalledProcessError(128, "git clone", stderr="fatal: repo not found")
 
         with patch.object(spawner, '_run_git_command', side_effect=mock_run_git):
@@ -3001,7 +3000,7 @@ class TestSpawnConflictResolution:
             "event": {
                 "context": {
                     "repository": "git@server:project.git",
-                    "ssh_key_path": "/tmp/key"
+                    "git_token": "cvn-ct-tmptoken"
                 }
             }
         }
@@ -3207,7 +3206,7 @@ class TestGitOpsRunAsCurrentUser:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
             spawner._run_git_command(
                 ["clone", "ssh://git@serving:2222/repo.git", "/workspace/repo"],
-                ssh_key_path="/tmp/.ssh-compute-001/id_ed25519"
+                git_token="cvn-ct-compute001token"
             )
 
         cmd = mock_run.call_args[0][0]
@@ -3215,21 +3214,20 @@ class TestGitOpsRunAsCurrentUser:
         assert "su" not in cmd, "Git commands must not use 'su' wrapper"
         assert "sudo" not in cmd, "Git commands must not use 'sudo' wrapper"
 
-    def test_run_git_command_uses_ssh_transport(self, tmp_path):
-        """_run_git_command sets GIT_SSH_COMMAND for SSH-based repos."""
+    def test_run_git_command_uses_http_token_auth(self, tmp_path):
+        """_run_git_command sets GIT_ASKPASS for HTTP token auth."""
         spawner = make_spawner(tmp_path)
 
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
             spawner._run_git_command(
-                ["clone", "ssh://git@serving:2222/repo.git"],
-                ssh_key_path="/tmp/.ssh-compute-001/id_ed25519"
+                ["clone", "http://serving:8002/git/repo.git"],
+                git_token="cvn-ct-compute001token"
             )
 
         env = mock_run.call_args[1]["env"]
-        ssh_cmd = env["GIT_SSH_COMMAND"]
-        assert "-i /tmp/.ssh-compute-001/id_ed25519" in ssh_cmd
-        assert "StrictHostKeyChecking=no" in ssh_cmd
+        assert "GIT_ASKPASS" in env
+        assert "GIT_TERMINAL_PROMPT" in env
 
     @pytest.mark.asyncio
     async def test_commit_and_push_runs_git_directly(self, tmp_path):
@@ -3243,7 +3241,7 @@ class TestGitOpsRunAsCurrentUser:
             "repo_path": str(repo_dir),
             "event": {
                 "context": {
-                    "ssh_key_path": "/tmp/.ssh-compute-001/id_ed25519"
+                    "git_token": "cvn-ct-compute001token"
                 }
             }
         }
@@ -3263,8 +3261,8 @@ class TestGitOpsRunAsCurrentUser:
             assert "su" not in cmd
 
     @pytest.mark.asyncio
-    async def test_commit_and_push_uses_ssh_for_push(self, tmp_path):
-        """_commit_and_push_changes sets GIT_SSH_COMMAND on the push call."""
+    async def test_commit_and_push_uses_token_for_push(self, tmp_path):
+        """_commit_and_push_changes sets GIT_ASKPASS on the push call."""
         spawner = make_spawner(tmp_path)
 
         repo_dir = tmp_path / "repo"
@@ -3274,7 +3272,7 @@ class TestGitOpsRunAsCurrentUser:
             "repo_path": str(repo_dir),
             "event": {
                 "context": {
-                    "ssh_key_path": "/tmp/.ssh-compute-001/id_ed25519"
+                    "git_token": "cvn-ct-compute001token"
                 }
             }
         }
@@ -3287,9 +3285,9 @@ class TestGitOpsRunAsCurrentUser:
 
             await spawner._commit_and_push_changes("task-1", "cc-1", instance)
 
-        # Push call (last) should have SSH env
+        # Push call (last) should have token auth env
         push_call = mock_run.call_args_list[-1]
         push_cmd = push_call[0][0]
         assert push_cmd == ["git", "push", "origin", "HEAD"]
         env = push_call[1].get("env") or push_call.kwargs.get("env", {})
-        assert "/tmp/.ssh-compute-001/id_ed25519" in env.get("GIT_SSH_COMMAND", "")
+        assert "GIT_ASKPASS" in env

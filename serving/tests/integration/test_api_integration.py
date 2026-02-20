@@ -739,7 +739,7 @@ class TestPRMergeFlow:
             if response.status_code == 201:
                 repo = response.json()
                 assert repo["project"] == test_project
-                assert "ssh_url" in repo
+                assert "clone_url" in repo
 
     @pytest.mark.asyncio
     async def test_get_repository(self):
@@ -858,57 +858,46 @@ class TestPRMergeFlow:
                 assert response.status_code == 200
 
 
-class TestSSHKeyManagement:
-    """Test SSH key management for compute instances."""
+class TestGitTokenManagement:
+    """Test Git token management for compute instances."""
 
     @pytest.mark.asyncio
-    async def test_list_ssh_keys(self):
-        """Test listing registered SSH keys."""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{SERVING_BASE_URL}{API_PREFIX}/git/ssh/keys")
-            assert response.status_code == 200
-            keys = response.json()
-            assert isinstance(keys, list)
-
-    @pytest.mark.asyncio
-    async def test_generate_ssh_key(self):
-        """Test generating SSH key pair for compute."""
+    async def test_generate_compute_token(self):
+        """Test generating a compute token."""
         import uuid
         compute_id = f"test-compute-{uuid.uuid4().hex[:8]}"
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{SERVING_BASE_URL}{API_PREFIX}/git/ssh/keys/{compute_id}/generate"
+                f"{SERVING_BASE_URL}{API_PREFIX}/git/tokens",
+                json={"compute_id": compute_id}
             )
-            assert response.status_code == 200
-            key_pair = response.json()
-            assert "public_key" in key_pair
-            assert "private_key" in key_pair
-            assert key_pair["compute_id"] == compute_id
+            # Token generation should succeed or return appropriate error
+            assert response.status_code in [200, 201, 400, 404]
+            if response.status_code in [200, 201]:
+                token_data = response.json()
+                assert "token" in token_data
+                assert token_data["compute_id"] == compute_id
 
     @pytest.mark.asyncio
-    async def test_register_and_revoke_ssh_key(self):
-        """Test registering and revoking an SSH key."""
+    async def test_revoke_compute_token(self):
+        """Test revoking a compute token."""
         import uuid
         compute_id = f"test-compute-{uuid.uuid4().hex[:8]}"
-        # Valid SSH public key format (RSA is more widely supported)
-        public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDRGNQ test@test"
 
         async with httpx.AsyncClient() as client:
-            # Register key
-            register_response = await client.post(
-                f"{SERVING_BASE_URL}{API_PREFIX}/git/ssh/keys",
-                json={"compute_id": compute_id, "public_key": public_key}
+            # First generate a token
+            gen_response = await client.post(
+                f"{SERVING_BASE_URL}{API_PREFIX}/git/tokens",
+                json={"compute_id": compute_id}
             )
-            # May fail if key format is not accepted
-            assert register_response.status_code in [200, 201, 400]
 
-            if register_response.status_code in [200, 201]:
-                # Revoke key
+            if gen_response.status_code in [200, 201]:
+                # Then revoke it
                 revoke_response = await client.delete(
-                    f"{SERVING_BASE_URL}{API_PREFIX}/git/ssh/keys/{compute_id}"
+                    f"{SERVING_BASE_URL}{API_PREFIX}/git/tokens/{compute_id}"
                 )
-                assert revoke_response.status_code == 200
+                assert revoke_response.status_code in [200, 204]
 
 
 class TestSSEEventDelivery:

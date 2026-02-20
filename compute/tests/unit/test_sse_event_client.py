@@ -1684,11 +1684,11 @@ class TestGlobalClientFunctions:
         set_sse_event_client(None)
 
 
-class TestSSHKeyProvisionedHandler:
-    """Tests for _handle_ssh_key_provisioned built-in handler."""
+class TestGitTokenProvisionedHandler:
+    """Tests for _handle_git_token_provisioned built-in handler."""
 
-    def test_ssh_key_path_initialized_to_none(self):
-        """Test that _ssh_key_path is initialized to None."""
+    def test_git_token_initialized_to_none(self):
+        """Test that _git_token is initialized to None."""
         client = SSEEventClient(
             serving_url="http://localhost:8002",
             compute_id="compute-001",
@@ -1697,10 +1697,10 @@ class TestSSHKeyProvisionedHandler:
             resources={}
         )
 
-        assert client._ssh_key_path is None
+        assert client._git_token is None
 
-    def test_ssh_key_provisioned_handler_registered(self):
-        """Test that ssh_key_provisioned handler is registered."""
+    def test_git_token_provisioned_handler_registered(self):
+        """Test that git_token_provisioned handler is registered."""
         client = SSEEventClient(
             serving_url="http://localhost:8002",
             compute_id="compute-001",
@@ -1709,12 +1709,12 @@ class TestSSHKeyProvisionedHandler:
             resources={}
         )
 
-        assert "ssh_key_provisioned" in client._handlers
-        assert len(client._handlers["ssh_key_provisioned"]) == 1
+        assert "git_token_provisioned" in client._handlers
+        assert len(client._handlers["git_token_provisioned"]) == 1
 
     @pytest.mark.asyncio
-    async def test_handle_ssh_key_provisioned_writes_key(self, tmp_path):
-        """Test that handler writes private key to disk."""
+    async def test_handle_git_token_provisioned_stores_token(self):
+        """Test that handler stores the token."""
         client = SSEEventClient(
             serving_url="http://localhost:8002",
             compute_id="compute-test",
@@ -1724,36 +1724,17 @@ class TestSSHKeyProvisionedHandler:
         )
 
         event_data = {
-            "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key-data\n-----END OPENSSH PRIVATE KEY-----\n",
+            "token": "cvn-ct-abc123def456",
             "compute_id": "compute-test"
         }
 
-        with patch("services.sse_event_client.Path") as MockPath:
-            mock_dir = MagicMock()
-            mock_key_path = MagicMock()
-            mock_key_path.__str__ = MagicMock(return_value="/tmp/.ssh-compute-test/id_ed25519")
-            MockPath.return_value.__truediv__ = MagicMock(return_value=mock_key_path)
-            MockPath.return_value = mock_dir
-            mock_dir.__truediv__ = MagicMock(return_value=mock_key_path)
+        await client._handle_git_token_provisioned("git_token_provisioned", event_data)
 
-            # Use a simpler approach: just verify the method works end-to-end
-            # by patching at the Path constructor level
-            from pathlib import Path as RealPath
-            test_dir = tmp_path / f".ssh-{client.compute_id}"
-
-            with patch("services.sse_event_client.Path", side_effect=lambda p: RealPath(str(p).replace("/tmp", str(tmp_path)))):
-                await client._handle_ssh_key_provisioned("ssh_key_provisioned", event_data)
-
-            assert client._ssh_key_path is not None
-            key_file = RealPath(client._ssh_key_path)
-            assert key_file.exists()
-            assert key_file.read_text() == event_data["private_key"]
-            # Check permissions (0o600)
-            assert oct(key_file.stat().st_mode & 0o777) == "0o600"
+        assert client._git_token == "cvn-ct-abc123def456"
 
     @pytest.mark.asyncio
-    async def test_handle_ssh_key_provisioned_no_private_key(self):
-        """Test handler with missing private_key field."""
+    async def test_handle_git_token_provisioned_no_token(self):
+        """Test handler with missing token field."""
         client = SSEEventClient(
             serving_url="http://localhost:8002",
             compute_id="compute-001",
@@ -1764,16 +1745,16 @@ class TestSSHKeyProvisionedHandler:
 
         event_data = {
             "compute_id": "compute-001"
-            # No private_key
+            # No token
         }
 
-        await client._handle_ssh_key_provisioned("ssh_key_provisioned", event_data)
+        await client._handle_git_token_provisioned("git_token_provisioned", event_data)
 
-        assert client._ssh_key_path is None
+        assert client._git_token is None
 
     @pytest.mark.asyncio
-    async def test_handle_ssh_key_provisioned_empty_private_key(self):
-        """Test handler with empty private_key."""
+    async def test_handle_git_token_provisioned_empty_token(self):
+        """Test handler with empty token."""
         client = SSEEventClient(
             serving_url="http://localhost:8002",
             compute_id="compute-001",
@@ -1783,48 +1764,22 @@ class TestSSHKeyProvisionedHandler:
         )
 
         event_data = {
-            "private_key": "",
+            "token": "",
             "compute_id": "compute-001"
         }
 
-        await client._handle_ssh_key_provisioned("ssh_key_provisioned", event_data)
+        await client._handle_git_token_provisioned("git_token_provisioned", event_data)
 
         # Empty string is falsy, should be treated as missing
-        assert client._ssh_key_path is None
+        assert client._git_token is None
+
+
+class TestWorkAssignedWithGitToken:
+    """Tests for Git token injection into work_assigned context."""
 
     @pytest.mark.asyncio
-    async def test_handle_ssh_key_provisioned_write_failure(self):
-        """Test handler when writing to disk fails."""
-        client = SSEEventClient(
-            serving_url="http://localhost:8002",
-            compute_id="compute-001",
-            api_key="test-key",
-            capabilities=[],
-            resources={}
-        )
-
-        event_data = {
-            "private_key": "test-key-data",
-            "compute_id": "compute-001"
-        }
-
-        with patch("services.sse_event_client.Path") as MockPath:
-            mock_dir = MagicMock()
-            mock_dir.mkdir.side_effect = PermissionError("Permission denied")
-            MockPath.return_value = mock_dir
-
-            # Should not raise
-            await client._handle_ssh_key_provisioned("ssh_key_provisioned", event_data)
-
-        assert client._ssh_key_path is None
-
-
-class TestWorkAssignedWithSSHKey:
-    """Tests for SSH key injection into work_assigned context."""
-
-    @pytest.mark.asyncio
-    async def test_work_assigned_injects_ssh_key_path(self):
-        """Test that work_assigned injects ssh_key_path when available."""
+    async def test_work_assigned_injects_git_token(self):
+        """Test that work_assigned injects git_token when available."""
         from services.claude_code_spawner import set_claude_code_spawner
 
         mock_spawner = AsyncMock()
@@ -1838,7 +1793,7 @@ class TestWorkAssignedWithSSHKey:
             capabilities=[],
             resources={}
         )
-        client._ssh_key_path = "/tmp/.ssh-compute-001/id_ed25519"
+        client._git_token = "cvn-ct-testtoken123"
 
         event_data = {
             "task_id": "task-123",
@@ -1851,17 +1806,17 @@ class TestWorkAssignedWithSSHKey:
 
         await client._handle_work_assigned("work_assigned", event_data)
 
-        # Verify spawn was called with ssh_key_path injected into context
+        # Verify spawn was called with git_token injected into context
         call_args = mock_spawner.spawn.call_args[0][0]
-        assert call_args["context"]["ssh_key_path"] == "/tmp/.ssh-compute-001/id_ed25519"
+        assert call_args["context"]["git_token"] == "cvn-ct-testtoken123"
         assert call_args["context"]["repository"] == "test/repo"
 
         # Cleanup
         set_claude_code_spawner(None)
 
     @pytest.mark.asyncio
-    async def test_work_assigned_no_ssh_key_leaves_context_unchanged(self):
-        """Test that work_assigned doesn't modify context when no ssh_key_path."""
+    async def test_work_assigned_no_git_token_leaves_context_unchanged(self):
+        """Test that work_assigned doesn't modify context when no git_token."""
         from services.claude_code_spawner import set_claude_code_spawner
 
         mock_spawner = AsyncMock()
@@ -1875,7 +1830,7 @@ class TestWorkAssignedWithSSHKey:
             capabilities=[],
             resources={}
         )
-        # _ssh_key_path is None by default
+        # _git_token is None by default
 
         event_data = {
             "task_id": "task-456",
@@ -1889,14 +1844,14 @@ class TestWorkAssignedWithSSHKey:
         await client._handle_work_assigned("work_assigned", event_data)
 
         call_args = mock_spawner.spawn.call_args[0][0]
-        assert "ssh_key_path" not in call_args["context"]
+        assert "git_token" not in call_args["context"]
 
         # Cleanup
         set_claude_code_spawner(None)
 
     @pytest.mark.asyncio
     async def test_work_assigned_creates_context_if_missing(self):
-        """Test that ssh_key_path injection creates context dict if not present."""
+        """Test that git_token injection creates context dict if not present."""
         from services.claude_code_spawner import set_claude_code_spawner
 
         mock_spawner = AsyncMock()
@@ -1910,7 +1865,7 @@ class TestWorkAssignedWithSSHKey:
             capabilities=[],
             resources={}
         )
-        client._ssh_key_path = "/tmp/.ssh-compute-001/id_ed25519"
+        client._git_token = "cvn-ct-testtoken789"
 
         event_data = {
             "task_id": "task-789",
@@ -1923,14 +1878,14 @@ class TestWorkAssignedWithSSHKey:
         await client._handle_work_assigned("work_assigned", event_data)
 
         call_args = mock_spawner.spawn.call_args[0][0]
-        assert call_args["context"]["ssh_key_path"] == "/tmp/.ssh-compute-001/id_ed25519"
+        assert call_args["context"]["git_token"] == "cvn-ct-testtoken789"
 
         # Cleanup
         set_claude_code_spawner(None)
 
     @pytest.mark.asyncio
     async def test_work_assigned_does_not_mutate_original_data(self):
-        """Test that ssh_key_path injection doesn't mutate the original event data dict."""
+        """Test that git_token injection doesn't mutate the original event data dict."""
         from services.claude_code_spawner import set_claude_code_spawner
 
         mock_spawner = AsyncMock()
@@ -1944,7 +1899,7 @@ class TestWorkAssignedWithSSHKey:
             capabilities=[],
             resources={}
         )
-        client._ssh_key_path = "/tmp/.ssh-compute-001/id_ed25519"
+        client._git_token = "cvn-ct-testtoken101"
 
         original_context = {"repository": "test/repo"}
         event_data = {
@@ -1957,13 +1912,8 @@ class TestWorkAssignedWithSSHKey:
 
         await client._handle_work_assigned("work_assigned", event_data)
 
-        # The original event_data dict should not be mutated
-        # (we create a new dict with {**data, "context": context})
-        # However, the context dict itself may be mutated since we do
-        # data.get("context", {}) then add to it. Let's check the spawner
-        # was called correctly.
         call_args = mock_spawner.spawn.call_args[0][0]
-        assert call_args["context"]["ssh_key_path"] == "/tmp/.ssh-compute-001/id_ed25519"
+        assert call_args["context"]["git_token"] == "cvn-ct-testtoken101"
 
         # Cleanup
         set_claude_code_spawner(None)
