@@ -169,7 +169,6 @@ async def lifespan(app: FastAPI):
     max_instances = int(os.getenv("MAX_CLAUDE_INSTANCES", "1"))
     claude_code_spawner = initialize_claude_code_spawner(
         workspace_path=str(workspace_path),
-        claude_cli_path=config.claude_cli_path,
         serving_url=config.serving_url,
         compute_id=config.instance_id,
         api_key=config.api_key,
