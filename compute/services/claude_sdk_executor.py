@@ -24,6 +24,33 @@ from claude_agent_sdk import (
     query,
 )
 
+# Monkey-patch for SDK v0.1.39 rate_limit_event handling
+# SDK v0.1.39 doesn't have a case for "rate_limit_event" in message_parser.parse_message,
+# causing MessageParseError when Claude Code hits API rate limits. This kills the entire
+# compute task instead of letting Claude Code retry internally.
+# 
+# We patch parse_message to treat rate_limit_event as a SystemMessage (which execute_task
+# already ignores), allowing the SDK stream to continue.
+try:
+    from claude_agent_sdk._internal import message_parser
+    
+    _original_parse_message = message_parser.parse_message
+    
+    def _patched_parse_message(data: dict) -> Any:
+        """Patched parse_message that handles rate_limit_event."""
+        if data.get("type") == "rate_limit_event":
+            # Return a SystemMessage for rate_limit_event
+            # The SDK ignores SystemMessage in streams, so this allows the stream to continue
+            logger.info("rate_limit_event received — Claude Code will retry automatically")
+            return message_parser.SystemMessage(subtype="rate_limit_event")
+        return _original_parse_message(data)
+    
+    message_parser.parse_message = _patched_parse_message
+except Exception as e:
+    # If patching fails, log it but don't break initialization
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to patch SDK message_parser: {e}")
+
 logger = logging.getLogger(__name__)
 
 
