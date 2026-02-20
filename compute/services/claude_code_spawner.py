@@ -168,13 +168,14 @@ class ClaudeCodeSpawner:
         serving_url: str = "http://localhost:8002",
         compute_id: str = "compute-001",
         api_key: str = "",
-        ssh_key_path: Optional[str] = None,
+        git_token: Optional[str] = None,
         event_max_retries: int = 5,
         event_base_delay: float = 1.0,
         max_instances: int = 1,
         serving_repo_url: Optional[str] = None,
         # Deprecated: kept for backwards compatibility, no longer used
         claude_cli_path: Optional[str] = None,
+        ssh_key_path: Optional[str] = None,
     ):
         """Initialize the Claude Code spawner.
 
@@ -183,7 +184,7 @@ class ClaudeCodeSpawner:
             serving_url: URL of the serving component
             compute_id: This compute infrastructure's ID
             api_key: API key for authentication with Serving
-            ssh_key_path: Path to SSH key for Git authentication (optional)
+            git_token: Token for Git HTTP authentication (optional)
             event_max_retries: Maximum retries for failed event deliveries (default: 5)
             event_base_delay: Base delay in seconds for exponential backoff (default: 1.0)
             max_instances: Maximum concurrent Claude Code instances (default: 1)
@@ -191,18 +192,24 @@ class ClaudeCodeSpawner:
                 SERVING_REPO_PATH and pulled on every task start so compute
                 workers can inspect serving code during reasoning.
             claude_cli_path: Deprecated, ignored. SDK manages CLI binary.
+            ssh_key_path: Deprecated, ignored. Use git_token for HTTP auth.
         """
         if claude_cli_path is not None:
             logger.warning(
                 "claude_cli_path is deprecated and ignored. "
                 "The Claude Agent SDK manages the CLI binary internally."
             )
+        if ssh_key_path is not None:
+            logger.warning(
+                "ssh_key_path is deprecated and ignored. "
+                "Git transport now uses HTTP with token auth."
+            )
 
         self.workspace_path = Path(workspace_path)
         self.serving_url = serving_url.rstrip('/')
         self.compute_id = compute_id
         self.api_key = api_key
-        self.ssh_key_path = ssh_key_path
+        self.git_token = git_token
         self.event_max_retries = event_max_retries
         self.event_base_delay = event_base_delay
         self.max_instances = max_instances
@@ -224,14 +231,14 @@ class ClaudeCodeSpawner:
         self,
         args: list,
         cwd: Optional[Path] = None,
-        ssh_key_path: Optional[str] = None
+        git_token: Optional[str] = None
     ) -> subprocess.CompletedProcess:
-        """Run a git command with optional SSH key configuration.
+        """Run a git command with optional HTTP token authentication.
 
         Args:
             args: Git command arguments (without 'git' prefix)
             cwd: Working directory for the command
-            ssh_key_path: Path to SSH key for authentication
+            git_token: Git HTTP token for authentication
 
         Returns:
             CompletedProcess result
@@ -240,13 +247,19 @@ class ClaudeCodeSpawner:
             subprocess.CalledProcessError: If git command fails
         """
         env = os.environ.copy()
-        # Always disable strict host key checking for git SSH operations.
-        # Compute containers operate in a trusted Docker network with Serving's
-        # SSH Git server, and the host key is not pre-seeded in known_hosts.
-        if ssh_key_path:
-            env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-        else:
-            env["GIT_SSH_COMMAND"] = 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+
+        # Configure Git credential helper for HTTP token auth.
+        # Uses the GIT_ASKPASS approach: a script that echoes the token
+        # when git asks for a password.
+        token = git_token or self.git_token
+        if token:
+            # Create a temporary askpass script that returns the token
+            askpass_path = self.workspace_path / ".git-askpass.sh"
+            askpass_path.write_text(f"#!/bin/sh\necho '{token}'\n")
+            askpass_path.chmod(0o700)
+            env["GIT_ASKPASS"] = str(askpass_path)
+            # Suppress interactive prompts
+            env["GIT_TERMINAL_PROMPT"] = "0"
 
         cmd = ["git"] + args
         return subprocess.run(
@@ -264,7 +277,7 @@ class ClaudeCodeSpawner:
         repo_url: str,
         base_branch: str,
         feature_branch: str,
-        ssh_key_path: Optional[str] = None
+        git_token: Optional[str] = None
     ) -> Path:
         """Set up Git clone + feature branch for a compute instance.
 
@@ -277,7 +290,7 @@ class ClaudeCodeSpawner:
             repo_url: Repository URL to clone
             base_branch: Base branch name (typically "main")
             feature_branch: Feature branch name for work
-            ssh_key_path: Path to SSH key for authentication
+            git_token: Git HTTP token for authentication
 
         Returns:
             Path to the repository working directory
@@ -294,7 +307,7 @@ class ClaudeCodeSpawner:
             clone_args.extend(["--branch", base_branch])
         clone_args.extend([repo_url, str(repo_path)])
 
-        self._run_git_command(clone_args, ssh_key_path=ssh_key_path)
+        self._run_git_command(clone_args, git_token=git_token)
         logger.debug(f"Repository cloned to {repo_path}")
 
         # Step 2: Create and checkout the feature branch
@@ -315,7 +328,7 @@ class ClaudeCodeSpawner:
         instance_workspace: Path,
         repo_url: str,
         branch: str,
-        ssh_key_path: Optional[str] = None
+        git_token: Optional[str] = None
     ) -> Path:
         """Set up Git clone and checkout an existing remote branch.
 
@@ -326,7 +339,7 @@ class ClaudeCodeSpawner:
             instance_workspace: Base workspace directory for this instance
             repo_url: Repository URL to clone
             branch: Existing remote branch to checkout
-            ssh_key_path: Path to SSH key for authentication
+            git_token: Git HTTP token for authentication
 
         Returns:
             Path to the repository working directory
@@ -340,7 +353,7 @@ class ClaudeCodeSpawner:
         logger.info(f"Cloning repository from {repo_url} to {repo_path}")
         self._run_git_command(
             ["clone", repo_url, str(repo_path)],
-            ssh_key_path=ssh_key_path
+            git_token=git_token
         )
 
         # Checkout the existing remote branch
@@ -393,7 +406,7 @@ class ClaudeCodeSpawner:
                 repo_path.parent.mkdir(parents=True, exist_ok=True)
                 self._run_git_command(
                     ["clone", "--depth", "1", self.serving_repo_url, str(repo_path)],
-                    ssh_key_path=self.ssh_key_path,
+                    git_token=self.git_token,
                 )
                 logger.info(f"Serving repo cloned to {repo_path}")
             else:
@@ -401,7 +414,7 @@ class ClaudeCodeSpawner:
                 self._run_git_command(
                     ["pull", "--ff-only", "origin", "main"],
                     cwd=repo_path,
-                    ssh_key_path=self.ssh_key_path,
+                    git_token=self.git_token,
                 )
                 logger.debug(f"Serving repo updated at {repo_path}")
         except subprocess.CalledProcessError as e:
@@ -517,7 +530,7 @@ class ClaudeCodeSpawner:
         repo_url = context.get("repository")
         base_branch = context.get("base_branch", "main")
         branch_name = work_assigned_event.get("branch_name")
-        ssh_key_path = context.get("ssh_key_path") or self.ssh_key_path
+        git_token = context.get("git_token") or self.git_token
 
         # Detect conflict resolution tasks — they need an existing branch, not a new one
         is_conflict_resolution = context.get("is_conflict_resolution", False)
@@ -539,7 +552,7 @@ class ClaudeCodeSpawner:
                         instance_workspace=instance_workspace,
                         repo_url=repo_url,
                         branch=branch_name,
-                        ssh_key_path=ssh_key_path,
+                        git_token=git_token,
                     )
                 else:
                     repo_path = self._setup_branch(
@@ -547,7 +560,7 @@ class ClaudeCodeSpawner:
                         repo_url=repo_url,
                         base_branch=base_branch,
                         feature_branch=branch_name,
-                        ssh_key_path=ssh_key_path,
+                        git_token=git_token,
                     )
                 logger.info(f"Git branch set up for task {task_id}")
             except subprocess.CalledProcessError as e:
@@ -647,13 +660,13 @@ class ClaudeCodeSpawner:
 
         # Find repo URL from an existing instance's context
         repo_url = None
-        ssh_key_path = self.ssh_key_path
+        git_token = self.git_token
         for inst in self._instances.values():
             event = inst.get("event", {})
             ctx = event.get("context", {})
             if ctx.get("repository"):
                 repo_url = ctx["repository"]
-                ssh_key_path = ctx.get("ssh_key_path") or ssh_key_path
+                git_token = ctx.get("git_token") or git_token
                 break
 
         if not repo_url:
@@ -686,7 +699,7 @@ class ClaudeCodeSpawner:
                 instance_workspace=instance_workspace,
                 repo_url=repo_url,
                 branch=branch,
-                ssh_key_path=ssh_key_path
+                git_token=git_token
             )
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to set up branch for conflict resolver: {e.stderr}")
@@ -722,7 +735,7 @@ class ClaudeCodeSpawner:
             "context": {
                 "repository": repo_url,
                 "base_branch": "main",
-                "ssh_key_path": ssh_key_path,
+                "git_token": git_token,
             },
             "mcp_config": {}
         }
@@ -953,14 +966,14 @@ sys.exit(1)
         if context.get("base_branch"):
             env_vars["CLAUDEVN_BASE_BRANCH"] = context["base_branch"]
 
-        # Set GIT_SSH_COMMAND so Claude Code can push/pull via SSH
-        ssh_key_path = context.get("ssh_key_path") or self.ssh_key_path
-        if ssh_key_path:
-            env_vars["GIT_SSH_COMMAND"] = (
-                f"ssh -i {ssh_key_path} "
-                "-o StrictHostKeyChecking=no "
-                "-o UserKnownHostsFile=/dev/null"
-            )
+        # Set GIT_ASKPASS so Claude Code can push/pull via HTTP token auth
+        git_token = context.get("git_token") or self.git_token
+        if git_token:
+            askpass_script = self.workspace_path / instance_id / ".git-askpass"
+            askpass_script.write_text(f"#!/bin/sh\necho '{git_token}'\n")
+            askpass_script.chmod(0o700)
+            env_vars["GIT_ASKPASS"] = str(askpass_script)
+            env_vars["GIT_TERMINAL_PROMPT"] = "0"
 
         # Initial prompt to start work
         initial_prompt = (
@@ -1304,12 +1317,12 @@ sys.exit(1)
         if not repo_dir.exists():
             return True  # Nothing to push
 
-        # Build SSH environment for git push.
+        # Build HTTP token auth environment for git push.
         # Since the service runs as 'compute' user (same as Claude CLI),
         # there are no ownership mismatches — git operations work directly.
         event = instance.get("event", {})
         context = event.get("context", {})
-        ssh_key_path = context.get("ssh_key_path") or self.ssh_key_path
+        git_token = context.get("git_token") or self.git_token
 
         try:
             # Check for uncommitted changes
@@ -1348,10 +1361,14 @@ sys.exit(1)
                     capture_output=True, text=True
                 )
 
-            # Push to remote with retry (#831) using task-specific SSH key (#825)
+            # Push to remote with retry (#831) using HTTP token auth (#14)
             push_env = os.environ.copy()
-            if ssh_key_path:
-                push_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+            if git_token:
+                askpass_script = repo_dir / ".git-askpass"
+                askpass_script.write_text(f"#!/bin/sh\necho '{git_token}'\n")
+                askpass_script.chmod(0o700)
+                push_env["GIT_ASKPASS"] = str(askpass_script)
+                push_env["GIT_TERMINAL_PROMPT"] = "0"
 
             last_error = None
             for attempt in range(1, max_retries + 1):
@@ -1634,13 +1651,11 @@ def initialize_claude_code_spawner(
     serving_url: str = "http://localhost:8002",
     compute_id: str = "compute-001",
     api_key: str = "",
-    ssh_key_path: Optional[str] = None,
+    git_token: Optional[str] = None,
     event_max_retries: int = 5,
     event_base_delay: float = 1.0,
     max_instances: int = 1,
     serving_repo_url: Optional[str] = None,
-    # Deprecated: kept for backwards compatibility
-    claude_cli_path: Optional[str] = None,
 ) -> ClaudeCodeSpawner:
     """Initialize the global Claude Code spawner.
 
@@ -1649,13 +1664,12 @@ def initialize_claude_code_spawner(
         serving_url: Serving component URL
         compute_id: Compute infrastructure ID
         api_key: API key for authentication
-        ssh_key_path: Path to SSH key for Git authentication
+        git_token: Git HTTP token for authentication
         event_max_retries: Maximum retries for failed event deliveries (default: 5)
         event_base_delay: Base delay in seconds for exponential backoff (default: 1.0)
         max_instances: Maximum concurrent Claude Code instances (default: 1)
         serving_repo_url: Git URL of the serving repo — cloned once to
             ~/.claudevn/repos/serving/ and pulled on every task start.
-        claude_cli_path: Deprecated, ignored. SDK manages CLI binary.
 
     Returns:
         The initialized spawner
@@ -1665,7 +1679,7 @@ def initialize_claude_code_spawner(
         serving_url=serving_url,
         compute_id=compute_id,
         api_key=api_key,
-        ssh_key_path=ssh_key_path,
+        git_token=git_token,
         event_max_retries=event_max_retries,
         event_base_delay=event_base_delay,
         max_instances=max_instances,

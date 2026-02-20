@@ -377,7 +377,7 @@ class SSEConnectionManager:
             main_head: Current HEAD of main branch
             message: Human-readable message
             task_id: Task ID for the conflicting branch (read by conflict_handler)
-            repository: Repo SSH URL so spawner can use it without scanning instances
+            repository: Repo URL so spawner can use it without scanning instances
 
         Returns:
             True if event was queued successfully

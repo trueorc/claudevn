@@ -149,21 +149,14 @@ class PRService:
             self._sse_manager = get_sse_connection_manager()
         return self._sse_manager
 
-    def _safe_git_env(self, repo_path: Path | None = None) -> dict:
-        """Build env dict that bypasses safe.directory for all repos.
+    def _git_env(self) -> dict:
+        """Build env dict with git author/committer identity.
 
-        Uses wildcard '*' so clone operations (which touch both source
-        and destination) and all other git commands work regardless of
-        ownership mismatches (serving runs as root, repos owned by git user).
-
-        Also sets git author/committer identity so merge commits succeed
+        Sets git author/committer identity so merge commits succeed
         in temp work directories that have no local git config.
         """
         return {
             **os.environ,
-            "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "safe.directory",
-            "GIT_CONFIG_VALUE_0": "*",
             "GIT_AUTHOR_NAME": "ClaudeVN",
             "GIT_AUTHOR_EMAIL": "claudevn@system",
             "GIT_COMMITTER_NAME": "ClaudeVN",
@@ -171,13 +164,9 @@ class PRService:
         }
 
     def _git_cmd(self, repo_path: Path, *args: str, **kwargs) -> subprocess.CompletedProcess:
-        """Run a git command against a repo, bypassing safe.directory checks.
-
-        Serving runs as root but repos are owned by the git user. Without
-        this, git refuses to operate on the repo (CVE-2022-24765).
-        """
+        """Run a git command against a repo."""
         cmd = ["git", "-C", str(repo_path), *args]
-        env = self._safe_git_env(repo_path)
+        env = self._git_env()
         return subprocess.run(cmd, capture_output=True, text=True, env=env, **kwargs)
 
     # ==========================================================================
@@ -592,7 +581,7 @@ class PRService:
         try:
             # 1. Clone bare repo to temp work directory
             work_dir.parent.mkdir(parents=True, exist_ok=True)
-            safe_env = self._safe_git_env(repo_path)
+            safe_env = self._git_env()
             subprocess.run(
                 ["git", "clone", str(repo_path), str(work_dir)],
                 capture_output=True,
@@ -736,7 +725,7 @@ class PRService:
         try:
             # 1. Clone bare repo to temp work directory
             work_dir.parent.mkdir(parents=True, exist_ok=True)
-            safe_env = self._safe_git_env(repo_path)
+            safe_env = self._git_env()
             subprocess.run(
                 ["git", "clone", str(repo_path), str(work_dir)],
                 capture_output=True,

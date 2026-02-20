@@ -83,12 +83,8 @@ class RedisConfig(BaseModel):
 class GitConfig(BaseModel):
     """Git infrastructure configuration."""
     repos_path: str = Field(default="./data/repos", description="Path to bare Git repositories")
-    ssh_keys_path: str = Field(default="./data/ssh_keys", description="Path to SSH authorized keys")
-    git_user: str = Field(default="git", description="Git user for SSH access")
-    enable_ssh: bool = Field(default=True, description="Enable SSH-based Git access")
+    ssh_keys_path: str = Field(default="./data/ssh_keys", description="Path to SSH keys for external repo auth")
     hook_redis_notify: bool = Field(default=True, description="Enable Redis notifications from Git hooks")
-    ssh_port: int = Field(default=2222, description="SSH server port for Git access")
-    ssh_host_key_path: Optional[str] = Field(default=None, description="Path to SSH host key (auto-generated if not set)")
 
 
 class MarketplaceConfig(BaseModel):
@@ -181,15 +177,10 @@ class ServingConfig(BaseModel):
         )
 
         # Git config
-        ssh_keys_path = os.getenv("GIT_SSH_KEYS_PATH", f"{storage_path}/ssh_keys")
         git = GitConfig(
             repos_path=os.getenv("GIT_REPOS_PATH", f"{storage_path}/repos"),
-            ssh_keys_path=ssh_keys_path,
-            git_user=os.getenv("GIT_USER", "git"),
-            enable_ssh=os.getenv("GIT_ENABLE_SSH", "true").lower() == "true",
+            ssh_keys_path=os.getenv("GIT_SSH_KEYS_PATH", f"{storage_path}/ssh_keys"),
             hook_redis_notify=os.getenv("GIT_HOOK_REDIS_NOTIFY", "true").lower() == "true",
-            ssh_port=int(os.getenv("SSH_GIT_PORT", "2222")),
-            ssh_host_key_path=os.getenv("SSH_HOST_KEY_PATH", f"{ssh_keys_path}/ssh_host_ed25519_key")
         )
 
         # Work timeout config
