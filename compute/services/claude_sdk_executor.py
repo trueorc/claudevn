@@ -11,6 +11,7 @@ internally.
 """
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -103,6 +104,14 @@ async def execute_task(
     Returns:
         ExecutionResult with output, status, and metadata
     """
+    if os.getenv("DEMO_MODE", "false").lower() == "true":
+        logger.warning("DEMO_MODE enabled - blocking real compute execution")
+        return ExecutionResult(
+            success=False,
+            exit_code=1,
+            error="Demo mode enabled - real compute execution is disabled",
+        )
+
     options = ClaudeAgentOptions(
         cwd=str(cwd),
         mcp_servers=mcp_servers,

@@ -883,6 +883,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to start work orchestrator: {e}")
         # Don't raise - orchestrator is not critical for startup
 
+    if config.demo_mode:
+        logger.info("*** DEMO MODE ENABLED - Real compute execution is disabled ***")
+
     logger.info("Serving component started successfully")
 
     yield
