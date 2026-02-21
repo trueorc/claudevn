@@ -1,5 +1,8 @@
 # ClaudeVNh Root .gitignore
 
+# Admin/operator scripts (credentials, maintenance)
+.admin/
+
 # Python
 __pycache__/
 *.py[cod]
