@@ -19,10 +19,35 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     AssistantMessage,
     ResultMessage,
+    SystemMessage,
     TextBlock,
     ToolUseBlock,
     query,
 )
+import claude_agent_sdk._internal.message_parser as _message_parser
+
+# Patch: SDK 0.1.39 doesn't handle `rate_limit_event` messages emitted by the
+# Claude Code CLI when the API rate-limits a request.  The CLI handles the retry
+# internally and resumes the session — so we only need to stop the SDK from
+# raising `MessageParseError: Unknown message type: rate_limit_event` and killing
+# the whole execution.  We do this by patching `parse_message` to surface
+# rate_limit_event as a SystemMessage (which execute_task already ignores).
+_original_parse_message = _message_parser.parse_message
+
+
+def _patched_parse_message(data: dict) -> Any:
+    if isinstance(data, dict) and data.get("type") == "rate_limit_event":
+        logger_patch = logging.getLogger(__name__)
+        retry_after = data.get("retry_after_ms") or data.get("retry_after")
+        logger_patch.info(
+            f"[sdk] rate_limit_event received (retry_after={retry_after}ms) — "
+            "Claude Code will retry automatically"
+        )
+        return SystemMessage(subtype="rate_limit_event", data=data)
+    return _original_parse_message(data)
+
+
+_message_parser.parse_message = _patched_parse_message
 
 logger = logging.getLogger(__name__)
 
