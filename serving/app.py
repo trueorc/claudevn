@@ -523,6 +523,12 @@ async def lifespan(app: FastAPI):
         )
         await rollup_service.initialize()
         set_comment_rollup_service(rollup_service)
+        # Wire rollup → evaluation callback so batch evaluation actually fires
+        eval_service = work_map_service._evaluation_service
+        async def _rollup_evaluation_callback(goal_id: str, comment_ids: list) -> None:
+            await eval_service.evaluate_batch(goal_id)
+        rollup_service.set_evaluation_callback(_rollup_evaluation_callback)
+
         if rollup_enabled:
             logger.info(f"Comment rollup service initialized (window={rollup_window}s, quiet={quiet_period}s)")
         else:
