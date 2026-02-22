@@ -37,7 +37,7 @@ Two-tier architecture: Serving (central hub) + Compute (Claude Code instances)
 ```
 serving/              # Central coordination hub (v1.0) - port 8002
   ├── services/       # Core services including ComputeSpawner
-  ├── git/            # Git infrastructure (SSH, hooks, PR management)
+  ├── git/            # Git infrastructure (Smart HTTP, hooks, PR management)
   ├── mcp/            # MCP server for compute communication
   └── frontend/       # React monitoring UI
 marketplace/          # Skill marketplace service (v1.0) - port 8003
@@ -49,7 +49,7 @@ docs/                 # Comprehensive documentation
   ├── design/architecture/v1.0-architecture.md  # New architecture
   ├── design/specifications/                     # Component specs
   ├── design/adr/                                # Architecture decisions
-  └── archive/v0.x/                              # Legacy docs
+  └── archive/                                    # Legacy docs
 ```
 
 ## Authoritative Documentation (v1.0)
@@ -81,7 +81,7 @@ docs/                 # Comprehensive documentation
 
 ```yaml
 github_project:
-  owner: Guarrdon
+  owner: trueorc
   number: 2
   project_id: PVT_kwHOAP6mx84BNtCx
   fields:
@@ -113,7 +113,7 @@ github_project:
 ## Issue Creation Requirements
 
 All issues MUST include:
-1. **Title**: `[PRIORITY] Brief description` (e.g., `[P0] Implement SSH Git Server`)
+1. **Title**: `[PRIORITY] Brief description` (e.g., `[P0] Implement Git Smart HTTP Server`)
 2. **Labels**:
    - Priority: `P0`, `P1`, `P2`, or `P3`
    - Type: `bug`, `enhancement`, or `documentation`
@@ -125,4 +125,4 @@ See `docs/guides/issue-creation-guide.md` for complete instructions.
 
 ## Legacy Documentation
 
-v0.x documentation is preserved in `docs/archive/v0.x/` for reference.
+Legacy documentation is preserved in `docs/archive/` for reference.
