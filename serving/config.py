@@ -129,6 +129,7 @@ class ServingConfig(BaseModel):
     git: GitConfig = Field(default_factory=GitConfig)
     marketplace: MarketplaceConfig = Field(default_factory=MarketplaceConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    demo_mode: bool = Field(default=False, description="Demo mode - blocks real compute execution")
 
     @classmethod
     def from_env(cls) -> "ServingConfig":
@@ -220,6 +221,8 @@ class ServingConfig(BaseModel):
             burst_multiplier=float(os.getenv("RATE_LIMIT_BURST_MULTIPLIER", "1.5"))
         )
 
+        demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
+
         return cls(
             server=server,
             storage=storage,
@@ -229,7 +232,8 @@ class ServingConfig(BaseModel):
             redis=redis,
             git=git,
             marketplace=marketplace,
-            rate_limit=rate_limit
+            rate_limit=rate_limit,
+            demo_mode=demo_mode
         )
 
 

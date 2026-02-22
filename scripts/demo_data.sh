@@ -3,7 +3,7 @@
 # ClaudeVN Demo Data CLI Script
 # Manages demo data for development and testing
 #
-# This is a lightweight wrapper around demo_data.py that provides
+# This is a lightweight wrapper around the demo_data package that provides
 # a consistent CLI interface with bash-style argument parsing.
 
 set -e
@@ -23,6 +23,7 @@ VENV_PATH="${PROJECT_ROOT}/.venv"
 
 # Default settings
 ACTION=""
+PHASE=""
 PROJECTS=false
 GOALS=false
 WORK=false
@@ -40,14 +41,23 @@ usage() {
     echo -e "${BLUE}========================================${NC}"
     echo ""
     echo "Manage demo data for ClaudeVN development and testing."
+    echo "Data is organized in phases based on real project history."
+    echo ""
+    echo -e "${CYAN}Phases:${NC}"
+    echo "  1 - Foundation: Project, Git infrastructure, Auth (completed)"
+    echo "  2 - Execution:  Dispatcher, Conflict resolution (mostly done)"
+    echo "  3 - Growth:     Marketplace, Frontend, active work (in-flight)"
     echo ""
     echo -e "${CYAN}Usage:${NC} $0 [OPTIONS]"
     echo ""
     echo -e "${CYAN}Actions:${NC}"
     echo "  -f, --full              Full reset: delete all data and regenerate"
     echo "  -d, --delete            Delete all demo data (no regeneration)"
-    echo "  -r, --refresh           Refresh existing data (update timestamps, etc.)"
+    echo "  -r, --refresh           Refresh existing data (update timestamps)"
     echo "  -s, --status            Show current data counts"
+    echo ""
+    echo -e "${CYAN}Phase Selection:${NC}"
+    echo "  --phase <phases>        Comma-separated phases (1,2,3). Default: all"
     echo ""
     echo -e "${CYAN}Category Filters:${NC}"
     echo "  --projects              Only affect projects data"
@@ -56,8 +66,8 @@ usage() {
     echo "  --skills                Only affect skills data (user skills only)"
     echo ""
     echo -e "${CYAN}Options:${NC}"
-    echo "  --seed <number>         Random seed for reproducible data (default: random)"
-    echo "  --count <number>        Number of items to generate per category (default: 5)"
+    echo "  --seed <number>         Random seed for reproducible data"
+    echo "  --count <number>        Limit items per category"
     echo "  --serving-url <url>     Serving API URL (default: http://localhost:8002)"
     echo "  --marketplace-url <url> Marketplace API URL (default: http://localhost:8003)"
     echo "  -v, --verbose           Verbose output"
@@ -65,11 +75,11 @@ usage() {
     echo "  -h, --help              Show this help message"
     echo ""
     echo -e "${CYAN}Examples:${NC}"
-    echo "  $0 --full                    # Complete reset"
+    echo "  $0 --full                    # Complete reset (all phases)"
+    echo "  $0 --full --phase 1          # Reset with only foundation data"
+    echo "  $0 --full --phase 1,2        # Foundation + execution"
     echo "  $0 --delete --projects       # Delete only project data"
     echo "  $0 --refresh --goals         # Refresh goals only"
-    echo "  $0 --full --count 10         # Generate 10 items per category"
-    echo "  $0 --full --seed 12345       # Reproducible data generation"
     echo "  $0 --status                  # Check current data counts"
     echo "  $0 -n --full                 # Preview full reset (dry run)"
     echo ""
@@ -102,7 +112,7 @@ build_python_args() {
             args+=("--populate")
             ;;
         delete)
-            args+=("--clear")
+            args+=("--delete")
             ;;
         refresh)
             args+=("--refresh")
@@ -115,6 +125,11 @@ build_python_args() {
             args+=("--populate")
             ;;
     esac
+
+    # Phase selection
+    if [[ -n "$PHASE" ]]; then
+        args+=("--phase" "$PHASE")
+    fi
 
     # Category filters
     if [[ "$PROJECTS" == true ]]; then
@@ -187,6 +202,14 @@ while [[ $# -gt 0 ]]; do
         -s|--status)
             ACTION="status"
             shift
+            ;;
+        --phase)
+            if [[ -z "$2" || "$2" == -* ]]; then
+                echo -e "${RED}Error: --phase requires phases (e.g., 1,2,3)${NC}"
+                exit 1
+            fi
+            PHASE="$2"
+            shift 2
             ;;
         --projects)
             PROJECTS=true
@@ -272,7 +295,7 @@ main() {
     fi
 
     # Set PYTHONPATH to include project root and shared module
-    export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/shared:${PYTHONPATH:-}"
+    export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/shared:${SCRIPT_DIR}:${PYTHONPATH:-}"
 
     # Execute Python script
     # shellcheck disable=SC2086
