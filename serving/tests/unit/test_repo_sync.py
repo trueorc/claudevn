@@ -25,7 +25,8 @@ def mock_repo_manager():
         "default_branch": "main",
         "branches": ["main", "develop"],
         "branch_count": 2,
-        "is_mirror": True
+        "is_mirror": False,
+        "is_linked": True
     }
     return manager
 
@@ -196,7 +197,8 @@ class TestRepoSyncService:
             assert result is not None
             assert result.clone_status == RepoCloneStatus.CLONED
             assert result.branch_count == 2
-            assert result.is_mirror is True
+            assert result.is_mirror is False
+            assert result.is_linked is True
 
 
 class TestLocalNameGeneration:

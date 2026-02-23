@@ -531,16 +531,20 @@ exit 0
         project: str,
         url: str,
         ssh_key_path: Optional[str] = None,
+        ssh_key_id: Optional[str] = None,
         default_branch: str = "main"
     ) -> Path:
         """Clone a repository from a URL into Serving's Git infrastructure.
 
-        Creates a bare mirror clone that can receive pushes and push back to origin.
+        Creates a bare clone with a restricted fetch refspec so that
+        ``git fetch`` only updates the default branch and tags — compute
+        feature branches are never overwritten.
 
         Args:
             project: Project name for the local repo
             url: Git URL to clone from (SSH or HTTPS)
             ssh_key_path: Path to SSH key for authentication (optional)
+            ssh_key_id: SSH key identifier to store in repo config (optional)
             default_branch: Default branch name
 
         Returns:
@@ -563,12 +567,28 @@ exit 0
         if ssh_key_path:
             env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
-        # Clone as a bare mirror
+        # Clone as bare (NOT --mirror, which sets a dangerous catch-all refspec)
         subprocess.run(
-            ["git", "clone", "--bare", "--mirror", url, str(repo_path)],
+            ["git", "clone", "--bare", url, str(repo_path)],
             check=True,
             capture_output=True,
             env=env
+        )
+
+        # Restrict fetch refspec to default branch + tags only.
+        # A --mirror clone sets +refs/*:refs/* which overwrites ALL refs
+        # on fetch, destroying compute feature branches.
+        subprocess.run(
+            ["git", "-C", str(repo_path), "config", "remote.origin.fetch",
+             f"+refs/heads/{default_branch}:refs/heads/{default_branch}"],
+            check=True,
+            capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--add", "remote.origin.fetch",
+             "+refs/tags/*:refs/tags/*"],
+            check=True,
+            capture_output=True
         )
 
         # Configure origin for push
@@ -592,6 +612,21 @@ exit 0
             check=True,
             capture_output=True
         )
+
+        # Store linked repo metadata in git config so downstream services
+        # (e.g. PR service) can determine post-merge behavior without
+        # querying the project model.
+        subprocess.run(
+            ["git", "-C", str(repo_path), "config", "claudevn.isLinked", "true"],
+            check=True,
+            capture_output=True
+        )
+        if ssh_key_id:
+            subprocess.run(
+                ["git", "-C", str(repo_path), "config", "claudevn.sshKeyId", ssh_key_id],
+                check=True,
+                capture_output=True
+            )
 
         # Install hooks
         self.install_hooks(project)
@@ -764,15 +799,25 @@ exit 0
         if head_result.returncode == 0:
             default_branch = head_result.stdout.strip().replace("refs/heads/", "")
 
-        # Check if it's a mirror clone
+        # Check if it's a mirror clone (legacy)
         is_mirror = False
-        config_result = subprocess.run(
+        mirror_result = subprocess.run(
             ["git", "-C", str(repo_path), "config", "--get", "remote.origin.mirror"],
             capture_output=True,
             text=True
         )
-        if config_result.returncode == 0 and config_result.stdout.strip() == "true":
+        if mirror_result.returncode == 0 and mirror_result.stdout.strip() == "true":
             is_mirror = True
+
+        # Check if it's a linked repository (v1.0 safe bare clone)
+        is_linked = False
+        linked_result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", "claudevn.isLinked"],
+            capture_output=True,
+            text=True
+        )
+        if linked_result.returncode == 0 and linked_result.stdout.strip() == "true":
+            is_linked = True
 
         return {
             "project": project,
@@ -782,6 +827,7 @@ exit 0
             "branches": branches,
             "branch_count": len(branches),
             "is_mirror": is_mirror,
+            "is_linked": is_linked,
             "exists": True
         }
 

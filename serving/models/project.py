@@ -181,6 +181,7 @@ class RepoStatusResponse(BaseModel):
     branches: List[str] = Field(default_factory=list)
     branch_count: int = 0
     is_mirror: bool = False
+    is_linked: bool = False
     last_sync: Optional[datetime] = None
     error_message: Optional[str] = None
 
