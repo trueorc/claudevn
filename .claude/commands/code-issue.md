@@ -8,15 +8,29 @@ Take a GitHub issue through the full development cycle: analyze, code, test, doc
 
 ## Feature Grouping
 
-Issues can share a single branch/worktree/PR using one of two methods:
+Issues can share a single PR and integration branch using one of two methods:
 
-1. **Label-based** (preferred): Add a `feature:*` label to related issues (e.g., `feature:safe-clone`). All issues with the same feature label share branch `feat/{feature-name}`.
-2. **Explicit**: Pass `--branch <name>` to specify the branch directly.
-3. **Default**: No feature label and no `--branch` → one branch per issue (current behavior).
+1. **Label-based** (preferred): Add a `feature:*` label to related issues (e.g., `feature:safe-clone`). All issues with the same feature label share integration branch `feat/{feature-name}` and a single PR.
+2. **Explicit**: Pass `--branch <name>` to specify the integration branch directly.
+3. **Default**: No feature label and no `--branch` → one branch per issue (single-issue mode, unchanged).
 
-## Critical: Worktree Isolation
+## Critical: Parallel Isolation via Sub-branches
 
-Each feature branch gets its own worktree. Multiple issues in the same feature share the same worktree — they are worked on sequentially within it, each as a separate commit.
+Git worktrees cannot check out the same branch simultaneously. In feature-grouped mode, **each instance gets its own sub-branch and worktree**:
+
+```
+main
+ └── feat/{feature-name}           ← integration branch (PR source, no permanent worktree)
+      ├── feat/{feature-name}/{N}  ← instance 1's worktree
+      ├── feat/{feature-name}/{M}  ← instance 2's worktree
+      └── feat/{feature-name}/{K}  ← instance 3's worktree
+```
+
+Each instance:
+1. Creates sub-branch `feat/{feature-name}/{ISSUE_NUMBER}` off the integration branch
+2. Works and commits on the sub-branch in its own worktree
+3. When done, merges the sub-branch into the integration branch (via a temporary worktree)
+4. PR is opened/updated from the integration branch to main
 
 See `docs/guides/worktree-workflow.md` for detailed worktree usage.
 
@@ -34,27 +48,30 @@ Parse the issue to understand:
 - **Problem statement** - What needs to be solved
 - **Acceptance criteria** - Definition of done
 - **Area labels** - Which components are affected (area:serving, area:frontend, etc.)
-- **Priority** - P0/P1/P2/P3 for urgency context
+- **Priority** - P0/P1/P2 for urgency context
 - **Feature label** - Any `feature:*` label for branch grouping
 
 ### 2. Determine Branch Strategy
 
 Parse `$ARGUMENTS` to extract the issue number and optional `--branch` flag.
 
-Then determine the branch name using this priority:
+Then determine branches using this priority:
 
 1. **`feature:*` label found** on the issue:
    - Extract feature name from label (e.g., `feature:safe-clone` → `safe-clone`)
-   - Branch: `feat/{feature-name}` (e.g., `feat/safe-clone`)
-   - Worktree: `../worktrees/feat-{feature-name}`
+   - Integration branch: `feat/{feature-name}` (e.g., `feat/safe-clone`)
+   - Sub-branch: `feat/{feature-name}/{ISSUE_NUMBER}` (e.g., `feat/safe-clone/42`)
+   - Worktree: `../worktrees/feat-{feature-name}-{ISSUE_NUMBER}`
 
 2. **`--branch` flag provided** in arguments:
-   - Branch: use the provided name exactly
-   - Worktree: `../worktrees/{branch-name-with-slashes-replaced-by-dashes}`
+   - Integration branch: use the provided name exactly (e.g., `feat/safe-clone`)
+   - Sub-branch: `{provided-branch}/{ISSUE_NUMBER}` (e.g., `feat/safe-clone/42`)
+   - Worktree: `../worktrees/{branch-dashes}-{ISSUE_NUMBER}`
 
-3. **Neither** (default — single-issue mode):
+3. **Neither** (default — single-issue mode, unchanged):
    - Branch: `{type}/issue-{N}-{short-description}` (type from issue labels: bug→fix, enhancement→feat, etc.)
    - Worktree: `../worktrees/issue-{N}`
+   - No integration branch; this branch IS the PR source.
 
 ### 3. Update DevBoard Status
 
@@ -62,35 +79,77 @@ Set issue status to "In Progress":
 ```bash
 ITEM_ID=$(gh api graphql -f query='{ repository(owner: "trueorc", name: "claudevn") { issue(number: {ISSUE_NUMBER}) { projectItems(first: 1) { nodes { id } } } } }' --jq '.data.repository.issue.projectItems.nodes[0].id')
 
-gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwHOAP6mx84BNtCx\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lAHOAP6mx84BNtCxzg8nxFg\" value: { singleSelectOptionId: \"47fc9ee4\" } }) { projectV2Item { id } } }"
+gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwDOD6FTDM4BQFhJ\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lADOD6FTDM4BQFhJzg-Tsck\" value: { singleSelectOptionId: \"47fc9ee4\" } }) { projectV2Item { id } } }"
 ```
 
-### 4. Set Up Worktree (with reuse)
+If the issue is not yet on the board, add it first:
+```bash
+ISSUE_NODE_ID=$(gh api graphql -f query='{ repository(owner: "trueorc", name: "claudevn") { issue(number: {ISSUE_NUMBER}) { id } } }' --jq '.data.repository.issue.id')
+
+ITEM_ID=$(gh api graphql -f query="mutation { addProjectV2ItemById(input: { projectId: \"PVT_kwDOD6FTDM4BQFhJ\" contentId: \"$ISSUE_NODE_ID\" }) { item { id } } }" --jq '.data.addProjectV2ItemById.item.id')
+```
+
+### 4. Set Up Worktree
 
 ```bash
 git fetch origin main
 mkdir -p ../worktrees
 ```
 
-**Check if the branch and worktree already exist** (critical for feature-grouped issues):
-
-- **Worktree already exists** → `cd` into it. Do NOT create a new one.
-- **Branch exists on remote but no worktree** → `git worktree add ../worktrees/{name} {branch-name}` (track existing branch, not origin/main)
-- **Branch doesn't exist** → `git worktree add ../worktrees/{name} -b {branch-name} origin/main` (create new)
+**Single-issue mode** (no feature label, no `--branch`): Unchanged behavior.
 
 ```bash
-# Example: reuse existing worktree
-if [ -d "../worktrees/{worktree-name}" ]; then
-    cd ../worktrees/{worktree-name}
-    git pull origin {branch-name}  # get latest from shared branch
+if git ls-remote --heads origin {single-issue-branch} | grep -q {single-issue-branch}; then
+    git worktree add ../worktrees/issue-{N} {single-issue-branch}
 else
-    # Check if branch exists on remote
-    if git ls-remote --heads origin {branch-name} | grep -q {branch-name}; then
-        git worktree add ../worktrees/{worktree-name} {branch-name}
-    else
-        git worktree add ../worktrees/{worktree-name} -b {branch-name} origin/main
+    git worktree add ../worktrees/issue-{N} -b {single-issue-branch} origin/main
+fi
+cd ../worktrees/issue-{N}
+```
+
+**Feature-grouped mode** (label-based or `--branch`): Two-phase setup.
+
+**Phase 1: Ensure integration branch exists on remote.**
+
+```bash
+INTEGRATION_BRANCH="feat/{feature-name}"
+SUB_BRANCH="feat/{feature-name}/{ISSUE_NUMBER}"
+SUB_WORKTREE="../worktrees/feat-{feature-name}-{ISSUE_NUMBER}"
+
+if git ls-remote --heads origin "$INTEGRATION_BRANCH" | grep -q "$INTEGRATION_BRANCH"; then
+    # Integration branch already exists — fetch it
+    git fetch origin "$INTEGRATION_BRANCH"
+else
+    # First instance: create integration branch from origin/main via temp worktree
+    TEMP_WORKTREE="../worktrees/tmp-integration-$$"
+    git worktree add "$TEMP_WORKTREE" -b "$INTEGRATION_BRANCH" origin/main
+    # Push — if another instance already created it, this will fail; that's OK
+    if ! git -C "$TEMP_WORKTREE" push -u origin "$INTEGRATION_BRANCH" 2>/dev/null; then
+        echo "Integration branch was created by another instance — fetching."
+        git fetch origin "$INTEGRATION_BRANCH"
     fi
-    cd ../worktrees/{worktree-name}
+    git worktree remove "$TEMP_WORKTREE"
+    git fetch origin "$INTEGRATION_BRANCH"
+fi
+```
+
+**Phase 2: Create sub-branch and worktree for this instance.**
+
+Sub-branch is always based off the integration branch (not main) to pick up prior work from other instances.
+
+```bash
+if [ -d "$SUB_WORKTREE" ]; then
+    # Resumed session — reuse existing worktree
+    cd "$SUB_WORKTREE"
+    git pull origin "$SUB_BRANCH" 2>/dev/null || true
+elif git ls-remote --heads origin "$SUB_BRANCH" | grep -q "$SUB_BRANCH"; then
+    # Sub-branch exists on remote (resumed session): track it
+    git worktree add "$SUB_WORKTREE" "$SUB_BRANCH"
+    cd "$SUB_WORKTREE"
+else
+    # Fresh start: create sub-branch from current tip of integration branch
+    git worktree add "$SUB_WORKTREE" -b "$SUB_BRANCH" "origin/$INTEGRATION_BRANCH"
+    cd "$SUB_WORKTREE"
 fi
 ```
 
@@ -176,31 +235,82 @@ Examples:
 - `feat: Add user authentication endpoint (#42)`
 - `fix: Correct race condition in event handler (#43)`
 
-### 10. Push and Create/Update PR
+### 10. Push, Merge Up, and Create/Update PR
+
+**Single-issue mode**: Push directly and create PR.
 
 ```bash
-git push -u origin {branch-name}
+git push -u origin {single-issue-branch}
+# Then create PR (see PR creation below)
 ```
 
-**Check if a PR already exists for this branch:**
+**Feature-grouped mode**: Three-phase process.
+
+**Phase 1: Push sub-branch.**
 
 ```bash
-EXISTING_PR=$(gh pr list --head {branch-name} --json number --jq '.[0].number')
+git push -u origin "$SUB_BRANCH"
 ```
 
-**If PR exists** (feature-grouped — another issue already created it):
-- Update the PR body to add this issue to the list:
+**Phase 2: Merge sub-branch into integration branch.**
+
+Use a temporary worktree for the integration branch.
+
 ```bash
-# Get current body, append new issue reference
+TEMP_MERGE_WORKTREE="../worktrees/tmp-merge-${ISSUE_NUMBER}-$$"
+
+# Fetch latest integration branch
+git fetch origin "$INTEGRATION_BRANCH"
+
+# Create temp worktree on integration branch
+git worktree add "$TEMP_MERGE_WORKTREE" "$INTEGRATION_BRANCH"
+cd "$TEMP_MERGE_WORKTREE"
+
+# Pull latest to ensure we're current
+git pull origin "$INTEGRATION_BRANCH"
+
+# Merge the sub-branch with --no-ff to preserve history
+git merge --no-ff "$SUB_BRANCH" -m "merge: integrate #${ISSUE_NUMBER} into ${INTEGRATION_BRANCH}"
+```
+
+If conflicts occur during merge-up, resolve them in the temp worktree. The sub-branch worktree is still available at `$SUB_WORKTREE` for reference:
+
+```bash
+# After resolving conflicts:
+git add {resolved-files}
+git commit -m "merge: resolve conflicts integrating #${ISSUE_NUMBER}"
+```
+
+**Phase 3: Push integration branch and clean up temp worktree.**
+
+```bash
+git push origin "$INTEGRATION_BRANCH"
+
+# Return to repo root and clean up
+cd {repo-root}
+git worktree remove "$TEMP_MERGE_WORKTREE"
+git worktree prune
+```
+
+**Create or update PR on the integration branch:**
+
+```bash
+EXISTING_PR=$(gh pr list --head "$INTEGRATION_BRANCH" --json number --jq '.[0].number')
+```
+
+**If PR exists** (another issue already created it):
+```bash
 CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body')
-# Update body to include new issue in the Issues section
+# Append "Closes #{ISSUE_NUMBER}" to the Issues section
 gh pr edit "$EXISTING_PR" --body "{updated body with Closes #{ISSUE_NUMBER} added}"
 ```
 
-**If no PR exists** (first issue in the feature, or single-issue mode):
+**If no PR exists** (first issue in the feature):
 ```bash
 gh pr create \
-  --title "{type}: {Feature or Issue Description}" \
+  --head "$INTEGRATION_BRANCH" \
+  --base main \
+  --title "feat: {Feature Name}" \
   --body "$(cat <<'EOF'
 ## Summary
 - Brief description of changes
@@ -229,27 +339,43 @@ EOF
 
 Set issue status to "In Review":
 ```bash
-gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwHOAP6mx84BNtCx\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lAHOAP6mx84BNtCxzg8nxFg\" value: { singleSelectOptionId: \"4cc61d42\" } }) { projectV2Item { id } } }"
+gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwDOD6FTDM4BQFhJ\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lADOD6FTDM4BQFhJzg-Tsck\" value: { singleSelectOptionId: \"4cc61d42\" } }) { projectV2Item { id } } }"
 ```
 
-### 12. Cleanup Worktree (After PR Merged)
+### 12. Cleanup
 
-**Only clean up when ALL issues in the feature group are done.**
-
-For single-issue mode:
+**Single-issue mode** (after PR merged):
 ```bash
 git worktree remove ../worktrees/issue-{N}
 git worktree prune
 ```
 
-For feature-grouped mode — check if other issues in the group are still open:
-```bash
-# List other issues with the same feature label
-gh issue list --label "feature:{name}" --state open --json number --jq '.[].number'
+**Feature-grouped mode** — two layers of cleanup:
 
-# Only remove worktree if no open issues remain
-git worktree remove ../worktrees/feat-{name}
+**Layer 1: Sub-branch worktree (immediate — after merge-up in Step 10).**
+
+Once the sub-branch is merged into the integration branch and pushed, clean up:
+
+```bash
+git worktree remove "$SUB_WORKTREE"
+git push origin --delete "$SUB_BRANCH"  # optional: sub-branch work is in integration branch
 git worktree prune
+```
+
+**Layer 2: Integration branch (deferred — only after PR is merged AND all issues done).**
+
+The integration branch has no permanent worktree. After the PR is merged to main:
+
+```bash
+# Check if sibling issues in the feature group are still open
+OPEN_ISSUES=$(gh issue list --label "feature:{name}" --state open --json number --jq '.[].number')
+
+if [ -z "$OPEN_ISSUES" ]; then
+    git push origin --delete "feat/{feature-name}"
+    echo "Integration branch cleaned up."
+else
+    echo "Other issues still open: $OPEN_ISSUES — leaving integration branch."
+fi
 ```
 
 ---
@@ -259,13 +385,18 @@ git worktree prune
 - [ ] Issue analyzed and understood
 - [ ] Branch strategy determined (feature label / --branch / single-issue)
 - [ ] DevBoard status updated to "In Progress"
-- [ ] **Worktree created or reused** (critical for parallel work)
+- [ ] **Integration branch created or confirmed** (feature-grouped mode)
+- [ ] **Sub-branch worktree created** (feature-grouped: `feat/{name}/{N}`, single-issue: `issue-{N}`)
 - [ ] Code implemented following project patterns
 - [ ] **Tier 1 unit tests written and passing** (`./scripts/run_unit_tests.sh`)
 - [ ] Documentation updated if needed
-- [ ] Commit message follows convention (references individual issue)
-- [ ] PR created or updated (references all issues in feature group)
+- [ ] Commit message follows convention (references individual issue number)
+- [ ] **Sub-branch pushed** (feature-grouped mode)
+- [ ] **Sub-branch merged into integration branch** (feature-grouped mode)
+- [ ] **Temp merge worktree removed** (feature-grouped mode)
+- [ ] PR created or updated on integration branch
 - [ ] DevBoard status updated to "In Review"
+- [ ] **Sub-branch worktree removed** (feature-grouped mode)
 - [ ] (Follow-up) Issue created for Tier 2 integration tests if applicable
 
 ---

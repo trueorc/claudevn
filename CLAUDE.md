@@ -82,11 +82,11 @@ docs/                 # Comprehensive documentation
 ```yaml
 github_project:
   owner: trueorc
-  number: 2
-  project_id: PVT_kwHOAP6mx84BNtCx
+  number: 1
+  project_id: PVT_kwDOD6FTDM4BQFhJ
   fields:
     status:
-      id: PVTSSF_lAHOAP6mx84BNtCxzg8nxFg
+      id: PVTSSF_lADOD6FTDM4BQFhJzg-Tsck
       options:
         backlog: f75ad846
         ready: 08afe404
@@ -94,14 +94,13 @@ github_project:
         in_review: 4cc61d42
         done: 98236657
     priority:
-      id: PVTSSF_lAHOAP6mx84BNtCxzg8nxLg
+      id: PVTSSF_lADOD6FTDM4BQFhJzg-Tsfw
       options:
         P0: 79628723
         P1: 0a877460
         P2: da944a9c
-        P3: f55ea659
     size:
-      id: PVTSSF_lAHOAP6mx84BNtCxzg8nxLk
+      id: PVTSSF_lADOD6FTDM4BQFhJzg-Tsf0
       options:
         XS: eff732af
         S: 9592a5a3
@@ -115,7 +114,7 @@ github_project:
 All issues MUST include:
 1. **Title**: `[PRIORITY] Brief description` (e.g., `[P0] Implement Git Smart HTTP Server`)
 2. **Labels**:
-   - Priority: `P0`, `P1`, `P2`, or `P3`
+   - Priority: `P0`, `P1`, or `P2`
    - Type: `bug`, `enhancement`, or `documentation`
    - Area: `area:serving`, `area:compute`, `area:marketplace`, `area:git`, `area:mcp`, `area:frontend`
    - Special: `test` (if test-related), `architecture` (if design change)

@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from .redis_client import RedisClient, get_redis
 from .repo_manager import RepoManager
+from .ssh_key_service import SSHKeyService, get_ssh_key_service
 from config import get_config
 from services.sse_connection_manager import (
     SSEConnectionManager,
@@ -122,7 +123,8 @@ class PRService:
         self,
         redis_client: Optional[RedisClient] = None,
         repo_manager: Optional[RepoManager] = None,
-        sse_manager: Optional[SSEConnectionManager] = None
+        sse_manager: Optional[SSEConnectionManager] = None,
+        ssh_key_service: Optional[SSHKeyService] = None,
     ):
         """Initialize PR service.
 
@@ -130,10 +132,12 @@ class PRService:
             redis_client: Redis client (created on demand if None)
             repo_manager: Repository manager (created on demand if None)
             sse_manager: SSE connection manager for compute notifications (uses global if None)
+            ssh_key_service: SSH key service for resolving key paths (uses global if None)
         """
         self._redis = redis_client
         self._repo_manager = repo_manager or RepoManager()
         self._sse_manager = sse_manager
+        self._ssh_key_service = ssh_key_service
         self._config = get_config()
 
     async def _get_redis(self) -> RedisClient:
@@ -148,6 +152,20 @@ class PRService:
         if self._sse_manager is None:
             self._sse_manager = get_sse_connection_manager()
         return self._sse_manager
+
+    def _get_default_branch(self, project: str) -> str:
+        """Get the default branch for a project.
+
+        Delegates to RepoManager.get_default_branch() which reads from
+        the bare repo's symbolic-ref HEAD.
+
+        Args:
+            project: Project/repo name
+
+        Returns:
+            Default branch name (e.g., "main", "master", "develop")
+        """
+        return self._repo_manager.get_default_branch(project)
 
     def _git_env(self) -> dict:
         """Build env dict with git author/committer identity.
@@ -168,6 +186,148 @@ class PRService:
         cmd = ["git", "-C", str(repo_path), *args]
         env = self._git_env()
         return subprocess.run(cmd, capture_output=True, text=True, env=env, **kwargs)
+
+    def _get_ssh_key_service(self) -> SSHKeyService:
+        """Get SSH key service, using global if not set."""
+        if self._ssh_key_service is None:
+            self._ssh_key_service = get_ssh_key_service()
+        return self._ssh_key_service
+
+    def _read_git_config(self, repo_path: Path, key: str) -> Optional[str]:
+        """Read a value from the repo's git config.
+
+        Args:
+            repo_path: Path to the repository
+            key: Config key (e.g., 'claudevn.isLinked')
+
+        Returns:
+            Config value or None if not set
+        """
+        result = self._git_cmd(repo_path, "config", "--get", key)
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+
+    def _resolve_ssh_key_path(self, ssh_key_id: str) -> Optional[str]:
+        """Resolve an SSH key ID to a private key file path.
+
+        Args:
+            ssh_key_id: SSH key identifier (e.g., 'sshk_abc123')
+
+        Returns:
+            Absolute path to the private key file, or None if not found
+        """
+        ssh_service = self._get_ssh_key_service()
+        private_path = ssh_service._private_key_path(ssh_key_id)
+        if private_path.exists():
+            return str(private_path)
+        return None
+
+    async def _push_upstream(
+        self,
+        project: str,
+        repo_path: Path,
+        default_branch: str,
+        pr: 'PullRequest',
+        merge_commit: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Push the default branch to the upstream origin after a successful merge.
+
+        Only pushes if the repository is a linked repo (claudevn.isLinked=true).
+        Push failures do NOT roll back the local merge.
+
+        Args:
+            project: Project/repo name
+            repo_path: Path to the bare repository
+            default_branch: Branch to push (e.g., 'main')
+            pr: The PullRequest being merged
+            merge_commit: The merge commit SHA
+
+        Returns:
+            Dict with push result, or None if repo is not linked
+        """
+        redis = await self._get_redis()
+
+        # Check if the repo is linked
+        is_linked = self._read_git_config(repo_path, "claudevn.isLinked")
+        if is_linked != "true":
+            return None
+
+        # Resolve SSH key for authentication
+        ssh_key_id = self._read_git_config(repo_path, "claudevn.sshKeyId")
+        ssh_key_path = None
+        if ssh_key_id:
+            ssh_key_path = self._resolve_ssh_key_path(ssh_key_id)
+
+        # Build push environment
+        push_env = {**os.environ}
+        if ssh_key_path:
+            push_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+
+        # Push default branch to origin
+        push_result = subprocess.run(
+            ["git", "-C", str(repo_path), "push", "origin", default_branch],
+            capture_output=True,
+            text=True,
+            env=push_env,
+        )
+
+        if push_result.returncode != 0:
+            error_msg = push_result.stderr.strip() or push_result.stdout.strip()
+            logger.error(
+                f"Upstream push failed for {project}/{default_branch}: {error_msg}"
+            )
+
+            # Update Redis with upstream sync failure status
+            await redis.set_branch_status(
+                project=project,
+                branch=pr.branch,
+                upstream_sync_status="failed",
+                upstream_push_error=error_msg,
+            )
+
+            # Publish upstream push failure event
+            await redis.publish_git_event(project, "upstream_push_failed", {
+                "branch": pr.branch,
+                "default_branch": default_branch,
+                "merge_commit": merge_commit,
+                "error": error_msg,
+                "compute_id": pr.compute_id,
+                "task_id": pr.task_id,
+            })
+
+            # Send SSE notification if compute is connected
+            if pr.compute_id:
+                sse_manager = self._get_sse_manager()
+                await sse_manager.send_event(
+                    compute_id=pr.compute_id,
+                    event_type="upstream_push_failed",
+                    data={
+                        "branch": pr.branch,
+                        "default_branch": default_branch,
+                        "merge_commit": merge_commit,
+                        "error": error_msg,
+                        "message": "Upstream push failed after merge. Retry via project API.",
+                    },
+                )
+
+            return {
+                "success": False,
+                "error": error_msg,
+            }
+
+        logger.info(
+            f"Upstream push successful for {project}/{default_branch} ({merge_commit[:8]})"
+        )
+
+        # Update Redis with upstream sync success
+        await redis.set_branch_status(
+            project=project,
+            branch=pr.branch,
+            upstream_sync_status="synced",
+        )
+
+        return {"success": True}
 
     # ==========================================================================
     # PR Lifecycle Operations
@@ -211,6 +371,7 @@ class PRService:
             raise ValueError(f"PR already exists for branch: {branch}")
 
         now = datetime.now(timezone.utc).isoformat()
+        default_branch = self._get_default_branch(project)
 
         # Set branch status
         await redis.set_branch_status(
@@ -222,7 +383,7 @@ class PRService:
             title=title or branch,
             description=description or "",
             head_commit=head,
-            base_branch="main",
+            base_branch=default_branch,
             created_at=now
         )
 
@@ -256,7 +417,7 @@ class PRService:
                     project=project,
                     branch=branch,
                     status=PRStatus.CONFLICT.value,
-                    rejection_reason=f"Conflicts with main: {', '.join(conflicting_files)}",
+                    rejection_reason=f"Conflicts with {default_branch}: {', '.join(conflicting_files)}",
                     conflicting_files=json.dumps(conflicting_files)
                 )
 
@@ -278,7 +439,7 @@ class PRService:
                     branch=branch,
                     conflicting_files=conflicting_files,
                     main_head=main_head,
-                    message="Conflicts with main detected on PR submission. Resolve before review.",
+                    message=f"Conflicts with {default_branch} detected on PR submission. Resolve before review.",
                     task_id=task_id,
                     repository=repo_url,
                 )
@@ -514,16 +675,17 @@ class PRService:
         if not head:
             return {"mergeable": False, "error": "Branch not found"}
 
-        # Check for merge base (common ancestor with main)
-        result = self._git_cmd(repo_path, "merge-base", "main", branch)
+        # Check for merge base (common ancestor with default branch)
+        default_branch = self._get_default_branch(project)
+        result = self._git_cmd(repo_path, "merge-base", default_branch, branch)
 
         if result.returncode != 0:
-            return {"mergeable": False, "error": "No common ancestor with main"}
+            return {"mergeable": False, "error": f"No common ancestor with {default_branch}"}
 
         merge_base = result.stdout.strip()
 
-        # Check if main has diverged
-        main_head = self._repo_manager.get_branch_head(project, "main")
+        # Check if default branch has diverged
+        main_head = self._repo_manager.get_branch_head(project, default_branch)
 
         if main_head == merge_base:
             # Fast-forward possible
@@ -542,7 +704,7 @@ class PRService:
             "merge_base": merge_base,
             "head": head,
             "main_head": main_head,
-            "warning": "Main has diverged; merge may have conflicts"
+            "warning": f"{default_branch} has diverged; merge may have conflicts"
         }
 
     async def dry_run_merge(self, project: str, branch: str) -> Dict[str, Any]:
@@ -576,7 +738,8 @@ class PRService:
                 "error": "Branch not found"
             }
 
-        main_head = self._repo_manager.get_branch_head(project, "main")
+        default_branch = self._get_default_branch(project)
+        main_head = self._repo_manager.get_branch_head(project, default_branch)
 
         try:
             # 1. Clone bare repo to temp work directory
@@ -590,9 +753,9 @@ class PRService:
                 env=safe_env
             )
 
-            # 2. Checkout main
+            # 2. Checkout default branch
             subprocess.run(
-                ["git", "-C", str(work_dir), "checkout", "main"],
+                ["git", "-C", str(work_dir), "checkout", default_branch],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -722,6 +885,8 @@ class PRService:
         if not check.get("mergeable"):
             raise ValueError(f"Cannot merge: {check.get('error')}")
 
+        default_branch = self._get_default_branch(project)
+
         try:
             # 1. Clone bare repo to temp work directory
             work_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -734,9 +899,9 @@ class PRService:
                 env=safe_env
             )
 
-            # 2. Checkout main
+            # 2. Checkout default branch
             subprocess.run(
-                ["git", "-C", str(work_dir), "checkout", "main"],
+                ["git", "-C", str(work_dir), "checkout", default_branch],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -748,7 +913,7 @@ class PRService:
                 [
                     "git", "-C", str(work_dir),
                     "merge", "--no-ff", f"origin/{branch}",
-                    "-m", f"Merge {branch} into main\n\nPR merged by ClaudeVN"
+                    "-m", f"Merge {branch} into {default_branch}\n\nPR merged by ClaudeVN"
                 ],
                 capture_output=True,
                 text=True,
@@ -795,8 +960,8 @@ class PRService:
 
                 # Send SSE merge_conflict event to compute instance
                 if pr.compute_id:
-                    # Get main HEAD for the event
-                    main_head = self._repo_manager.get_branch_head(project, "main") or ""
+                    # Get default branch HEAD for the event
+                    main_head = self._repo_manager.get_branch_head(project, default_branch) or ""
                     repo_url = self._repo_manager.get_repo_url(project)
                     sse_manager = self._get_sse_manager()
                     await sse_manager.send_merge_conflict(
@@ -805,7 +970,7 @@ class PRService:
                         branch=branch,
                         conflicting_files=conflicts,
                         main_head=main_head,
-                        message="Resolve conflicts with main and push again",
+                        message=f"Resolve conflicts with {default_branch} and push again",
                         task_id=pr.task_id,
                         repository=repo_url,
                     )
@@ -822,12 +987,12 @@ class PRService:
                     "branch": branch
                 }
 
-            # 4. Merge successful - push merged main back to bare repo
+            # 4. Merge successful - push merged default branch back to bare repo
             # Include CLAUDEVN_ALLOW_MAIN_PUSH=true so the pre-receive hook permits
             # this authorized Serving merge push (only set for this operation).
             merge_push_env = {**safe_env, "CLAUDEVN_ALLOW_MAIN_PUSH": "true"}
             push_result = subprocess.run(
-                ["git", "-C", str(work_dir), "push", "origin", "main"],
+                ["git", "-C", str(work_dir), "push", "origin", default_branch],
                 capture_output=True,
                 text=True,
                 env=merge_push_env
@@ -886,14 +1051,28 @@ class PRService:
                     merge_commit=merge_commit
                 )
 
-            logger.info(f"PR merged: {project}/{branch} -> main ({merge_commit[:8]})")
+            logger.info(f"PR merged: {project}/{branch} -> {default_branch} ({merge_commit[:8]})")
 
-            return {
+            # 8. Push upstream if this is a linked repository
+            upstream_result = await self._push_upstream(
+                project=project,
+                repo_path=repo_path,
+                default_branch="main",
+                pr=pr,
+                merge_commit=merge_commit,
+            )
+
+            result = {
                 "success": True,
                 "merged_commit": merge_commit,
                 "branch": branch,
-                "deleted": delete_branch
+                "deleted": delete_branch,
             }
+
+            if upstream_result is not None:
+                result["upstream_push"] = upstream_result
+
+            return result
 
         except subprocess.CalledProcessError as e:
             # Unexpected git error (not merge conflict)
