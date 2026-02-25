@@ -111,3 +111,40 @@ class TestSeedInitialCommitMethod:
             text=True,
         )
         assert result.returncode == 0
+
+    def test_seed_with_non_main_branch(self, tmp_path):
+        """_seed_initial_commit creates a commit on a custom branch name."""
+        bare_path = tmp_path / "test.git"
+        subprocess.run(
+            ["git", "init", "--bare", str(bare_path)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(bare_path), "symbolic-ref", "HEAD", "refs/heads/develop"],
+            check=True,
+            capture_output=True,
+        )
+
+        with patch("git.repo_manager.get_config") as mock_config:
+            mock_config.return_value.git.repos_path = str(tmp_path)
+            mock_config.return_value.git.git_user = "nonexistent_user"
+            manager = RepoManager()
+
+        manager._seed_initial_commit(bare_path, branch="develop")
+
+        # Verify develop branch exists
+        result = subprocess.run(
+            ["git", "-C", str(bare_path), "rev-parse", "refs/heads/develop"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+
+        # Verify main does NOT exist (only develop was seeded)
+        result_main = subprocess.run(
+            ["git", "-C", str(bare_path), "rev-parse", "refs/heads/main"],
+            capture_output=True,
+            text=True,
+        )
+        assert result_main.returncode != 0
