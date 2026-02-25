@@ -45,15 +45,16 @@ class RepoManager:
         cmd = ["git", "-C", str(repo_path), *args]
         return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
-    def _seed_initial_commit(self, repo_path: Path) -> None:
+    def _seed_initial_commit(self, repo_path: Path, branch: str = "main") -> None:
         """Create an initial empty commit in a bare repository.
 
         Uses a temporary clone to create the commit, then cleans up.
-        This ensures refs/heads/main exists so that
-        `git clone --branch main` succeeds.
+        This ensures the default branch ref exists so that
+        ``git clone --branch {branch}`` succeeds.
 
         Args:
             repo_path: Path to the bare repository
+            branch: Branch name to seed (defaults to "main")
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Clone the bare repo into a temp working directory
@@ -75,6 +76,15 @@ class RepoManager:
                 capture_output=True
             )
 
+            # Ensure we're on the correct branch (empty repos default to
+            # whatever `init.defaultBranch` is configured as, which may
+            # differ from the requested branch name)
+            subprocess.run(
+                ["git", "-C", tmp_dir, "checkout", "-B", branch],
+                check=True,
+                capture_output=True
+            )
+
             # Create an empty initial commit
             subprocess.run(
                 ["git", "-C", tmp_dir, "commit", "--allow-empty", "-m", "Initial commit"],
@@ -84,12 +94,12 @@ class RepoManager:
 
             # Push back to the bare repo
             subprocess.run(
-                ["git", "-C", tmp_dir, "push", "origin", "main"],
+                ["git", "-C", tmp_dir, "push", "origin", f"HEAD:refs/heads/{branch}"],
                 check=True,
                 capture_output=True
             )
 
-        logger.debug(f"Seeded initial commit in {repo_path}")
+        logger.debug(f"Seeded initial commit on '{branch}' in {repo_path}")
 
     def _repo_path(self, project: str) -> Path:
         """Get path to project repository.
@@ -650,6 +660,20 @@ exit 0
                 check=True,
                 capture_output=True
             )
+
+        # Detect empty linked repos: if the default branch has no ref,
+        # seed an initial commit so compute instances can clone successfully.
+        branches_result = subprocess.run(
+            ["git", "-C", str(repo_path), "branch", "--list"],
+            capture_output=True,
+            text=True
+        )
+        if not branches_result.stdout.strip():
+            logger.info(
+                f"Linked repo {project} is empty, seeding initial commit "
+                f"on '{default_branch}'"
+            )
+            self._seed_initial_commit(repo_path, branch=default_branch)
 
         # Install hooks
         self.install_hooks(project)

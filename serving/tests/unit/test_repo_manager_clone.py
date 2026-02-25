@@ -176,6 +176,80 @@ class TestCloneFromUrl:
             )
 
 
+class TestCloneFromUrlEmptyRepo:
+    """Test clone_from_url detects empty linked repos and seeds them."""
+
+    @patch.object(RepoManager, "install_hooks")
+    @patch.object(RepoManager, "_seed_initial_commit")
+    @patch("git.repo_manager.subprocess.run")
+    def test_clone_seeds_empty_repo(self, mock_run, mock_seed, mock_hooks, repo_manager):
+        """When cloned repo has no branches, _seed_initial_commit is called."""
+        def side_effect(cmd, **kwargs):
+            result = MagicMock(returncode=0, stdout="", stderr="")
+            # The branch --list call returns empty for an empty repo
+            if "branch" in cmd and "--list" in cmd:
+                result.stdout = ""
+            return result
+
+        mock_run.side_effect = side_effect
+
+        repo_manager.clone_from_url(
+            project="test-empty",
+            url="git@github.com:test/empty-repo.git",
+            default_branch="main",
+        )
+
+        mock_seed.assert_called_once_with(
+            repo_manager._repo_path("test-empty"),
+            branch="main",
+        )
+
+    @patch.object(RepoManager, "install_hooks")
+    @patch.object(RepoManager, "_seed_initial_commit")
+    @patch("git.repo_manager.subprocess.run")
+    def test_clone_seeds_empty_repo_custom_branch(self, mock_run, mock_seed, mock_hooks, repo_manager):
+        """Empty repo seed uses the configured default_branch, not hardcoded main."""
+        def side_effect(cmd, **kwargs):
+            result = MagicMock(returncode=0, stdout="", stderr="")
+            if "branch" in cmd and "--list" in cmd:
+                result.stdout = ""
+            return result
+
+        mock_run.side_effect = side_effect
+
+        repo_manager.clone_from_url(
+            project="test-empty",
+            url="git@github.com:test/empty-repo.git",
+            default_branch="develop",
+        )
+
+        mock_seed.assert_called_once_with(
+            repo_manager._repo_path("test-empty"),
+            branch="develop",
+        )
+
+    @patch.object(RepoManager, "install_hooks")
+    @patch.object(RepoManager, "_seed_initial_commit")
+    @patch("git.repo_manager.subprocess.run")
+    def test_clone_does_not_seed_nonempty_repo(self, mock_run, mock_seed, mock_hooks, repo_manager):
+        """When cloned repo has branches, _seed_initial_commit is NOT called."""
+        def side_effect(cmd, **kwargs):
+            result = MagicMock(returncode=0, stdout="", stderr="")
+            if "branch" in cmd and "--list" in cmd:
+                result.stdout = "* main\n"
+            return result
+
+        mock_run.side_effect = side_effect
+
+        repo_manager.clone_from_url(
+            project="test-nonempty",
+            url="git@github.com:test/repo.git",
+            default_branch="main",
+        )
+
+        mock_seed.assert_not_called()
+
+
 class TestGetRepoStatusLinked:
     """Test get_repo_status reports is_linked from git config."""
 
