@@ -158,13 +158,14 @@ def test_compute_isolation_no_env_var_allowed():
     assert result.returncode == 0, "Local dev (no env var) should be allowed"
 
 
-def test_main_protection_blocks_main():
-    """Test that pushes to main are blocked."""
+def test_default_branch_protection_blocks_push():
+    """Test that pushes to the default branch are blocked."""
     result = subprocess.run(
         ["bash", "-c", '''
+            DEFAULT_BRANCH="main"
             branch="main"
             CLAUDEVN_ALLOW_MAIN_PUSH="false"
-            if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+            if [ "$branch" = "$DEFAULT_BRANCH" ]; then
                 if [ "$CLAUDEVN_ALLOW_MAIN_PUSH" != "true" ]; then
                     exit 1
                 fi
@@ -173,16 +174,17 @@ def test_main_protection_blocks_main():
         '''],
         capture_output=True
     )
-    assert result.returncode == 1, "Push to main should be blocked"
+    assert result.returncode == 1, "Push to default branch should be blocked"
 
 
-def test_main_protection_blocks_master():
-    """Test that pushes to master are blocked."""
+def test_default_branch_protection_blocks_custom_default():
+    """Test that pushes to a custom default branch (e.g., develop) are blocked."""
     result = subprocess.run(
         ["bash", "-c", '''
-            branch="master"
+            DEFAULT_BRANCH="develop"
+            branch="develop"
             CLAUDEVN_ALLOW_MAIN_PUSH="false"
-            if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+            if [ "$branch" = "$DEFAULT_BRANCH" ]; then
                 if [ "$CLAUDEVN_ALLOW_MAIN_PUSH" != "true" ]; then
                     exit 1
                 fi
@@ -191,16 +193,17 @@ def test_main_protection_blocks_master():
         '''],
         capture_output=True
     )
-    assert result.returncode == 1, "Push to master should be blocked"
+    assert result.returncode == 1, "Push to custom default branch should be blocked"
 
 
-def test_main_protection_env_override():
-    """Test that CLAUDEVN_ALLOW_MAIN_PUSH=true allows main push."""
+def test_default_branch_protection_env_override():
+    """Test that CLAUDEVN_ALLOW_MAIN_PUSH=true allows default branch push."""
     result = subprocess.run(
         ["bash", "-c", '''
+            DEFAULT_BRANCH="main"
             branch="main"
             CLAUDEVN_ALLOW_MAIN_PUSH="true"
-            if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+            if [ "$branch" = "$DEFAULT_BRANCH" ]; then
                 if [ "$CLAUDEVN_ALLOW_MAIN_PUSH" != "true" ]; then
                     exit 1
                 fi
@@ -209,7 +212,7 @@ def test_main_protection_env_override():
         '''],
         capture_output=True
     )
-    assert result.returncode == 0, "Main push should be allowed when env var is set"
+    assert result.returncode == 0, "Default branch push should be allowed when env var is set"
 
 
 def test_hook_file_exists():
@@ -237,8 +240,9 @@ def test_hook_contains_compute_isolation():
     assert "GIT_PUSH_COMPUTE_ID" in content, "Hook should check GIT_PUSH_COMPUTE_ID"
 
 
-def test_hook_contains_main_protection():
-    """Test that the hook blocks main/master pushes."""
+def test_hook_contains_default_branch_protection():
+    """Test that the hook blocks pushes to the default branch."""
     content = HOOK_PATH.read_text()
-    assert "FORBIDDEN" in content or "not allowed" in content, "Hook should have main protection message"
-    assert "Only Serving" in content, "Hook should mention that only Serving can merge to main"
+    assert "FORBIDDEN" in content or "not allowed" in content, "Hook should have protection message"
+    assert "Only Serving" in content, "Hook should mention that only Serving can merge"
+    assert "DEFAULT_BRANCH" in content, "Hook should use dynamic DEFAULT_BRANCH variable"

@@ -7,6 +7,10 @@
 
 set -e
 
+# Dynamically determine the default branch from the bare repo's HEAD
+DEFAULT_BRANCH=$(git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||')
+DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
+
 # Redis configuration (can be overridden by environment)
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
@@ -43,8 +47,8 @@ while read oldrev newrev refname; do
         continue
     fi
 
-    # Skip main/master branch events (handled separately)
-    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    # Skip default branch events (handled by merge process)
+    if [ "$branch" = "$DEFAULT_BRANCH" ]; then
         continue
     fi
 
