@@ -127,6 +127,7 @@ class RepoSyncService:
                 project=local_name,
                 url=repo_config.url,
                 ssh_key_path=ssh_key_path,
+                ssh_key_id=repo_config.ssh_key_id,
                 default_branch=repo_config.default_branch
             )
 
@@ -420,6 +421,7 @@ class RepoSyncService:
             branches=status.get("branches", []),
             branch_count=status.get("branch_count", 0),
             is_mirror=status.get("is_mirror", False),
+            is_linked=status.get("is_linked", False),
             last_sync=last_sync
         )
 
