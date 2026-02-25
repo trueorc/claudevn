@@ -891,3 +891,370 @@ class TestPullRequestConflictingFiles:
         assert "conflicting_files" in pr_dict
         assert pr_dict["conflicting_files"] is None
 
+
+# =============================================================================
+# Test: PRService._push_upstream
+# =============================================================================
+
+class TestPRServicePushUpstream:
+    """Test PRService post-merge upstream push for linked repositories."""
+
+    @pytest.fixture
+    def mock_redis(self):
+        """Create mock Redis client."""
+        redis = AsyncMock()
+        redis.get_branch_status = AsyncMock(return_value={
+            "status": "approved",
+            "compute_id": "compute-001",
+            "task_id": "issue-100",
+            "title": "Test PR",
+            "head_commit": "abc123"
+        })
+        redis.set_branch_status = AsyncMock()
+        redis.remove_from_pr_queue = AsyncMock()
+        redis.publish_git_event = AsyncMock()
+        redis.untrack_compute_branch = AsyncMock()
+        redis.get_pr_queue_position = AsyncMock(return_value=1)
+        return redis
+
+    @pytest.fixture
+    def mock_repo_manager(self):
+        """Create mock RepoManager."""
+        manager = MagicMock()
+        manager.get_branch_head = MagicMock(return_value="def456")
+        return manager
+
+    @pytest.fixture
+    def mock_sse_manager(self):
+        """Create mock SSE manager."""
+        sse = AsyncMock()
+        sse.send_merge_conflict = AsyncMock(return_value=True)
+        sse.send_work_completed = AsyncMock(return_value=True)
+        sse.send_event = AsyncMock(return_value=True)
+        return sse
+
+    @pytest.fixture
+    def mock_ssh_key_service(self):
+        """Create mock SSH key service."""
+        service = MagicMock()
+        service._private_key_path = MagicMock(return_value=Path("/ssh/keys/sshk_abc123_key"))
+        return service
+
+    @pytest.fixture
+    def pr_service(self, mock_redis, mock_repo_manager, mock_sse_manager, mock_ssh_key_service):
+        """Create PRService with mocked dependencies."""
+        with patch("git.pr_service.get_config") as mock_config:
+            mock_config.return_value.git.repos_path = "/home/git/repos"
+            service = PRService(
+                redis_client=mock_redis,
+                repo_manager=mock_repo_manager,
+                sse_manager=mock_sse_manager,
+                ssh_key_service=mock_ssh_key_service,
+            )
+        return service
+
+    @pytest.fixture
+    def sample_pr(self):
+        """Create a sample PullRequest."""
+        return PullRequest(
+            project="test-project",
+            branch="feature/test",
+            status=PRStatus.APPROVED,
+            compute_id="compute-001",
+            task_id="issue-100",
+        )
+
+    @pytest.mark.asyncio
+    async def test_push_upstream_skips_non_linked_repo(self, pr_service, mock_redis, sample_pr):
+        """Test _push_upstream returns None for non-linked repos."""
+        with patch.object(pr_service, "_read_git_config", return_value=None):
+            result = await pr_service._push_upstream(
+                project="test-project",
+                repo_path=Path("/home/git/repos/test-project.git"),
+                default_branch="main",
+                pr=sample_pr,
+                merge_commit="abc123",
+            )
+
+        assert result is None
+        # No push should be attempted
+        mock_redis.publish_git_event.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_push_upstream_success_for_linked_repo(self, pr_service, mock_redis, sample_pr):
+        """Test _push_upstream succeeds for a linked repo."""
+        def config_side_effect(repo_path, key):
+            return {"claudevn.isLinked": "true", "claudevn.sshKeyId": "sshk_abc123"}.get(key)
+
+        with patch.object(pr_service, "_read_git_config", side_effect=config_side_effect):
+            with patch.object(pr_service, "_resolve_ssh_key_path", return_value="/ssh/keys/sshk_abc123_key"):
+                with patch("subprocess.run") as mock_run:
+                    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+                    result = await pr_service._push_upstream(
+                        project="test-project",
+                        repo_path=Path("/home/git/repos/test-project.git"),
+                        default_branch="main",
+                        pr=sample_pr,
+                        merge_commit="abc123def",
+                    )
+
+        assert result["success"] is True
+
+        # Verify push command used SSH key
+        push_call = mock_run.call_args
+        assert "push" in push_call[0][0]
+        assert "origin" in push_call[0][0]
+        assert "main" in push_call[0][0]
+        push_env = push_call[1]["env"]
+        assert "GIT_SSH_COMMAND" in push_env
+        assert "sshk_abc123_key" in push_env["GIT_SSH_COMMAND"]
+
+        # Verify Redis updated with synced status
+        mock_redis.set_branch_status.assert_called_once()
+        call_kwargs = mock_redis.set_branch_status.call_args[1]
+        assert call_kwargs["upstream_sync_status"] == "synced"
+
+    @pytest.mark.asyncio
+    async def test_push_upstream_failure_does_not_raise(
+        self, pr_service, mock_redis, mock_sse_manager, sample_pr
+    ):
+        """Test _push_upstream failure doesn't raise or roll back merge."""
+        def config_side_effect(repo_path, key):
+            return {"claudevn.isLinked": "true", "claudevn.sshKeyId": "sshk_abc123"}.get(key)
+
+        with patch.object(pr_service, "_read_git_config", side_effect=config_side_effect):
+            with patch.object(pr_service, "_resolve_ssh_key_path", return_value="/ssh/keys/sshk_abc123_key"):
+                with patch("subprocess.run") as mock_run:
+                    mock_run.return_value = MagicMock(
+                        returncode=1,
+                        stdout="",
+                        stderr="Permission denied (publickey)"
+                    )
+
+                    result = await pr_service._push_upstream(
+                        project="test-project",
+                        repo_path=Path("/home/git/repos/test-project.git"),
+                        default_branch="main",
+                        pr=sample_pr,
+                        merge_commit="abc123def",
+                    )
+
+        # Should return failure, not raise
+        assert result["success"] is False
+        assert "Permission denied" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_push_upstream_failure_updates_redis(
+        self, pr_service, mock_redis, sample_pr
+    ):
+        """Test _push_upstream failure updates Redis with sync status."""
+        def config_side_effect(repo_path, key):
+            return {"claudevn.isLinked": "true"}.get(key)
+
+        with patch.object(pr_service, "_read_git_config", side_effect=config_side_effect):
+            with patch.object(pr_service, "_resolve_ssh_key_path", return_value=None):
+                with patch("subprocess.run") as mock_run:
+                    mock_run.return_value = MagicMock(
+                        returncode=128,
+                        stdout="",
+                        stderr="fatal: Could not read from remote repository"
+                    )
+
+                    await pr_service._push_upstream(
+                        project="test-project",
+                        repo_path=Path("/home/git/repos/test-project.git"),
+                        default_branch="main",
+                        pr=sample_pr,
+                        merge_commit="abc123",
+                    )
+
+        # Verify Redis status was updated
+        set_calls = mock_redis.set_branch_status.call_args_list
+        assert len(set_calls) == 1
+        call_kwargs = set_calls[0][1]
+        assert call_kwargs["upstream_sync_status"] == "failed"
+        assert "Could not read from remote" in call_kwargs["upstream_push_error"]
+
+        # Verify event published
+        event_calls = mock_redis.publish_git_event.call_args_list
+        upstream_calls = [c for c in event_calls if c[0][1] == "upstream_push_failed"]
+        assert len(upstream_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_push_upstream_failure_sends_sse(
+        self, pr_service, mock_redis, mock_sse_manager, sample_pr
+    ):
+        """Test _push_upstream failure sends SSE notification."""
+        def config_side_effect(repo_path, key):
+            return {"claudevn.isLinked": "true"}.get(key)
+
+        with patch.object(pr_service, "_read_git_config", side_effect=config_side_effect):
+            with patch.object(pr_service, "_resolve_ssh_key_path", return_value=None):
+                with patch("subprocess.run") as mock_run:
+                    mock_run.return_value = MagicMock(
+                        returncode=1,
+                        stdout="",
+                        stderr="push rejected"
+                    )
+
+                    await pr_service._push_upstream(
+                        project="test-project",
+                        repo_path=Path("/home/git/repos/test-project.git"),
+                        default_branch="main",
+                        pr=sample_pr,
+                        merge_commit="abc123",
+                    )
+
+        # Verify SSE event sent
+        mock_sse_manager.send_event.assert_called_once()
+        call_kwargs = mock_sse_manager.send_event.call_args[1]
+        assert call_kwargs["compute_id"] == "compute-001"
+        assert call_kwargs["event_type"] == "upstream_push_failed"
+        assert "push rejected" in call_kwargs["data"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_push_upstream_without_ssh_key(self, pr_service, mock_redis, sample_pr):
+        """Test _push_upstream works without SSH key (for HTTPS repos)."""
+        def config_side_effect(repo_path, key):
+            if key == "claudevn.isLinked":
+                return "true"
+            return None  # No SSH key configured
+
+        with patch.object(pr_service, "_read_git_config", side_effect=config_side_effect):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+                result = await pr_service._push_upstream(
+                    project="test-project",
+                    repo_path=Path("/home/git/repos/test-project.git"),
+                    default_branch="main",
+                    pr=sample_pr,
+                    merge_commit="abc123",
+                )
+
+        assert result["success"] is True
+
+        # No GIT_SSH_COMMAND should be set
+        push_env = mock_run.call_args[1]["env"]
+        assert "GIT_SSH_COMMAND" not in push_env
+
+    @pytest.mark.asyncio
+    async def test_merge_includes_upstream_push_for_linked_repo(
+        self, pr_service, mock_redis, mock_repo_manager, mock_sse_manager
+    ):
+        """Test full merge() calls _push_upstream and includes result."""
+        mock_repo_manager.get_branch_head.return_value = "def456"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="merge789\n", stderr=""
+            )
+
+            with patch("shutil.rmtree"):
+                with patch("pathlib.Path.exists", return_value=True):
+                    with patch("pathlib.Path.mkdir"):
+                        with patch.object(
+                            pr_service, "_push_upstream", new_callable=AsyncMock
+                        ) as mock_push:
+                            mock_push.return_value = {"success": True}
+
+                            result = await pr_service.merge("test-project", "feature/test")
+
+        assert result["success"] is True
+        assert result["upstream_push"] == {"success": True}
+        mock_push.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_merge_omits_upstream_push_for_internal_repo(
+        self, pr_service, mock_redis, mock_repo_manager
+    ):
+        """Test merge() omits upstream_push key for non-linked repos."""
+        mock_repo_manager.get_branch_head.return_value = "def456"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="merge789\n", stderr=""
+            )
+
+            with patch("shutil.rmtree"):
+                with patch("pathlib.Path.exists", return_value=True):
+                    with patch("pathlib.Path.mkdir"):
+                        with patch.object(
+                            pr_service, "_push_upstream", new_callable=AsyncMock
+                        ) as mock_push:
+                            mock_push.return_value = None  # Not linked
+
+                            result = await pr_service.merge("test-project", "feature/test")
+
+        assert result["success"] is True
+        assert "upstream_push" not in result
+
+    @pytest.mark.asyncio
+    async def test_merge_succeeds_even_if_upstream_push_fails(
+        self, pr_service, mock_redis, mock_repo_manager
+    ):
+        """Test merge() returns success even when upstream push fails."""
+        mock_repo_manager.get_branch_head.return_value = "def456"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="merge789\n", stderr=""
+            )
+
+            with patch("shutil.rmtree"):
+                with patch("pathlib.Path.exists", return_value=True):
+                    with patch("pathlib.Path.mkdir"):
+                        with patch.object(
+                            pr_service, "_push_upstream", new_callable=AsyncMock
+                        ) as mock_push:
+                            mock_push.return_value = {
+                                "success": False,
+                                "error": "push failed"
+                            }
+
+                            result = await pr_service.merge("test-project", "feature/test")
+
+        # Merge itself succeeds
+        assert result["success"] is True
+        # But upstream push result is included
+        assert result["upstream_push"]["success"] is False
+
+
+# =============================================================================
+# Test: PRService._read_git_config
+# =============================================================================
+
+class TestPRServiceReadGitConfig:
+    """Test PRService._read_git_config helper."""
+
+    @pytest.fixture
+    def pr_service(self):
+        """Create PRService with mocked dependencies."""
+        with patch("git.pr_service.get_config") as mock_config:
+            mock_config.return_value.git.repos_path = "/home/git/repos"
+            service = PRService(redis_client=AsyncMock(), repo_manager=MagicMock())
+        return service
+
+    def test_read_existing_config_value(self, pr_service):
+        """Test reading an existing git config value."""
+        with patch.object(pr_service, "_git_cmd") as mock_cmd:
+            mock_cmd.return_value = MagicMock(returncode=0, stdout="true\n")
+
+            result = pr_service._read_git_config(
+                Path("/repo.git"), "claudevn.isLinked"
+            )
+
+        assert result == "true"
+
+    def test_read_missing_config_value(self, pr_service):
+        """Test reading a missing git config value returns None."""
+        with patch.object(pr_service, "_git_cmd") as mock_cmd:
+            mock_cmd.return_value = MagicMock(returncode=1, stdout="")
+
+            result = pr_service._read_git_config(
+                Path("/repo.git"), "claudevn.nonexistent"
+            )
+
+        assert result is None
+
