@@ -1306,3 +1306,145 @@ class TestUpdateProjectActivity:
         result = await service.update_project_activity("nonexistent")
 
         assert result is None
+
+
+# =============================================================================
+# Test resolve_repo_details
+# =============================================================================
+
+class TestResolveRepoDetails:
+    """Test resolve_repo_details returns correct clone URLs."""
+
+    @pytest.mark.asyncio
+    async def test_linked_repo_with_git_project_name_returns_internal_url(self, service):
+        """Linked repo with git_project_name in metadata should return internal URL."""
+        project = await service.create_project(
+            ProjectCreateRequest(name="test-project")
+        )
+        repo = RepoConfig(
+            repo_id="linked-1",
+            name="external-repo",
+            url="https://github.com/org/repo.git",
+            is_internal=False,
+            metadata={"git_project_name": "test-project_linked-1"},
+        )
+        project.repos.append(repo)
+        project.primary_repo_id = "linked-1"
+
+        with patch("git.repo_manager.RepoManager") as MockRM:
+            MockRM.return_value.get_repo_url.return_value = (
+                "http://serving:8002/git/test-project_linked-1.git"
+            )
+            result = await service.resolve_repo_details(project.project_id)
+
+        assert result is not None
+        assert result["clone_url"] == "http://serving:8002/git/test-project_linked-1.git"
+        assert result["git_project_name"] == "test-project_linked-1"
+
+    @pytest.mark.asyncio
+    async def test_linked_repo_without_git_project_name_returns_external_url(self, service):
+        """Linked repo without git_project_name should return external GitHub URL."""
+        project = await service.create_project(
+            ProjectCreateRequest(name="test-project")
+        )
+        repo = RepoConfig(
+            repo_id="linked-1",
+            name="external-repo",
+            url="https://github.com/org/repo.git",
+            is_internal=False,
+            metadata={},
+        )
+        project.repos.append(repo)
+        project.primary_repo_id = "linked-1"
+
+        result = await service.resolve_repo_details(project.project_id)
+
+        assert result is not None
+        assert result["clone_url"] == "https://github.com/org/repo.git"
+
+    @pytest.mark.asyncio
+    async def test_internal_repo_without_url_returns_internal_url(self, service):
+        """Internal repo without URL should return internal git server URL."""
+        project = await service.create_project(
+            ProjectCreateRequest(name="test-project")
+        )
+        repo = RepoConfig(
+            repo_id="internal-1",
+            name="internal-repo",
+            url="",
+            is_internal=True,
+            metadata={},
+        )
+        project.repos.append(repo)
+        project.primary_repo_id = "internal-1"
+
+        with patch("git.repo_manager.RepoManager") as MockRM:
+            MockRM.return_value.get_repo_url.return_value = (
+                "http://serving:8002/git/test-project.git"
+            )
+            result = await service.resolve_repo_details(project.project_id)
+
+        assert result is not None
+        assert result["clone_url"] == "http://serving:8002/git/test-project.git"
+
+    @pytest.mark.asyncio
+    async def test_internal_repo_with_url_returns_stored_url(self, service):
+        """Internal repo with an explicit URL should return that URL."""
+        project = await service.create_project(
+            ProjectCreateRequest(name="test-project")
+        )
+        repo = RepoConfig(
+            repo_id="internal-1",
+            name="internal-repo",
+            url="http://custom:9000/git/repo.git",
+            is_internal=True,
+            metadata={},
+        )
+        project.repos.append(repo)
+        project.primary_repo_id = "internal-1"
+
+        result = await service.resolve_repo_details(project.project_id)
+
+        assert result is not None
+        assert result["clone_url"] == "http://custom:9000/git/repo.git"
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_project_returns_none(self, service):
+        """Non-existent project should return None."""
+        result = await service.resolve_repo_details("nonexistent")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_specific_repo_id(self, service):
+        """Should resolve details for a specific repo_id."""
+        project = await service.create_project(
+            ProjectCreateRequest(name="test-project")
+        )
+        repo1 = RepoConfig(
+            repo_id="repo-a",
+            name="repo-a",
+            url="https://github.com/org/repo-a.git",
+            is_internal=False,
+            metadata={"git_project_name": "test-project_repo-a"},
+        )
+        repo2 = RepoConfig(
+            repo_id="repo-b",
+            name="repo-b",
+            url="https://github.com/org/repo-b.git",
+            is_internal=False,
+            metadata={},
+        )
+        project.repos.extend([repo1, repo2])
+        project.primary_repo_id = "repo-b"
+
+        with patch("git.repo_manager.RepoManager") as MockRM:
+            MockRM.return_value.get_repo_url.return_value = (
+                "http://serving:8002/git/test-project_repo-a.git"
+            )
+            result = await service.resolve_repo_details(
+                project.project_id, repo_id="repo-a"
+            )
+
+        assert result is not None
+        assert result["git_project_name"] == "test-project_repo-a"
+        assert result["clone_url"] == "http://serving:8002/git/test-project_repo-a.git"

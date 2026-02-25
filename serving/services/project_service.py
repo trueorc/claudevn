@@ -661,6 +661,7 @@ class ProjectService:
 
         # Resolve git_project_name
         git_project_name = repo.metadata.get("git_project_name")
+        has_internal_clone = bool(git_project_name)
         if not git_project_name:
             # For internal repos without metadata, try filesystem resolution
             if repo.is_internal:
@@ -671,10 +672,15 @@ class ProjectService:
                 git_project_name = project_id
 
         # Resolve clone_url
-        clone_url = repo.url
-        if repo.is_internal and not clone_url:
+        if has_internal_clone and not repo.is_internal:
+            # Linked repo cloned into internal server — use internal URL
             from git.repo_manager import RepoManager
             clone_url = RepoManager().get_repo_url(git_project_name)
+        elif repo.is_internal and not repo.url:
+            from git.repo_manager import RepoManager
+            clone_url = RepoManager().get_repo_url(git_project_name)
+        else:
+            clone_url = repo.url
 
         return {
             "git_project_name": git_project_name,
