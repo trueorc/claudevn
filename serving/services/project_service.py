@@ -247,12 +247,22 @@ class ProjectService:
         project_id: str,
         request: RepoAddRequest
     ) -> Optional[RepoConfig]:
-        """Add a repository to a project."""
+        """Add a repository to a project.
+
+        For linked (external) repos, automatically clones into the internal
+        git server so compute instances can access via internal URLs.
+        """
         project = self._projects.get(project_id)
         if not project:
             return None
 
         repo_id = f"repo_{uuid.uuid4().hex[:8]}"
+        git_project_name = f"{project_id}_{repo_id}"
+
+        # Merge git_project_name and origin_url into metadata
+        metadata = dict(request.metadata) if request.metadata else {}
+        metadata["git_project_name"] = git_project_name
+        metadata["origin_url"] = request.url
 
         repo = RepoConfig(
             repo_id=repo_id,
@@ -260,7 +270,7 @@ class ProjectService:
             url=request.url,
             default_branch=request.default_branch,
             ssh_key_id=request.ssh_key_id,
-            metadata=request.metadata,
+            metadata=metadata,
             added_at=datetime.now(timezone.utc)
         )
 
@@ -272,6 +282,28 @@ class ProjectService:
 
         project.updated_at = datetime.now(timezone.utc)
         await self._save_project(project)
+
+        # Auto-clone linked repo into internal git server
+        try:
+            from services.repo_sync_service import get_repo_sync_service
+            sync_service = get_repo_sync_service()
+            result = await sync_service.clone_repo(project_id, repo_id)
+
+            if result.success:
+                # Update URL to internal clone URL for compute access
+                from api.git import get_repo_manager
+                repo_manager = get_repo_manager()
+                repo.url = repo_manager.get_repo_url(git_project_name)
+                await self._save_project(project)
+                logger.info(
+                    f"Auto-cloned linked repo {repo_id} as {git_project_name}"
+                )
+            else:
+                logger.warning(
+                    f"Auto-clone failed for repo {repo_id}: {result.message}"
+                )
+        except Exception as e:
+            logger.warning(f"Auto-clone failed for repo {repo_id}: {e}")
 
         logger.info(f"Added repo {repo_id} to project {project_id}")
         return repo
