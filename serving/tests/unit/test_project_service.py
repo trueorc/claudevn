@@ -363,11 +363,11 @@ class TestDeleteProjectResourceCleanup:
         )
 
     @pytest.mark.asyncio
-    async def test_delete_skips_external_repos(self, service, create_request):
-        """Deleting a project should not attempt to delete external repos."""
+    async def test_delete_skips_external_repos_without_metadata(self, service, create_request):
+        """Deleting a project should skip external repos without git_project_name."""
         project = await service.create_project(create_request)
 
-        # Add an external repo (is_internal=False by default)
+        # Add an external repo with no git_project_name metadata
         repo = RepoConfig(
             repo_id="repo_ext12345",
             name="external-repo",
@@ -380,6 +380,31 @@ class TestDeleteProjectResourceCleanup:
 
         assert result["repo_count"] == 0
         mock_get_rm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_cleans_cloned_linked_repos(self, service, create_request):
+        """Deleting a project should clean up linked repos with git_project_name."""
+        project = await service.create_project(create_request)
+
+        repo = RepoConfig(
+            repo_id="linked_abc123",
+            name="linked-repo",
+            url="https://github.com/org/repo.git",
+            is_internal=False,
+            metadata={"git_project_name": f"{project.project_id}_linked_abc123"},
+        )
+        project.repos.append(repo)
+
+        mock_repo_manager = MagicMock()
+        mock_repo_manager.delete_repo.return_value = True
+
+        with patch("api.git.get_repo_manager", return_value=mock_repo_manager):
+            result = await service.delete_project(project.project_id)
+
+        assert result["repo_count"] == 1
+        mock_repo_manager.delete_repo.assert_called_once_with(
+            f"{project.project_id}_linked_abc123"
+        )
 
     @pytest.mark.asyncio
     async def test_delete_clears_activity_events_memory(self, service, create_request):
@@ -637,6 +662,49 @@ class TestRepositoryManagement:
         result = await service.remove_repo("nonexistent", "repo_123")
 
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_remove_linked_repo_cleans_bare_clone(self, service, create_request):
+        """Removing a linked repo with git_project_name should delete its bare clone."""
+        project = await service.create_project(create_request)
+        repo = RepoConfig(
+            repo_id="linked_rm123",
+            name="linked-repo",
+            url="https://github.com/org/repo.git",
+            is_internal=False,
+            metadata={"git_project_name": f"{project.project_id}_linked_rm123"},
+        )
+        project.repos.append(repo)
+        project.primary_repo_id = "linked_rm123"
+
+        mock_repo_manager = MagicMock()
+
+        with patch("api.git.get_repo_manager", return_value=mock_repo_manager):
+            result = await service.remove_repo(project.project_id, "linked_rm123")
+
+        assert result is True
+        mock_repo_manager.delete_repo.assert_called_once_with(
+            f"{project.project_id}_linked_rm123"
+        )
+
+    @pytest.mark.asyncio
+    async def test_remove_external_repo_without_metadata_skips_cleanup(self, service, create_request):
+        """Removing an external repo without git_project_name should not attempt cleanup."""
+        project = await service.create_project(create_request)
+        repo = RepoConfig(
+            repo_id="ext_noclone",
+            name="external-repo",
+            url="https://github.com/org/repo.git",
+            is_internal=False,
+        )
+        project.repos.append(repo)
+        project.primary_repo_id = "ext_noclone"
+
+        with patch("api.git.get_repo_manager") as mock_get_rm:
+            result = await service.remove_repo(project.project_id, "ext_noclone")
+
+        assert result is True
+        mock_get_rm.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_repos(self, service, create_request):
