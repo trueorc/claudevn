@@ -1107,7 +1107,7 @@ class PRService:
             upstream_result = await self._push_upstream(
                 project=project,
                 repo_path=repo_path,
-                default_branch="main",
+                default_branch=default_branch,
                 pr=pr,
                 merge_commit=merge_commit,
             )
