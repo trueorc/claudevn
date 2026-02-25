@@ -223,6 +223,43 @@ class PRService:
             return str(private_path)
         return None
 
+    def _sync_upstream(self, project: str, repo_path: Path) -> None:
+        """Fetch latest upstream changes for linked repos before merge.
+
+        For linked repos, external contributors may push changes directly
+        to the upstream repository. This ensures the local default branch
+        is up-to-date before attempting a merge, preventing silent
+        divergence or unexpected push failures.
+
+        Internal (non-linked) repos skip this step.
+
+        Args:
+            project: Project/repo name
+            repo_path: Path to the bare repository
+
+        Raises:
+            ValueError: If upstream fetch fails (merge should be aborted)
+        """
+        is_linked = self._read_git_config(repo_path, "claudevn.isLinked")
+        if is_linked != "true":
+            return
+
+        ssh_key_id = self._read_git_config(repo_path, "claudevn.sshKeyId")
+        ssh_key_path = None
+        if ssh_key_id:
+            ssh_key_path = self._resolve_ssh_key_path(ssh_key_id)
+
+        logger.info(f"Syncing upstream before merge for linked repo: {project}")
+        try:
+            self._repo_manager.pull_from_origin(project, ssh_key_path=ssh_key_path)
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            logger.error(f"Upstream sync failed for {project}: {error_msg}")
+            raise ValueError(
+                f"Pre-merge upstream sync failed for {project}: {error_msg}. "
+                "Merge aborted to prevent divergence."
+            )
+
     async def _push_upstream(
         self,
         project: str,
@@ -729,6 +766,16 @@ class PRService:
         repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         work_dir = Path(f"/tmp/dry-run-merge/{project}-{uuid4()}")
 
+        # For linked repos, sync with upstream before conflict detection
+        try:
+            self._sync_upstream(project, repo_path)
+        except ValueError as e:
+            return {
+                "can_merge": False,
+                "conflicting_files": [],
+                "error": str(e)
+            }
+
         # Check if branch exists
         branch_head = self._repo_manager.get_branch_head(project, branch)
         if not branch_head:
@@ -871,6 +918,9 @@ class PRService:
         redis = await self._get_redis()
         repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         work_dir = Path(f"/tmp/merge-work/{project}-{uuid4()}")
+
+        # For linked repos, sync with upstream before merging
+        self._sync_upstream(project, repo_path)
 
         # Verify PR is approved
         pr = await self.get_pr(project, branch)
