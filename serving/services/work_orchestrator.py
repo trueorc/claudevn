@@ -1049,6 +1049,15 @@ class WorkOrchestrator:
             # Compose skills into merged instructions
             skills_content = await self._compose_skills_for_sse(skills, connection.compute_id)
 
+            # Resolve repository details for linked repos
+            repo_details = None
+            try:
+                from services.project_service import get_project_service
+                project_service = get_project_service()
+                repo_details = await project_service.resolve_repo_details(work.project_id)
+            except Exception as e:
+                logger.debug(f"Could not resolve repo details for {work.project_id}: {e}")
+
             # Build work context — merge stored context (has repo_url, goal_id, etc.)
             # and map repo_url → repository for compute-side consumption
             context = {
@@ -1058,6 +1067,15 @@ class WorkOrchestrator:
                 "relevant_files": work.context.get("relevant_files", []),
                 "requirements": work.description,
             }
+
+            # Include repo details so compute knows the correct clone URL and project name
+            if repo_details:
+                context["git_project_name"] = repo_details["git_project_name"]
+                context["clone_url"] = repo_details["clone_url"]
+                context["default_branch"] = repo_details["default_branch"]
+                # Override repository with resolved clone_url if not already set
+                if not context.get("repository"):
+                    context["repository"] = repo_details["clone_url"]
 
             # Generate a real API key for this work assignment
             from mcp.auth import generate_api_key, register_compute_key
