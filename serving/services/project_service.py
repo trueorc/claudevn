@@ -628,6 +628,61 @@ class ProjectService:
         )
 
 
+    async def resolve_repo_details(
+        self,
+        project_id: str,
+        repo_id: Optional[str] = None
+    ) -> Optional[Dict[str, str]]:
+        """Resolve git_project_name, clone_url, and default_branch for a project's repo.
+
+        For linked repos, the bare repo name is '{project_id}_{repo_id}', making
+        the clone URL 'http://serving:8002/git/{project_id}_{repo_id}.git'.
+
+        Args:
+            project_id: Project ID to look up
+            repo_id: Specific repo ID (uses primary repo if not specified)
+
+        Returns:
+            Dict with git_project_name, clone_url, default_branch; or None if not found
+        """
+        project = self._projects.get(project_id)
+        if not project:
+            return None
+
+        # Find the target repo
+        repo: Optional[RepoConfig] = None
+        if repo_id:
+            repo = next((r for r in project.repos if r.repo_id == repo_id), None)
+        else:
+            repo = project.primary_repo
+
+        if not repo:
+            return None
+
+        # Resolve git_project_name
+        git_project_name = repo.metadata.get("git_project_name")
+        if not git_project_name:
+            # For internal repos without metadata, try filesystem resolution
+            if repo.is_internal:
+                from api.compute import _resolve_git_project_name
+                git_project_name = _resolve_git_project_name(project_id)
+            else:
+                # External repos use project_id as-is
+                git_project_name = project_id
+
+        # Resolve clone_url
+        clone_url = repo.url
+        if repo.is_internal and not clone_url:
+            from git.repo_manager import RepoManager
+            clone_url = RepoManager().get_repo_url(git_project_name)
+
+        return {
+            "git_project_name": git_project_name,
+            "clone_url": clone_url,
+            "default_branch": repo.default_branch,
+        }
+
+
 # Singleton instance
 _project_service: Optional[ProjectService] = None
 

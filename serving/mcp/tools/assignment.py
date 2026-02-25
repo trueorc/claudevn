@@ -46,7 +46,10 @@ async def get_assignment(input: GetAssignmentInput) -> tuple[Optional[TaskAssign
                 "base_branch": assignment.base_branch,
                 "dependency_outputs": assignment.dependency_outputs
             },
-            dependencies=assignment.dependencies
+            dependencies=assignment.dependencies,
+            git_project_name=assignment.git_project_name,
+            clone_url=assignment.clone_url,
+            default_branch=assignment.default_branch,
         ), None
 
     except RuntimeError as e:

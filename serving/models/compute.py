@@ -397,6 +397,20 @@ class WorkAssignedEvent(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict, description="Task context")
     mcp_config: Dict[str, Any] = Field(default_factory=dict, description="MCP server configuration")
 
+    # Repository details for linked repos
+    git_project_name: Optional[str] = Field(
+        None,
+        description="Composite bare repo name for git operations (e.g. proj_abc_repo_def)"
+    )
+    clone_url: Optional[str] = Field(
+        None,
+        description="Full HTTP clone URL for the repository"
+    )
+    default_branch: Optional[str] = Field(
+        None,
+        description="Repository's configured default branch name"
+    )
+
 
 class WorkCancelledEvent(BaseModel):
     """Work cancellation event pushed to compute via SSE."""

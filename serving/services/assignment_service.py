@@ -59,6 +59,24 @@ class AssignmentService:
         prefix = getattr(self._redis, '_prefix', 'claudevn:') if self._redis else 'claudevn:'
         return f"{prefix}workmap:{key}"
 
+    # ============ Repo Details Resolution ============
+
+    async def _resolve_repo_details(
+        self, project_id: str
+    ) -> Optional[Dict[str, str]]:
+        """Resolve git_project_name, clone_url, and default_branch for a project.
+
+        Delegates to ProjectService.resolve_repo_details(). Returns None if the
+        project service is unavailable or the project is not found.
+        """
+        try:
+            from services.project_service import get_project_service
+            project_service = get_project_service()
+            return await project_service.resolve_repo_details(project_id)
+        except Exception as e:
+            logger.debug(f"Could not resolve repo details for {project_id}: {e}")
+            return None
+
     # ============ Event Emission ============
 
     async def _emit_status_change_event(
@@ -152,6 +170,13 @@ class AssignmentService:
             if dep and dep.result:
                 dep_outputs[dep_id] = dep.result
 
+        # Resolve repository details for linked repos (best-effort)
+        try:
+            repo_details = await self._resolve_repo_details(work.project_id)
+        except Exception as e:
+            logger.debug(f"Could not resolve repo details during assignment: {e}")
+            repo_details = None
+
         assignment = WorkAssignment(
             work_id=work_id,
             title=work.title,
@@ -162,7 +187,10 @@ class AssignmentService:
             base_branch=work.base_branch,
             context=work.context,
             dependencies=work.depends_on,
-            dependency_outputs=dep_outputs
+            dependency_outputs=dep_outputs,
+            git_project_name=repo_details.get("git_project_name") if repo_details else None,
+            clone_url=repo_details.get("clone_url") if repo_details else None,
+            default_branch=repo_details.get("default_branch") if repo_details else None,
         )
 
         logger.info(f"Assigned work {work_id} to compute {compute_id} with skills {skills}")
