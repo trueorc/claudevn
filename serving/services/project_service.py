@@ -195,24 +195,23 @@ class ProjectService:
 
         repo_count = 0
 
-        # Clean up internal Git repositories
+        # Clean up Git repositories (both internal and cloned linked repos)
         for repo in project.repos:
-            if repo.is_internal:
-                git_project_name = repo.metadata.get("git_project_name")
-                if git_project_name:
-                    try:
-                        from api.git import get_repo_manager
-                        repo_manager = get_repo_manager()
-                        if repo_manager.delete_repo(git_project_name):
-                            repo_count += 1
-                            logger.info(
-                                f"Deleted internal Git repo {git_project_name}"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to delete internal Git repo "
-                            f"{git_project_name}: {e}"
+            git_project_name = repo.metadata.get("git_project_name")
+            if git_project_name:
+                try:
+                    from api.git import get_repo_manager
+                    repo_manager = get_repo_manager()
+                    if repo_manager.delete_repo(git_project_name):
+                        repo_count += 1
+                        logger.info(
+                            f"Deleted Git repo {git_project_name}"
                         )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete Git repo "
+                        f"{git_project_name}: {e}"
+                    )
 
         # Clean up activity events (in-memory)
         self._activity_events.pop(project_id, None)
@@ -383,8 +382,8 @@ class ProjectService:
         project.updated_at = datetime.now(timezone.utc)
         await self._save_project(project)
 
-        # Clean up internal Git repo if applicable
-        if repo and repo.is_internal:
+        # Clean up Git repo if applicable (both internal and cloned linked repos)
+        if repo:
             git_project_name = repo.metadata.get("git_project_name")
             if git_project_name:
                 try:
@@ -392,11 +391,11 @@ class ProjectService:
                     repo_manager = get_repo_manager()
                     repo_manager.delete_repo(git_project_name)
                     logger.info(
-                        f"Deleted internal Git repo {git_project_name}"
+                        f"Deleted Git repo {git_project_name}"
                     )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to delete internal Git repo "
+                        f"Failed to delete Git repo "
                         f"{git_project_name}: {e}"
                     )
 
