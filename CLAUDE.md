@@ -91,6 +91,7 @@ github_project:
         backlog: f75ad846
         ready: 08afe404
         in_progress: 47fc9ee4
+        testing: 60064e37
         in_review: 4cc61d42
         done: 98236657
     priority:
