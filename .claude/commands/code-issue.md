@@ -3,27 +3,20 @@
 Take a GitHub issue through the full development cycle: analyze, code, test, document, and PR.
 
 ## Arguments
-- `$ARGUMENTS` - GitHub issue number (e.g., `42`)
+- `$ARGUMENTS` - GitHub issue number, optionally followed by `--branch <branch-name>`
+  - Examples: `42`, `42 --branch feat/safe-clone`
+
+## Feature Grouping
+
+Issues can share a single branch/worktree/PR using one of two methods:
+
+1. **Label-based** (preferred): Add a `feature:*` label to related issues (e.g., `feature:safe-clone`). All issues with the same feature label share branch `feat/{feature-name}`.
+2. **Explicit**: Pass `--branch <name>` to specify the branch directly.
+3. **Default**: No feature label and no `--branch` → one branch per issue (current behavior).
 
 ## Critical: Worktree Isolation
 
-**IMPORTANT**: When running parallel `/code-issue` commands, each MUST use an isolated Git worktree to prevent conflicts.
-
-```bash
-# Create isolated worktree for this issue (relative to repo root)
-git worktree add ../worktrees/issue-$ARGUMENTS -b {type}/issue-$ARGUMENTS-{short-description} origin/main
-
-# Work in the isolated worktree
-cd ../worktrees/issue-$ARGUMENTS
-
-# Cleanup when done (after PR merged)
-git worktree remove ../worktrees/issue-$ARGUMENTS
-```
-
-This prevents:
-- Stash conflicts between parallel tasks
-- Branch checkout races
-- Uncommitted changes bleeding between issues
+Each feature branch gets its own worktree. Multiple issues in the same feature share the same worktree — they are worked on sequentially within it, each as a separate commit.
 
 See `docs/guides/worktree-workflow.md` for detailed worktree usage.
 
@@ -34,7 +27,7 @@ See `docs/guides/worktree-workflow.md` for detailed worktree usage.
 ### 1. Fetch and Analyze Issue
 
 ```bash
-gh issue view $ARGUMENTS --json title,body,labels,assignees,projectItems
+gh issue view {ISSUE_NUMBER} --json title,body,labels,assignees,projectItems
 ```
 
 Parse the issue to understand:
@@ -42,42 +35,66 @@ Parse the issue to understand:
 - **Acceptance criteria** - Definition of done
 - **Area labels** - Which components are affected (area:serving, area:frontend, etc.)
 - **Priority** - P0/P1/P2/P3 for urgency context
+- **Feature label** - Any `feature:*` label for branch grouping
 
-### 2. Update DevBoard Status
+### 2. Determine Branch Strategy
+
+Parse `$ARGUMENTS` to extract the issue number and optional `--branch` flag.
+
+Then determine the branch name using this priority:
+
+1. **`feature:*` label found** on the issue:
+   - Extract feature name from label (e.g., `feature:safe-clone` → `safe-clone`)
+   - Branch: `feat/{feature-name}` (e.g., `feat/safe-clone`)
+   - Worktree: `../worktrees/feat-{feature-name}`
+
+2. **`--branch` flag provided** in arguments:
+   - Branch: use the provided name exactly
+   - Worktree: `../worktrees/{branch-name-with-slashes-replaced-by-dashes}`
+
+3. **Neither** (default — single-issue mode):
+   - Branch: `{type}/issue-{N}-{short-description}` (type from issue labels: bug→fix, enhancement→feat, etc.)
+   - Worktree: `../worktrees/issue-{N}`
+
+### 3. Update DevBoard Status
 
 Set issue status to "In Progress":
 ```bash
-# Get item ID and update status to in_progress
-ITEM_ID=$(gh api graphql -f query='{ repository(owner: "Guarrdon", name: "claudevn") { issue(number: $ARGUMENTS) { projectItems(first: 1) { nodes { id } } } } }' --jq '.data.repository.issue.projectItems.nodes[0].id')
+ITEM_ID=$(gh api graphql -f query='{ repository(owner: "trueorc", name: "claudevn") { issue(number: {ISSUE_NUMBER}) { projectItems(first: 1) { nodes { id } } } } }' --jq '.data.repository.issue.projectItems.nodes[0].id')
 
 gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwHOAP6mx84BNtCx\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lAHOAP6mx84BNtCxzg8nxFg\" value: { singleSelectOptionId: \"47fc9ee4\" } }) { projectV2Item { id } } }"
 ```
 
-### 3. Create Isolated Worktree
-
-**For parallel work, always use worktrees:**
+### 4. Set Up Worktree (with reuse)
 
 ```bash
-# Fetch latest main
 git fetch origin main
-
-# Ensure worktrees directory exists
 mkdir -p ../worktrees
-
-# Create isolated worktree with feature branch (relative to repo root)
-git worktree add ../worktrees/issue-$ARGUMENTS -b {type}/issue-$ARGUMENTS-{short-description} origin/main
-
-# Work in the isolated directory
-cd ../worktrees/issue-$ARGUMENTS
 ```
 
-Types based on issue labels:
-- `bug` label → `fix/`
-- `enhancement` label → `feat/`
-- `documentation` label → `docs/`
-- `test` label → `test/`
+**Check if the branch and worktree already exist** (critical for feature-grouped issues):
 
-### 4. Explore Relevant Code
+- **Worktree already exists** → `cd` into it. Do NOT create a new one.
+- **Branch exists on remote but no worktree** → `git worktree add ../worktrees/{name} {branch-name}` (track existing branch, not origin/main)
+- **Branch doesn't exist** → `git worktree add ../worktrees/{name} -b {branch-name} origin/main` (create new)
+
+```bash
+# Example: reuse existing worktree
+if [ -d "../worktrees/{worktree-name}" ]; then
+    cd ../worktrees/{worktree-name}
+    git pull origin {branch-name}  # get latest from shared branch
+else
+    # Check if branch exists on remote
+    if git ls-remote --heads origin {branch-name} | grep -q {branch-name}; then
+        git worktree add ../worktrees/{worktree-name} {branch-name}
+    else
+        git worktree add ../worktrees/{worktree-name} -b {branch-name} origin/main
+    fi
+    cd ../worktrees/{worktree-name}
+fi
+```
+
+### 5. Explore Relevant Code
 
 Based on area labels, explore the codebase:
 - `area:serving` → `serving/` directory (Python/FastAPI)
@@ -89,7 +106,7 @@ Based on area labels, explore the codebase:
 
 Understand existing patterns before writing code.
 
-### 5. Implement Solution
+### 6. Implement Solution
 
 **For Python (FastAPI) changes:**
 - Models in `{component}/models/{domain}.py` using Pydantic v2
@@ -104,7 +121,7 @@ Understand existing patterns before writing code.
 - API clients in `serving/frontend/src/api/{domain}.js`
 - Use `.jsx` extension, functional components with hooks
 
-### 6. Write and Run Tier 1 Unit Tests
+### 7. Write and Run Tier 1 Unit Tests
 
 **Test Tier Strategy** (see `docs/guides/test-tier-strategy.md`):
 - **Tier 1 (this workflow)**: Unit tests - fast, mocked, no server required
@@ -140,32 +157,50 @@ Understand existing patterns before writing code.
 cd serving/frontend && npm test -- --testPathPattern={component}
 ```
 
-### 7. Update Documentation
+### 8. Update Documentation
 
 If the change affects:
 - API endpoints → Update relevant docs in `docs/`
 - Architecture → Update `docs/design/` files
 - User-facing features → Update README or guides
 
-### 8. Commit Changes
+### 9. Commit Changes
 
-Follow conventional commit format:
+Follow conventional commit format. **Always reference the individual issue number:**
 ```bash
 git add {specific files}
-git commit -m "{type}: {description} (#$ARGUMENTS)"
+git commit -m "{type}: {description} (#{ISSUE_NUMBER})"
 ```
 
 Examples:
 - `feat: Add user authentication endpoint (#42)`
-- `fix: Correct race condition in event handler (#42)`
+- `fix: Correct race condition in event handler (#43)`
 
-### 9. Push and Create PR
+### 10. Push and Create/Update PR
 
 ```bash
 git push -u origin {branch-name}
+```
 
+**Check if a PR already exists for this branch:**
+
+```bash
+EXISTING_PR=$(gh pr list --head {branch-name} --json number --jq '.[0].number')
+```
+
+**If PR exists** (feature-grouped — another issue already created it):
+- Update the PR body to add this issue to the list:
+```bash
+# Get current body, append new issue reference
+CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body')
+# Update body to include new issue in the Issues section
+gh pr edit "$EXISTING_PR" --body "{updated body with Closes #{ISSUE_NUMBER} added}"
+```
+
+**If no PR exists** (first issue in the feature, or single-issue mode):
+```bash
 gh pr create \
-  --title "{type}: {Description} (#$ARGUMENTS)" \
+  --title "{type}: {Feature or Issue Description}" \
   --body "$(cat <<'EOF'
 ## Summary
 - Brief description of changes
@@ -180,26 +215,40 @@ gh pr create \
 ## Follow-up
 - [ ] Create issue for Tier 2 integration tests if needed
 
-## Issue
-Closes #$ARGUMENTS
+## Issues
+Closes #{ISSUE_NUMBER}
 EOF
 )"
 ```
 
-### 10. Update DevBoard Status
+**PR Title Convention:**
+- Feature-grouped: `feat: {Feature Name}` (from label, e.g., `feat: Safe bare clone`)
+- Single-issue: `{type}: {Description} (#{N})`
+
+### 11. Update DevBoard Status
 
 Set issue status to "In Review":
 ```bash
 gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwHOAP6mx84BNtCx\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lAHOAP6mx84BNtCxzg8nxFg\" value: { singleSelectOptionId: \"4cc61d42\" } }) { projectV2Item { id } } }"
 ```
 
-### 11. Cleanup Worktree (After PR Merged)
+### 12. Cleanup Worktree (After PR Merged)
 
+**Only clean up when ALL issues in the feature group are done.**
+
+For single-issue mode:
 ```bash
-# Remove the worktree when done
-git worktree remove ../worktrees/issue-$ARGUMENTS
+git worktree remove ../worktrees/issue-{N}
+git worktree prune
+```
 
-# Clean up stale worktree references
+For feature-grouped mode — check if other issues in the group are still open:
+```bash
+# List other issues with the same feature label
+gh issue list --label "feature:{name}" --state open --json number --jq '.[].number'
+
+# Only remove worktree if no open issues remain
+git worktree remove ../worktrees/feat-{name}
 git worktree prune
 ```
 
@@ -208,13 +257,14 @@ git worktree prune
 ## Checklist
 
 - [ ] Issue analyzed and understood
+- [ ] Branch strategy determined (feature label / --branch / single-issue)
 - [ ] DevBoard status updated to "In Progress"
-- [ ] **Isolated worktree created** (critical for parallel work)
+- [ ] **Worktree created or reused** (critical for parallel work)
 - [ ] Code implemented following project patterns
 - [ ] **Tier 1 unit tests written and passing** (`./scripts/run_unit_tests.sh`)
 - [ ] Documentation updated if needed
-- [ ] Commit message follows convention
-- [ ] PR created and linked to issue
+- [ ] Commit message follows convention (references individual issue)
+- [ ] PR created or updated (references all issues in feature group)
 - [ ] DevBoard status updated to "In Review"
 - [ ] (Follow-up) Issue created for Tier 2 integration tests if applicable
 
