@@ -5,7 +5,8 @@ Provides REST endpoints for token lifecycle management:
 - GET  /auth/token/{id}    - Get auth status for a component
 - DELETE /auth/token/{id}  - Revoke a token for a component
 - GET  /auth/tokens        - List all component auth statuses
-- GET  /auth/status        - System-level auth overview
+- GET  /auth/status        - System-level auth overview (auto-detects Redis imports)
+- POST /auth/refresh       - Force reload credentials from Redis
 - GET  /auth/credentials   - Raw credentials for compute (authenticated)
 """
 
@@ -44,8 +45,20 @@ async def get_auth_status():
 
     system_status = service.get_system_auth_status()
     # Also include legacy fields for backward compatibility
-    basic_status = service.get_status()
+    basic_status = await service.get_status()
     return {**basic_status, **system_status}
+
+
+@router.post("/refresh")
+async def refresh_from_redis():
+    """Force reload credentials from Redis.
+
+    Useful after importing credentials externally (e.g. via import-credentials.py)
+    or for manual recovery without restarting the service.
+    """
+    service = _get_service()
+    result = await service.refresh_from_redis()
+    return result
 
 
 @router.post("/token")
@@ -117,4 +130,5 @@ async def get_credentials():
     if not creds:
         raise HTTPException(status_code=503, detail="No credentials available")
 
-    return {"credentials": creds, "expires_at": service.get_status().get("expires_at")}
+    status = await service.get_status()
+    return {"credentials": creds, "expires_at": status.get("expires_at")}

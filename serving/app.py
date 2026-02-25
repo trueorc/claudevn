@@ -1141,7 +1141,7 @@ async def health_check():
     # Get Claude auth status
     try:
         auth_svc = get_claude_auth_service()
-        claude_auth_stats = auth_svc.get_status() if auth_svc else {"enabled": False}
+        claude_auth_stats = (await auth_svc.get_status()) if auth_svc else {"enabled": False}
     except Exception:
         claude_auth_stats = {"enabled": False}
 

@@ -32,12 +32,12 @@ class TestGetStatus:
 
     def test_status_authenticated(self, client):
         mock_service = MagicMock()
-        mock_service.get_status.return_value = {
+        mock_service.get_status = AsyncMock(return_value={
             "status": "authenticated",
             "authenticated": True,
             "expires_at": "2026-03-01T00:00:00Z",
             "message": None,
-        }
+        })
         mock_service.get_system_auth_status.return_value = {
             "serving_authorized": True,
             "compute_authorized": 2,
@@ -57,12 +57,12 @@ class TestGetStatus:
 
     def test_status_not_configured(self, client):
         mock_service = MagicMock()
-        mock_service.get_status.return_value = {
+        mock_service.get_status = AsyncMock(return_value={
             "status": "not_configured",
             "authenticated": False,
             "expires_at": None,
             "message": None,
-        }
+        })
         mock_service.get_system_auth_status.return_value = {
             "serving_authorized": False,
             "compute_authorized": 0,
@@ -75,6 +75,43 @@ class TestGetStatus:
             data = response.json()
             assert data["authenticated"] is False
             assert data["serving_authorized"] is False
+
+
+class TestRefreshFromRedis:
+    """Test POST /auth/refresh."""
+
+    def test_refresh_service_disabled(self, client):
+        with patch("api.auth.get_claude_auth_service", return_value=None):
+            response = client.post("/auth/refresh")
+            assert response.status_code == 503
+
+    def test_refresh_success(self, client):
+        mock_service = MagicMock()
+        mock_service.refresh_from_redis = AsyncMock(return_value={
+            "status": "authenticated",
+            "authenticated": True,
+            "tokens_loaded": 1,
+        })
+        with patch("api.auth.get_claude_auth_service", return_value=mock_service):
+            response = client.post("/auth/refresh")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "authenticated"
+            assert data["tokens_loaded"] == 1
+
+    def test_refresh_no_tokens(self, client):
+        mock_service = MagicMock()
+        mock_service.refresh_from_redis = AsyncMock(return_value={
+            "status": "not_configured",
+            "authenticated": False,
+            "tokens_loaded": 0,
+        })
+        with patch("api.auth.get_claude_auth_service", return_value=mock_service):
+            response = client.post("/auth/refresh")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["authenticated"] is False
+            assert data["tokens_loaded"] == 0
 
 
 class TestSubmitToken:
@@ -267,9 +304,9 @@ class TestGetCredentials:
         mock_service.get_credentials = AsyncMock(return_value={
             "token": "sk-ant-oat01-test",
         })
-        mock_service.get_status.return_value = {
+        mock_service.get_status = AsyncMock(return_value={
             "expires_at": "2026-03-01T00:00:00Z",
-        }
+        })
         with patch("api.auth.get_claude_auth_service", return_value=mock_service):
             response = client.get("/auth/credentials")
             assert response.status_code == 200
