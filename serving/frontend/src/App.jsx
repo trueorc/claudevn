@@ -12,6 +12,7 @@ import BacklogPage from './pages/BacklogPage'
 import ExecutionPlanPage from './pages/ExecutionPlanPage'
 import GoalsPage from './pages/GoalsPage'
 import ProfilePage from './pages/ProfilePage'
+import SSHKeysPage from './pages/SSHKeysPage'
 import AuthSetupPage from './pages/AuthSetupPage'
 import { useAuth } from './hooks/useAuth'
 
@@ -37,6 +38,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             <Route path="/marketplace" element={<SkillsPage />} />
             <Route path="/network" element={<NetworkHealthPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
+            <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
             {/* Redirects from old routes */}
             <Route path="/goals" element={<Navigate to="/directives" replace />} />
             <Route path="/skills" element={<Navigate to="/marketplace" replace />} />

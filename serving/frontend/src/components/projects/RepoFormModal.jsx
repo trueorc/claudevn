@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import Modal from '../common/Modal'
 import { addRepoToProject, createInternalRepo } from '../../api/projects'
+import { useSSHKeys } from '../../hooks/useSSHKeys'
+import { useToast } from '../../hooks/useToast'
 import '../common/Modal.css'
 
 function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
@@ -8,8 +10,15 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [defaultBranch, setDefaultBranch] = useState('main')
+  const [sshKeyId, setSshKeyId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [showGenerateKey, setShowGenerateKey] = useState(false)
+  const [keyDescription, setKeyDescription] = useState('')
+  const [generatingKey, setGeneratingKey] = useState(false)
+
+  const { keys, loading: keysLoading, generate: generateKey, refresh: refreshKeys } = useSSHKeys()
+  const toast = useToast()
 
   useEffect(() => {
     if (isOpen) {
@@ -17,9 +26,28 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
       setName('')
       setUrl('')
       setDefaultBranch('main')
+      setSshKeyId('')
       setError(null)
+      setShowGenerateKey(false)
+      setKeyDescription('')
+      refreshKeys()
     }
-  }, [isOpen])
+  }, [isOpen, refreshKeys])
+
+  const handleGenerateKey = async () => {
+    setGeneratingKey(true)
+    try {
+      const result = await generateKey(keyDescription.trim())
+      setSshKeyId(result.key_id)
+      setShowGenerateKey(false)
+      setKeyDescription('')
+      toast.success('SSH key generated')
+    } catch (err) {
+      toast.error(err.message || 'Failed to generate key')
+    } finally {
+      setGeneratingKey(false)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -47,7 +75,8 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
         await addRepoToProject(projectId, {
           name: name.trim(),
           url: url.trim(),
-          default_branch: defaultBranch.trim() || 'main'
+          default_branch: defaultBranch.trim() || 'main',
+          ssh_key_id: sshKeyId || undefined
         })
       }
       onSuccess()
@@ -116,7 +145,7 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
               className="form-input"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://github.com/org/repo.git"
+              placeholder="git@github.com:org/repo.git"
             />
           </div>
         )}
@@ -135,6 +164,88 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
           />
         </div>
 
+        {mode === 'link' && (
+          <div className="form-group">
+            <label className="form-label" htmlFor="repo-ssh-key">
+              SSH Key
+            </label>
+            <select
+              id="repo-ssh-key"
+              className="form-input"
+              value={sshKeyId}
+              onChange={(e) => setSshKeyId(e.target.value)}
+            >
+              <option value="">None (no authentication)</option>
+              {keysLoading && <option disabled>Loading keys...</option>}
+              {keys.map((key) => (
+                <option key={key.key_id} value={key.key_id}>
+                  {key.key_id}{key.description ? ` - ${key.description}` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowGenerateKey(!showGenerateKey)}
+              style={{
+                marginTop: 'var(--space-xs)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--primary)',
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                padding: 0
+              }}
+            >
+              + Generate New Key
+            </button>
+            <p style={{
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--text-muted)',
+              marginTop: 'var(--space-xs)'
+            }}>
+              Required for push access. Add the public key as a deploy key on the remote repository.
+            </p>
+
+            {showGenerateKey && (
+              <div style={{
+                marginTop: 'var(--space-sm)',
+                padding: 'var(--space-sm)',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)'
+              }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={keyDescription}
+                  onChange={(e) => setKeyDescription(e.target.value)}
+                  placeholder="Key description (e.g., GitHub deploy key)"
+                  style={{ marginBottom: 'var(--space-sm)' }}
+                />
+                <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => { setShowGenerateKey(false); setKeyDescription('') }}
+                    style={{ padding: '2px 8px', fontSize: 'var(--font-size-xs)' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleGenerateKey}
+                    disabled={generatingKey}
+                    style={{ padding: '2px 8px', fontSize: 'var(--font-size-xs)' }}
+                  >
+                    {generatingKey ? 'Generating...' : 'Generate'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {error && (
           <div style={{ color: 'var(--status-offline)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-md)' }}>
             {error}
@@ -147,8 +258,8 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
           </button>
           <button type="submit" className="btn btn-primary" disabled={saving}>
             {saving
-              ? (mode === 'create' ? 'Creating...' : 'Adding...')
-              : (mode === 'create' ? 'Create Repository' : 'Add Repository')
+              ? (mode === 'create' ? 'Creating...' : 'Linking...')
+              : (mode === 'create' ? 'Create Repository' : 'Link Repository')
             }
           </button>
         </div>

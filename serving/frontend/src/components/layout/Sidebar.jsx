@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check } from 'lucide-react'
+import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check, Key, Settings } from 'lucide-react'
 import useSystemHealth from '../../hooks/useSystemHealth'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import NotificationBell from '../notifications/NotificationBell'
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/directives', icon: Target, label: 'Directives' },
   { to: '/plan', icon: Play, label: 'Plan' },
   { to: '/backlog', icon: ListTodo, label: 'Backlog' },
+  { to: '/settings/ssh-keys', icon: Key, label: 'SSH Keys' },
 ]
 
 function ProjectSelector() {
