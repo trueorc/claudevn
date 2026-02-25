@@ -344,21 +344,25 @@ class RepoManager:
         """Generate pre-receive hook that validates pushes."""
         return f'''#!/bin/bash
 # ClaudeVN pre-receive hook for {project}
-# Validates branch naming and blocks direct pushes to main
+# Validates branch naming and blocks direct pushes to the default branch
 # Types: f (feature), b (bugfix), r (refactor), d (docs), t (test)
+
+# Dynamically determine the default branch from the bare repo's HEAD
+DEFAULT_BRANCH=$(git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||')
+DEFAULT_BRANCH="${{DEFAULT_BRANCH:-main}}"
 
 while read oldrev newrev refname; do
     branch=$(echo "$refname" | sed 's|refs/heads/||')
 
-    # STRICTLY block direct pushes to main/master
-    # Compute instances can NEVER push to main - only Serving (via merge process)
-    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    # STRICTLY block direct pushes to the default branch
+    # Compute instances can NEVER push to the default branch - only Serving (via merge process)
+    if [ "$branch" = "$DEFAULT_BRANCH" ]; then
         echo "ERROR: Direct push to $branch is FORBIDDEN."
-        echo "       Only Serving can merge to main."
+        echo "       Only Serving can merge to $DEFAULT_BRANCH."
         exit 1
     fi
 
-    # Skip validation for special branches
+    # Skip validation for develop
     if [ "$branch" = "develop" ]; then
         continue
     fi
@@ -390,6 +394,10 @@ exit 0
 # ClaudeVN post-receive hook for {project}
 # Publishes push events to Redis
 
+# Dynamically determine the default branch from the bare repo's HEAD
+DEFAULT_BRANCH=$(git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||')
+DEFAULT_BRANCH="${{DEFAULT_BRANCH:-main}}"
+
 REDIS_HOST="${{REDIS_HOST:-{redis_config.host}}}"
 REDIS_PORT="${{REDIS_PORT:-{redis_config.port}}}"
 REDIS_PREFIX="${{REDIS_PREFIX:-{redis_config.key_prefix}}}"
@@ -399,8 +407,8 @@ while read oldrev newrev refname; do
     branch=$(echo "$refname" | sed 's|refs/heads/||')
     timestamp=$(date -Iseconds)
 
-    # Skip main branch events (shouldn't happen due to pre-receive)
-    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    # Skip default branch events (handled by merge process)
+    if [ "$branch" = "$DEFAULT_BRANCH" ]; then
         continue
     fi
 
@@ -496,11 +504,11 @@ exit 0
             True if branch was deleted, False if branch not found
 
         Raises:
-            ValueError: If attempting to delete protected branch (main/master)
+            ValueError: If attempting to delete the default branch
         """
-        # Protect main/master branches
-        protected_branches = {"main", "master"}
-        if branch in protected_branches:
+        # Protect the default branch
+        default_branch = self.get_default_branch(project)
+        if branch == default_branch:
             raise ValueError(f"Cannot delete protected branch: {branch}")
 
         repo_path = self._repo_path(project)
