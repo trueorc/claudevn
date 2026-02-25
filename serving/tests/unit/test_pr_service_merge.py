@@ -103,6 +103,7 @@ class TestPRServiceMerge:
         """Create mock RepoManager."""
         manager = MagicMock()
         manager.get_branch_head = MagicMock(return_value="abc123")
+        manager.get_default_branch = MagicMock(return_value="main")
         return manager
 
     @pytest.fixture
@@ -322,6 +323,7 @@ class TestPRServiceDryRunMerge:
         """Create mock RepoManager."""
         manager = MagicMock()
         manager.get_branch_head = MagicMock(side_effect=lambda p, b: "abc123" if b == "feature/test" else "def456")
+        manager.get_default_branch = MagicMock(return_value="main")
         return manager
 
     @pytest.fixture
@@ -495,6 +497,7 @@ class TestPRServiceMergeSSE:
         """Create mock RepoManager."""
         manager = MagicMock()
         manager.get_branch_head = MagicMock(return_value="main123")
+        manager.get_default_branch = MagicMock(return_value="main")
         return manager
 
     @pytest.fixture
@@ -644,6 +647,7 @@ class TestPRServiceCreatePRConflictDetection:
         """Create mock RepoManager."""
         manager = MagicMock()
         manager.get_branch_head = MagicMock(side_effect=lambda p, b: "abc123" if b == "feature/test" else "main456")
+        manager.get_default_branch = MagicMock(return_value="main")
         return manager
 
     @pytest.fixture

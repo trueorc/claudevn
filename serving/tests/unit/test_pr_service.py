@@ -73,6 +73,7 @@ def mock_repo_manager():
     """Create mock RepoManager."""
     manager = MagicMock()
     manager.get_branch_head = MagicMock(return_value="abc123def456")
+    manager.get_default_branch = MagicMock(return_value="main")
     return manager
 
 

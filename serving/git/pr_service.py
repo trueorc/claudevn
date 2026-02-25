@@ -149,6 +149,20 @@ class PRService:
             self._sse_manager = get_sse_connection_manager()
         return self._sse_manager
 
+    def _get_default_branch(self, project: str) -> str:
+        """Get the default branch for a project.
+
+        Delegates to RepoManager.get_default_branch() which reads from
+        the bare repo's symbolic-ref HEAD.
+
+        Args:
+            project: Project/repo name
+
+        Returns:
+            Default branch name (e.g., "main", "master", "develop")
+        """
+        return self._repo_manager.get_default_branch(project)
+
     def _git_env(self) -> dict:
         """Build env dict with git author/committer identity.
 
@@ -211,6 +225,7 @@ class PRService:
             raise ValueError(f"PR already exists for branch: {branch}")
 
         now = datetime.now(timezone.utc).isoformat()
+        default_branch = self._get_default_branch(project)
 
         # Set branch status
         await redis.set_branch_status(
@@ -222,7 +237,7 @@ class PRService:
             title=title or branch,
             description=description or "",
             head_commit=head,
-            base_branch="main",
+            base_branch=default_branch,
             created_at=now
         )
 
@@ -256,7 +271,7 @@ class PRService:
                     project=project,
                     branch=branch,
                     status=PRStatus.CONFLICT.value,
-                    rejection_reason=f"Conflicts with main: {', '.join(conflicting_files)}",
+                    rejection_reason=f"Conflicts with {default_branch}: {', '.join(conflicting_files)}",
                     conflicting_files=json.dumps(conflicting_files)
                 )
 
@@ -278,7 +293,7 @@ class PRService:
                     branch=branch,
                     conflicting_files=conflicting_files,
                     main_head=main_head,
-                    message="Conflicts with main detected on PR submission. Resolve before review.",
+                    message=f"Conflicts with {default_branch} detected on PR submission. Resolve before review.",
                     task_id=task_id,
                     repository=repo_url,
                 )
@@ -514,16 +529,17 @@ class PRService:
         if not head:
             return {"mergeable": False, "error": "Branch not found"}
 
-        # Check for merge base (common ancestor with main)
-        result = self._git_cmd(repo_path, "merge-base", "main", branch)
+        # Check for merge base (common ancestor with default branch)
+        default_branch = self._get_default_branch(project)
+        result = self._git_cmd(repo_path, "merge-base", default_branch, branch)
 
         if result.returncode != 0:
-            return {"mergeable": False, "error": "No common ancestor with main"}
+            return {"mergeable": False, "error": f"No common ancestor with {default_branch}"}
 
         merge_base = result.stdout.strip()
 
-        # Check if main has diverged
-        main_head = self._repo_manager.get_branch_head(project, "main")
+        # Check if default branch has diverged
+        main_head = self._repo_manager.get_branch_head(project, default_branch)
 
         if main_head == merge_base:
             # Fast-forward possible
@@ -542,7 +558,7 @@ class PRService:
             "merge_base": merge_base,
             "head": head,
             "main_head": main_head,
-            "warning": "Main has diverged; merge may have conflicts"
+            "warning": f"{default_branch} has diverged; merge may have conflicts"
         }
 
     async def dry_run_merge(self, project: str, branch: str) -> Dict[str, Any]:
@@ -576,7 +592,8 @@ class PRService:
                 "error": "Branch not found"
             }
 
-        main_head = self._repo_manager.get_branch_head(project, "main")
+        default_branch = self._get_default_branch(project)
+        main_head = self._repo_manager.get_branch_head(project, default_branch)
 
         try:
             # 1. Clone bare repo to temp work directory
@@ -590,9 +607,9 @@ class PRService:
                 env=safe_env
             )
 
-            # 2. Checkout main
+            # 2. Checkout default branch
             subprocess.run(
-                ["git", "-C", str(work_dir), "checkout", "main"],
+                ["git", "-C", str(work_dir), "checkout", default_branch],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -722,6 +739,8 @@ class PRService:
         if not check.get("mergeable"):
             raise ValueError(f"Cannot merge: {check.get('error')}")
 
+        default_branch = self._get_default_branch(project)
+
         try:
             # 1. Clone bare repo to temp work directory
             work_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -734,9 +753,9 @@ class PRService:
                 env=safe_env
             )
 
-            # 2. Checkout main
+            # 2. Checkout default branch
             subprocess.run(
-                ["git", "-C", str(work_dir), "checkout", "main"],
+                ["git", "-C", str(work_dir), "checkout", default_branch],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -748,7 +767,7 @@ class PRService:
                 [
                     "git", "-C", str(work_dir),
                     "merge", "--no-ff", f"origin/{branch}",
-                    "-m", f"Merge {branch} into main\n\nPR merged by ClaudeVN"
+                    "-m", f"Merge {branch} into {default_branch}\n\nPR merged by ClaudeVN"
                 ],
                 capture_output=True,
                 text=True,
@@ -795,8 +814,8 @@ class PRService:
 
                 # Send SSE merge_conflict event to compute instance
                 if pr.compute_id:
-                    # Get main HEAD for the event
-                    main_head = self._repo_manager.get_branch_head(project, "main") or ""
+                    # Get default branch HEAD for the event
+                    main_head = self._repo_manager.get_branch_head(project, default_branch) or ""
                     repo_url = self._repo_manager.get_repo_url(project)
                     sse_manager = self._get_sse_manager()
                     await sse_manager.send_merge_conflict(
@@ -805,7 +824,7 @@ class PRService:
                         branch=branch,
                         conflicting_files=conflicts,
                         main_head=main_head,
-                        message="Resolve conflicts with main and push again",
+                        message=f"Resolve conflicts with {default_branch} and push again",
                         task_id=pr.task_id,
                         repository=repo_url,
                     )
@@ -822,12 +841,12 @@ class PRService:
                     "branch": branch
                 }
 
-            # 4. Merge successful - push merged main back to bare repo
+            # 4. Merge successful - push merged default branch back to bare repo
             # Include CLAUDEVN_ALLOW_MAIN_PUSH=true so the pre-receive hook permits
             # this authorized Serving merge push (only set for this operation).
             merge_push_env = {**safe_env, "CLAUDEVN_ALLOW_MAIN_PUSH": "true"}
             push_result = subprocess.run(
-                ["git", "-C", str(work_dir), "push", "origin", "main"],
+                ["git", "-C", str(work_dir), "push", "origin", default_branch],
                 capture_output=True,
                 text=True,
                 env=merge_push_env
@@ -886,7 +905,7 @@ class PRService:
                     merge_commit=merge_commit
                 )
 
-            logger.info(f"PR merged: {project}/{branch} -> main ({merge_commit[:8]})")
+            logger.info(f"PR merged: {project}/{branch} -> {default_branch} ({merge_commit[:8]})")
 
             return {
                 "success": True,

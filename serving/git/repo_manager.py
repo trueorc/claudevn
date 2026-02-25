@@ -427,6 +427,21 @@ done
 exit 0
 '''
 
+    def get_default_branch(self, project: str) -> str:
+        """Get the default branch name from HEAD symbolic ref.
+
+        Args:
+            project: Project name
+
+        Returns:
+            Default branch name (falls back to "main")
+        """
+        repo_path = self._repo_path(project)
+        result = self._git_cmd(repo_path, "symbolic-ref", "HEAD")
+        if result.returncode == 0:
+            return result.stdout.strip().replace("refs/heads/", "")
+        return "main"
+
     def get_branches(self, project: str) -> List[str]:
         """Get list of branches in repository.
 
