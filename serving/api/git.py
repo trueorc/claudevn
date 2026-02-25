@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from git.pr_service import PRService, PRStatus, PullRequest
 from git.repo_manager import RepoManager
+from git.ssh_key_service import SSHKeyService, get_ssh_key_service
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,37 @@ class DeleteBranchResponse(BaseModel):
     project: str
     branch: str
     deleted: bool
+
+
+class GenerateSSHKeyRequest(BaseModel):
+    """Request to generate a new SSH key pair."""
+    description: str = Field(default="", description="Label for the key")
+
+
+class SSHKeyResponse(BaseModel):
+    """SSH key response with public key."""
+    key_id: str
+    public_key: str
+    fingerprint: str
+    description: str = ""
+
+
+class SSHKeyListItem(BaseModel):
+    """SSH key metadata (no private key material)."""
+    key_id: str
+    description: str = ""
+    fingerprint: str = ""
+    created_at: str = ""
+
+
+class SSHKeyDeleteResponse(BaseModel):
+    """Response from SSH key deletion."""
+    key_id: str
+    deleted: bool
+    referencing_repos: List[str] = Field(
+        default_factory=list,
+        description="Repos that reference this key_id (if any)",
+    )
 
 
 def pr_to_response(pr: PullRequest) -> PRResponse:
@@ -717,3 +749,97 @@ async def cleanup_compute(compute_id: str):
         "compute_id": compute_id,
         "prs_closed": closed
     }
+
+
+# ==========================================================================
+# SSH Key Management Endpoints
+# ==========================================================================
+
+@router.post("/ssh-keys", response_model=SSHKeyResponse, status_code=status.HTTP_201_CREATED)
+async def generate_ssh_key(request: GenerateSSHKeyRequest):
+    """Generate a new SSH key pair for external repo authentication."""
+    service = get_ssh_key_service()
+
+    try:
+        result = service.generate_key(description=request.description)
+        return SSHKeyResponse(
+            key_id=result["key_id"],
+            public_key=result["public_key"],
+            fingerprint=result["fingerprint"],
+            description=result.get("description", ""),
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ssh-keygen not found on this system",
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate SSH key: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/ssh-keys", response_model=List[SSHKeyListItem])
+async def list_ssh_keys():
+    """List all SSH keys (metadata only, no private key material)."""
+    service = get_ssh_key_service()
+    keys = service.list_keys()
+    return [SSHKeyListItem(**k) for k in keys]
+
+
+@router.get("/ssh-keys/{key_id}", response_model=SSHKeyResponse)
+async def get_ssh_key(key_id: str):
+    """Get a specific SSH key's public key (for adding as deploy key)."""
+    service = get_ssh_key_service()
+    result = service.get_key(key_id)
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SSH key not found: {key_id}",
+        )
+
+    return SSHKeyResponse(
+        key_id=result["key_id"],
+        public_key=result["public_key"],
+        fingerprint=result["fingerprint"],
+        description=result.get("description", ""),
+    )
+
+
+@router.delete("/ssh-keys/{key_id}", response_model=SSHKeyDeleteResponse)
+async def delete_ssh_key(key_id: str):
+    """Delete an SSH key pair.
+
+    Returns a warning list of repos that reference this key_id.
+    """
+    service = get_ssh_key_service()
+
+    if not service.key_exists(key_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SSH key not found: {key_id}",
+        )
+
+    # Check for repos referencing this key (best-effort)
+    referencing: List[str] = []
+    try:
+        from services.project_service import get_project_service
+        project_service = get_project_service()
+        if project_service:
+            projects = await project_service.list_projects()
+            for project in projects:
+                for repo in project.repos:
+                    if repo.ssh_key_id == key_id:
+                        referencing.append(f"{project.name}/{repo.name}")
+    except Exception:
+        pass  # Best-effort warning
+
+    deleted = service.delete_key(key_id)
+    return SSHKeyDeleteResponse(
+        key_id=key_id,
+        deleted=deleted,
+        referencing_repos=referencing,
+    )
