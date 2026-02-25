@@ -197,7 +197,7 @@ function ProjectsPage() {
                 Add Repo
               </button>
             </div>
-            <RepoList repos={selectedProject.repos} onRemove={handleRemoveRepo} />
+            <RepoList repos={selectedProject.repos} onRemove={handleRemoveRepo} projectId={selectedProject.project_id} />
           </section>
 
           <aside>
