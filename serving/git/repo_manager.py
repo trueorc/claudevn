@@ -686,9 +686,24 @@ exit 0
         if ssh_key_path:
             env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
-        # Fetch all branches and tags from origin
+        # Check if this is a linked repo (has compute feature branches to preserve)
+        is_linked_result = self._git_cmd(repo_path, "config", "--get", "claudevn.isLinked")
+        is_linked = (
+            is_linked_result.returncode == 0
+            and is_linked_result.stdout.strip() == "true"
+        )
+
+        if is_linked:
+            # Linked repos: fetch only from origin with restricted refspec (set by
+            # clone_from_url). Omit --prune to preserve local compute feature branches
+            # that don't exist on the upstream remote.
+            cmd = ["git", "-C", str(repo_path), "fetch", "origin", "--tags"]
+        else:
+            # Internal repos: fetch all remotes and prune stale tracking refs
+            cmd = ["git", "-C", str(repo_path), "fetch", "--all", "--prune", "--tags"]
+
         result = subprocess.run(
-            ["git", "-C", str(repo_path), "fetch", "--all", "--prune", "--tags"],
+            cmd,
             capture_output=True,
             text=True,
             env=env
