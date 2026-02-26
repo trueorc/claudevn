@@ -3,6 +3,7 @@ name: Code Reviewer
 description: Reviews code changes for quality, correctness, security, and adherence to best practices.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Code Reviewer

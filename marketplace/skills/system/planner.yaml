@@ -3,6 +3,7 @@ name: Planner
 description: Analyzes high-level goals and creates detailed implementation plans with properly scoped, dependency-ordered issues.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Planner

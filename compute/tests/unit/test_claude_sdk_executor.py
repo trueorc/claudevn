@@ -297,3 +297,171 @@ class TestExecuteTask:
 
         assert "thinking..." in result.output
         assert "Final answer here" in result.output
+
+
+class TestEffortParameter:
+    """Tests for effort parameter in execute_task (#60)."""
+
+    @pytest.mark.asyncio
+    async def test_effort_passed_to_options(self, tmp_path):
+        """Effort value is passed through to ClaudeAgentOptions."""
+        result_msg = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="session-eff",
+            total_cost_usd=0.01,
+        )
+
+        with patch("services.claude_sdk_executor.query") as mock_query, \
+             patch("services.claude_sdk_executor.ClaudeAgentOptions") as mock_opts:
+
+            async def fake_query(**kwargs):
+                yield result_msg
+
+            mock_query.side_effect = fake_query
+
+            await execute_task(
+                prompt="test",
+                cwd=tmp_path,
+                mcp_servers={},
+                effort="medium",
+            )
+
+        call_kwargs = mock_opts.call_args[1]
+        assert call_kwargs["effort"] == "medium"
+
+    @pytest.mark.asyncio
+    async def test_effort_not_set_when_none(self, tmp_path):
+        """When effort is None, it is not included in options."""
+        result_msg = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="session-noeff",
+            total_cost_usd=0.01,
+        )
+
+        with patch("services.claude_sdk_executor.query") as mock_query, \
+             patch("services.claude_sdk_executor.ClaudeAgentOptions") as mock_opts:
+
+            async def fake_query(**kwargs):
+                yield result_msg
+
+            mock_query.side_effect = fake_query
+
+            await execute_task(
+                prompt="test",
+                cwd=tmp_path,
+                mcp_servers={},
+            )
+
+        call_kwargs = mock_opts.call_args[1]
+        assert "effort" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_effort_max_for_complex_tasks(self, tmp_path):
+        """Verify max effort can be passed through."""
+        result_msg = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="session-max",
+            total_cost_usd=0.01,
+        )
+
+        with patch("services.claude_sdk_executor.query") as mock_query, \
+             patch("services.claude_sdk_executor.ClaudeAgentOptions") as mock_opts:
+
+            async def fake_query(**kwargs):
+                yield result_msg
+
+            mock_query.side_effect = fake_query
+
+            await execute_task(
+                prompt="test",
+                cwd=tmp_path,
+                mcp_servers={},
+                effort="max",
+            )
+
+        call_kwargs = mock_opts.call_args[1]
+        assert call_kwargs["effort"] == "max"
+
+
+class TestSystemPromptParameter:
+    """Tests for system_prompt parameter in execute_task (#58)."""
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_passed_to_options(self, tmp_path):
+        """System prompt dict is passed through to ClaudeAgentOptions."""
+        result_msg = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="session-sp",
+            total_cost_usd=0.01,
+        )
+
+        system_prompt = {
+            "type": "preset",
+            "preset": "claude_code",
+            "append": "Custom stable instructions",
+        }
+
+        with patch("services.claude_sdk_executor.query") as mock_query, \
+             patch("services.claude_sdk_executor.ClaudeAgentOptions") as mock_opts:
+
+            async def fake_query(**kwargs):
+                yield result_msg
+
+            mock_query.side_effect = fake_query
+
+            await execute_task(
+                prompt="test",
+                cwd=tmp_path,
+                mcp_servers={},
+                system_prompt=system_prompt,
+            )
+
+        # Verify ClaudeAgentOptions was constructed with the system_prompt
+        call_kwargs = mock_opts.call_args[1]
+        assert call_kwargs["system_prompt"] == system_prompt
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_none_by_default(self, tmp_path):
+        """When system_prompt is not provided, None is passed to options."""
+        result_msg = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="session-def",
+            total_cost_usd=0.01,
+        )
+
+        with patch("services.claude_sdk_executor.query") as mock_query, \
+             patch("services.claude_sdk_executor.ClaudeAgentOptions") as mock_opts:
+
+            async def fake_query(**kwargs):
+                yield result_msg
+
+            mock_query.side_effect = fake_query
+
+            await execute_task(
+                prompt="test",
+                cwd=tmp_path,
+                mcp_servers={},
+            )
+
+        call_kwargs = mock_opts.call_args[1]
+        assert call_kwargs["system_prompt"] is None

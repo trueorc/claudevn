@@ -1014,6 +1014,9 @@ class WorkOrchestrator:
             # Select skills based on work requirements (sync — no HTTP calls)
             skills = self._select_skills_for_work(work)
 
+            # Resolve model from skill preferences
+            resolved_model = await self._resolve_model_for_skills(skills)
+
             # First, try to find an SSE-connected compute instance
             # Only exclude previously-failed nodes if multiple computes are available.
             # With a single compute, excluding it would block all work.
@@ -1021,7 +1024,7 @@ class WorkOrchestrator:
             sse_manager = get_sse_connection_manager()
             total_compute_count = len(sse_manager.list_connections())
             exclude_compute_ids = self._failed_nodes.get(work_id) if total_compute_count > 1 else None
-            assigned_via_sse = await self._try_assign_via_sse(work, skills, exclude_compute_ids)
+            assigned_via_sse = await self._try_assign_via_sse(work, skills, exclude_compute_ids, resolved_model)
 
             if assigned_via_sse:
                 logger.info(f"Work {work_id} assigned via SSE")
@@ -1047,7 +1050,7 @@ class WorkOrchestrator:
                 else:
                     # No SSE computes at all — fall back to direct spawning
                     logger.info(f"No SSE compute available, spawning new instance for {work_id}")
-                    await self._spawn_new_compute(work, skills)
+                    await self._spawn_new_compute(work, skills, resolved_model)
                     # Clear orchestrator-local retry tracking on assignment.
                     # _failed_nodes intentionally preserved (see issue #691).
                     self._retry_counts.pop(work_id, None)
@@ -1062,13 +1065,14 @@ class WorkOrchestrator:
             # Remove from active spawns
             self._active_spawns.pop(work_id, None)
 
-    async def _try_assign_via_sse(self, work, skills: List[str], exclude_compute_ids: Optional[set] = None) -> bool:
+    async def _try_assign_via_sse(self, work, skills: List[str], exclude_compute_ids: Optional[set] = None, model: Optional[str] = None) -> bool:
         """Try to assign work to an SSE-connected compute instance.
 
         Args:
             work: WorkItem to assign
             skills: Selected skills for the work
             exclude_compute_ids: Compute IDs to deprioritize (previously failed for this work)
+            model: Resolved Claude model identifier for compute execution
 
         Returns:
             True if work was assigned via SSE, False otherwise
@@ -1174,7 +1178,9 @@ class WorkOrchestrator:
                 branch_name=branch_name,
                 skills={"ids": skills, "merged_instructions": skills_content},
                 context=context,
-                mcp_config=mcp_config
+                mcp_config=mcp_config,
+                model=model,
+                work_type=work.work_type,
             )
 
             if success:
@@ -1263,12 +1269,13 @@ class WorkOrchestrator:
             logger.warning(f"Error composing skills for SSE: {e}")
             return "Execute the assigned work according to the task description."
 
-    async def _spawn_new_compute(self, work, skills: List[str]) -> None:
+    async def _spawn_new_compute(self, work, skills: List[str], model: Optional[str] = None) -> None:
         """Spawn a new compute instance for work (fallback when no SSE compute available).
 
         Args:
             work: WorkItem to assign
             skills: Selected skills for the work
+            model: Resolved Claude model identifier (None = use default)
         """
         from services.compute_spawner import get_compute_spawner
 
@@ -1283,7 +1290,8 @@ class WorkOrchestrator:
             tools_available=work.required_tools,
             work_id=work.work_id,
             project_id=work.project_id,
-            base_branch=work.base_branch
+            base_branch=work.base_branch,
+            model=model,
         )
 
         # Spawn the compute instance
@@ -1301,6 +1309,54 @@ class WorkOrchestrator:
         if response.initial_work:
             self._stats["total_assigned"] += 1
             logger.info(f"Work {work.work_id} assigned to compute {response.compute_id}")
+
+    async def _resolve_model_for_skills(self, skill_ids: List[str]) -> Optional[str]:
+        """Resolve the Claude model to use based on skill preferences.
+
+        Checks cached skill data for preferred_model hints and resolves
+        conflicts using priority ordering: opus > sonnet > haiku.
+
+        Args:
+            skill_ids: Skill IDs to check for model preferences
+
+        Returns:
+            Resolved model identifier string, or None for default (Sonnet)
+        """
+        from models.claude_client import ClaudeModel
+
+        MODEL_PRIORITY = {
+            "opus": ClaudeModel.OPUS_4.value,
+            "sonnet": ClaudeModel.SONNET_4.value,
+            "haiku": ClaudeModel.HAIKU_35.value,
+        }
+        MODEL_RANK = {"opus": 3, "sonnet": 2, "haiku": 1}
+
+        preferred_models = []
+        for skill_id in skill_ids:
+            skill = self._get_cached_skill(skill_id)
+            if skill is None:
+                # Fetch and cache if not present
+                try:
+                    from services.marketplace_client import get_marketplace_client
+                    client = get_marketplace_client()
+                    skill = await client.get_skill(skill_id)
+                    if skill:
+                        self._set_cached_skill(skill_id, skill)
+                except Exception:
+                    continue
+
+            if skill and skill.get("preferred_model"):
+                preferred_models.append(skill["preferred_model"].lower())
+
+        if not preferred_models:
+            return None
+
+        # Pick highest-priority model among preferences
+        best = max(preferred_models, key=lambda m: MODEL_RANK.get(m, 0))
+        resolved = MODEL_PRIORITY.get(best)
+        if resolved:
+            logger.info(f"Model resolved to {best} ({resolved}) from skills {skill_ids}")
+        return resolved
 
     def _select_skills_for_work(self, work) -> List[str]:
         """Select appropriate skills for a work item.

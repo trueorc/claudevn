@@ -14,7 +14,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -111,6 +111,9 @@ async def execute_task(
     env_vars: Optional[Dict[str, str]] = None,
     allowed_tools: Optional[List[str]] = None,
     max_turns: Optional[int] = None,
+    system_prompt: Optional[Dict[str, Any]] = None,
+    model: Optional[str] = None,
+    effort: Optional[Literal["low", "medium", "high", "max"]] = None,
 ) -> ExecutionResult:
     """Execute a task using the Claude Agent SDK query() function.
 
@@ -125,6 +128,14 @@ async def execute_task(
         env_vars: Additional environment variables for the CLI subprocess
         allowed_tools: List of allowed tool names (None = all tools)
         max_turns: Maximum conversation turns (None = unlimited)
+        system_prompt: System prompt configuration. Use
+            ``{"type": "preset", "preset": "claude_code", "append": "..."}``
+            to get the full Claude Code system prompt with caching (#58).
+            If None, uses SDK default (minimal prompt).
+        model: Claude model identifier (e.g. 'claude-opus-4-20250514').
+            If None, uses the SDK/CLI default model.
+        effort: Controls response depth — 'low'/'medium' for simple tasks,
+            'high'/'max' for complex ones. If None, uses SDK default.
 
     Returns:
         ExecutionResult with output, status, and metadata
@@ -137,15 +148,24 @@ async def execute_task(
             error="Demo mode enabled - real compute execution is disabled",
         )
 
-    options = ClaudeAgentOptions(
-        cwd=str(cwd),
-        mcp_servers=mcp_servers,
-        permission_mode="bypassPermissions",
-        setting_sources=["project"],
-        env=env_vars or {},
-        max_turns=max_turns,
-        allowed_tools=allowed_tools or [],
-    )
+    options_kwargs: Dict[str, Any] = {
+        "cwd": str(cwd),
+        "system_prompt": system_prompt,
+        "mcp_servers": mcp_servers,
+        "permission_mode": "bypassPermissions",
+        "setting_sources": ["project"],
+        "env": env_vars or {},
+        "max_turns": max_turns,
+        "allowed_tools": allowed_tools or [],
+    }
+    if model:
+        options_kwargs["model"] = model
+        logger.info(f"Using model: {model}")
+    if effort:
+        options_kwargs["effort"] = effort
+        logger.info(f"Using effort: {effort}")
+
+    options = ClaudeAgentOptions(**options_kwargs)
 
     output_parts: List[str] = []
     tool_calls: List[str] = []

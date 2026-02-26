@@ -3,6 +3,7 @@ name: Code Writer
 description: Implements features and writes production-quality code following project conventions and best practices.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Code Writer

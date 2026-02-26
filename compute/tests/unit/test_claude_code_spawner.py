@@ -218,7 +218,8 @@ class TestCreateClaudeMd:
         assert "This is a test task" in content
         assert "## Skills" in content
         assert "Use pytest for testing." in content
-        assert "## Output Format" in content
+        # Output Format moved to stable system instructions (#58)
+        assert "## Output Format" not in content
 
     def test_create_claude_md_with_context(self, tmp_path):
         """Test creating CLAUDE.md with full context."""
@@ -266,8 +267,8 @@ class TestCreateClaudeMd:
         assert "## Skills" in content
         assert "No specific skills provided." in content
 
-    def test_create_claude_md_includes_serving_repo_when_present(self, tmp_path):
-        """Serving Repository section appears when repo is configured and cloned."""
+    def test_create_claude_md_serving_repo_moved_to_stable(self, tmp_path):
+        """Serving Repository section is in stable instructions, not CLAUDE.md (#58)."""
         fake_repo_path = tmp_path / "serving_repo"
         fake_repo_path.mkdir(parents=True)
 
@@ -286,8 +287,8 @@ class TestCreateClaudeMd:
         with patch.object(ClaudeCodeSpawner, "SERVING_REPO_PATH", new=fake_repo_path):
             content = spawner._create_claude_md(event)
 
-        assert "## Serving Repository" in content
-        assert str(fake_repo_path) in content
+        # Serving repo is now in stable system instructions, not dynamic CLAUDE.md
+        assert "## Serving Repository" not in content
 
     def test_create_claude_md_omits_serving_repo_when_not_configured(self, tmp_path):
         """No Serving Repository section when serving_repo_url is None."""
@@ -527,7 +528,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -580,7 +581,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -624,7 +625,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -662,7 +663,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -3324,7 +3325,7 @@ class TestGitAskpassAbsolutePath:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, "_run_and_handle_result", side_effect=capture_run):
@@ -3373,3 +3374,498 @@ class TestGitAskpassAbsolutePath:
         assert os.path.isabs(askpass_path), (
             f"GIT_ASKPASS must be absolute, got: {askpass_path}"
         )
+
+
+class TestVerifyAndFixBranch:
+    """Tests for _verify_and_fix_branch branch mismatch recovery (#57)."""
+
+    def test_correct_branch_returns_true(self, tmp_path):
+        """When HEAD is on the expected branch, returns True without changes."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(stdout="f/issue_abc/compute-001\n")
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is True
+        # Only one call: rev-parse to check current branch
+        assert mock_run.call_count == 1
+
+    def test_wrong_branch_recovers_commits(self, tmp_path):
+        """When HEAD is on wrong branch, cherry-picks commits to expected branch."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout="work-branch\n"),       # rev-parse HEAD (wrong branch)
+                Mock(stdout="abc123\n"),             # rev-parse HEAD (tip)
+                Mock(stdout="abc123\n"),             # git log (1 commit to recover)
+                Mock(),                              # git checkout expected
+                Mock(),                              # git cherry-pick abc123
+            ]
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is True
+        # Verify checkout was called with expected branch
+        checkout_call = mock_run.call_args_list[3]
+        assert "checkout" in checkout_call[0][0]
+        assert "f/issue_abc/compute-001" in checkout_call[0][0]
+        # Verify cherry-pick was called
+        cherry_pick_call = mock_run.call_args_list[4]
+        assert "cherry-pick" in cherry_pick_call[0][0]
+
+    def test_wrong_branch_no_commits_to_recover(self, tmp_path):
+        """When on wrong branch but no unique commits, just switches branch."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout="work-branch\n"),       # rev-parse HEAD (wrong)
+                Mock(stdout="abc123\n"),             # rev-parse HEAD (tip)
+                Mock(stdout="\n"),                   # git log (no unique commits)
+                Mock(),                              # git checkout expected
+            ]
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is True
+        assert mock_run.call_count == 4
+
+    def test_cherry_pick_failure_aborts_and_returns_false(self, tmp_path):
+        """When cherry-pick fails, aborts and returns False."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        cherry_pick_err = subprocess.CalledProcessError(
+            1, "git cherry-pick", stderr="Conflict"
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout="work-branch\n"),       # rev-parse HEAD (wrong)
+                Mock(stdout="abc123\n"),             # rev-parse HEAD (tip)
+                Mock(stdout="abc123\n"),             # git log (1 commit)
+                Mock(),                              # git checkout expected
+                cherry_pick_err,                     # cherry-pick fails
+                Mock(),                              # cherry-pick --abort
+            ]
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is False
+        # Verify cherry-pick --abort was called
+        abort_call = mock_run.call_args_list[5]
+        assert "cherry-pick" in abort_call[0][0]
+        assert "--abort" in abort_call[0][0]
+
+    def test_rev_parse_failure_returns_false(self, tmp_path):
+        """When git rev-parse fails, returns False gracefully."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                1, "git rev-parse", stderr="fatal: not a git repository"
+            )
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is False
+
+
+class TestCommitAndPushBranchVerification:
+    """Tests for branch verification in _commit_and_push_changes (#57)."""
+
+    @pytest.mark.asyncio
+    async def test_push_uses_explicit_branch_refspec(self, tmp_path):
+        """Push uses HEAD:branch_name refspec instead of bare HEAD."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "branch_name": "f/issue_abc/compute-001",
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run, \
+             patch.object(spawner, "_verify_and_fix_branch", return_value=True):
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status (no changes)
+                Mock(),           # git push
+            ]
+            result = await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        assert result is True
+        push_call = mock_run.call_args_list[-1]
+        push_cmd = push_call[0][0]
+        assert "HEAD:f/issue_abc/compute-001" in push_cmd
+
+    @pytest.mark.asyncio
+    async def test_push_falls_back_to_head_without_branch_name(self, tmp_path):
+        """When no branch_name in instance, push uses plain HEAD."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status
+                Mock(),           # git push
+            ]
+            result = await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        assert result is True
+        push_call = mock_run.call_args_list[-1]
+        push_cmd = push_call[0][0]
+        assert push_cmd == ["git", "push", "origin", "HEAD"]
+
+    @pytest.mark.asyncio
+    async def test_branch_recovery_failure_still_attempts_push(self, tmp_path):
+        """Even if branch recovery fails, still attempts push as fallback."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "branch_name": "f/issue_abc/compute-001",
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run, \
+             patch.object(spawner, "_verify_and_fix_branch", return_value=False):
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status
+                Mock(),           # git push (still attempts)
+            ]
+            result = await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_verify_called_with_correct_args(self, tmp_path):
+        """_verify_and_fix_branch is called with correct repo_dir and branch."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "branch_name": "f/issue_abc/compute-001",
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run, \
+             patch.object(spawner, "_verify_and_fix_branch", return_value=True) as mock_verify:
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status
+                Mock(),           # git push
+            ]
+            await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        mock_verify.assert_called_once_with(
+            repo_dir, "f/issue_abc/compute-001", "cc-1"
+        )
+
+
+class TestInstallPrePushHook:
+    """Tests for _install_pre_push_hook (#57)."""
+
+    def test_creates_hook_file(self, tmp_path):
+        """Pre-push hook file is created with correct content."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        (repo_dir / ".git" / "hooks").mkdir(parents=True)
+
+        spawner._install_pre_push_hook(repo_dir, "f/issue_abc/compute-001")
+
+        hook_path = repo_dir / ".git" / "hooks" / "pre-push"
+        assert hook_path.exists()
+        content = hook_path.read_text()
+        assert "f/issue_abc/compute-001" in content
+        assert "EXPECTED_BRANCH" in content
+
+    def test_hook_is_executable(self, tmp_path):
+        """Pre-push hook is created with executable permissions."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        (repo_dir / ".git" / "hooks").mkdir(parents=True)
+
+        spawner._install_pre_push_hook(repo_dir, "f/issue_abc/compute-001")
+
+        hook_path = repo_dir / ".git" / "hooks" / "pre-push"
+        assert os.access(str(hook_path), os.X_OK)
+
+    def test_creates_hooks_dir_if_missing(self, tmp_path):
+        """Creates .git/hooks directory if it doesn't exist."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        (repo_dir / ".git").mkdir(parents=True)
+
+        spawner._install_pre_push_hook(repo_dir, "f/issue_abc/compute-001")
+
+        hook_path = repo_dir / ".git" / "hooks" / "pre-push"
+        assert hook_path.exists()
+
+
+class TestCreateClaudeMdBranchInstructions:
+    """Tests for branch instructions in CLAUDE.md (#57, #58)."""
+
+    def test_claude_md_includes_branch_assignment(self, tmp_path):
+        """Generated CLAUDE.md includes branch assignment with push command."""
+        spawner = make_spawner(tmp_path)
+
+        work_event = {
+            "branch_name": "f/issue_abc/compute-001",
+            "context": {
+                "repository": "http://localhost/repo.git",
+                "base_branch": "main",
+            },
+            "task": {"description": "test task"},
+        }
+
+        content = spawner._create_claude_md(work_event)
+
+        assert "## Branch Assignment" in content
+        assert "f/issue_abc/compute-001" in content
+        assert "git push origin f/issue_abc/compute-001" in content
+
+    def test_stable_instructions_prohibit_branch_switching(self, tmp_path):
+        """Stable system instructions include branch switching prohibition (#57)."""
+        spawner = make_spawner(tmp_path)
+
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "Do NOT create or switch branches" in instructions
+        assert "`git checkout -b`" in instructions
+
+
+class TestBuildSystemPrompt:
+    """Tests for _build_system_prompt and _build_stable_system_instructions (#58)."""
+
+    def test_system_prompt_uses_claude_code_preset(self, tmp_path):
+        """System prompt uses the claude_code preset for full behavior."""
+        spawner = make_spawner(tmp_path)
+        prompt = spawner._build_system_prompt()
+
+        assert prompt["type"] == "preset"
+        assert prompt["preset"] == "claude_code"
+        assert "append" in prompt
+
+    def test_stable_instructions_include_compute_id(self, tmp_path):
+        """Stable instructions identify the compute instance."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "compute-001" in instructions
+
+    def test_stable_instructions_include_git_conventions(self, tmp_path):
+        """Stable instructions include git workflow conventions."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "## Git Conventions" in instructions
+        assert "git add -A" in instructions
+        assert "commit" in instructions
+
+    def test_stable_instructions_include_output_format(self, tmp_path):
+        """Stable instructions include JSON output format requirements."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "## Output Format" in instructions
+        assert "JSON" in instructions
+
+    def test_stable_instructions_include_serving_repo_when_present(self, tmp_path):
+        """Serving repo section appears in stable instructions when configured."""
+        fake_repo_path = tmp_path / "serving_repo"
+        fake_repo_path.mkdir(parents=True)
+
+        spawner = make_spawner(
+            tmp_path,
+            serving_repo_url="git@github.com:Guarrdon/trueorc.git",
+        )
+
+        with patch.object(ClaudeCodeSpawner, "SERVING_REPO_PATH", new=fake_repo_path):
+            instructions = spawner._build_stable_system_instructions()
+
+        assert "## Serving Repository" in instructions
+        assert str(fake_repo_path) in instructions
+
+    def test_stable_instructions_omit_serving_repo_when_not_configured(self, tmp_path):
+        """No serving repo in stable instructions when not configured."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "## Serving Repository" not in instructions
+
+    def test_dynamic_claude_md_does_not_contain_stable_content(self, tmp_path):
+        """Dynamic CLAUDE.md should not contain stable instructions (#58)."""
+        spawner = make_spawner(tmp_path)
+
+        event = {
+            "task_id": "task-123",
+            "title": "Test Task",
+            "description": "Do something",
+            "skills": {},
+            "context": {
+                "repository": "http://localhost/repo.git",
+                "base_branch": "main",
+            },
+            "branch_name": "f/issue_abc/compute-001",
+        }
+
+        content = spawner._create_claude_md(event)
+
+        # These sections should NOT be in dynamic CLAUDE.md
+        assert "## Output Format" not in content
+        assert "## Git Conventions" not in content
+        assert "## Serving Repository" not in content
+        # These should still be present
+        assert "## Branch Assignment" in content
+        assert "## Description" in content
+
+
+class TestTaskComplexityClassification:
+    """Tests for _classify_task_complexity (#60)."""
+
+    def test_docs_work_type_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "docs", "Update README", "Add installation section"
+        )
+        assert complexity == "simple"
+
+    def test_documentation_work_type_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "documentation", "Write API docs", "Document all endpoints"
+        )
+        assert complexity == "simple"
+
+    def test_scaffold_keyword_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Scaffold test files", "Create placeholder test files"
+        )
+        assert complexity == "simple"
+
+    def test_typo_keyword_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "bug", "Fix typo in config", "Variable name misspelled"
+        )
+        assert complexity == "simple"
+
+    def test_architecture_keyword_is_complex(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "feature", "Design new architecture", "Multi-component system redesign"
+        )
+        assert complexity == "complex"
+
+    def test_decomposition_keyword_is_complex(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Decompose goal into issues", "Break down into sub-tasks"
+        )
+        assert complexity == "complex"
+
+    def test_refactor_keyword_is_complex(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Refactor auth system", "Major restructuring of authentication"
+        )
+        assert complexity == "complex"
+
+    def test_standard_bug_fix(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "bug", "Fix login error", "Users get 500 on login"
+        )
+        assert complexity == "standard"
+
+    def test_standard_feature(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "feature", "Add user endpoint", "Create REST endpoint for users"
+        )
+        assert complexity == "standard"
+
+    def test_standard_task_default(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Implement caching", "Add Redis cache layer"
+        )
+        assert complexity == "standard"
+
+
+class TestEffortAndMaxTurnsMapping:
+    """Tests for _get_effort_for_complexity and _get_max_turns_for_complexity (#60)."""
+
+    def test_simple_effort(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("simple") == "medium"
+
+    def test_standard_effort(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("standard") == "high"
+
+    def test_complex_effort(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("complex") == "max"
+
+    def test_unknown_effort_defaults_to_high(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("unknown") == "high"
+
+    def test_simple_max_turns(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("simple") == 30
+
+    def test_standard_max_turns(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("standard") == 50
+
+    def test_complex_max_turns(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("complex") == 100
+
+    def test_unknown_max_turns_defaults_to_50(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("unknown") == 50
+
+
+class TestClaudeMdScopeConstraints:
+    """Tests for scope constraints in CLAUDE.md (#60)."""
+
+    def test_scope_section_present(self, tmp_path):
+        spawner = make_spawner(tmp_path)
+        event = {
+            "task_id": "task-1",
+            "title": "Test Task",
+            "description": "Do something",
+            "skills": {},
+            "context": {},
+        }
+        content = spawner._create_claude_md(event)
+        assert "## Scope" in content
+        assert "Focus ONLY on what the task description asks for" in content
+        assert "Do not over-deliver" not in content  # that's in the prompt, not CLAUDE.md
+
+    def test_scope_mentions_tier1_tests(self, tmp_path):
+        spawner = make_spawner(tmp_path)
+        event = {
+            "task_id": "task-1",
+            "title": "Test Task",
+            "description": "Do something",
+            "skills": {},
+            "context": {},
+        }
+        content = spawner._create_claude_md(event)
+        assert "Tier 1" in content
+        assert "Refactor or improve unrelated code" in content

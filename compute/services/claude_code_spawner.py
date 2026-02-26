@@ -318,6 +318,7 @@ class ClaudeCodeSpawner:
         )
         logger.debug(f"Feature branch {feature_branch} created and checked out")
 
+        self._install_pre_push_hook(repo_path, feature_branch)
         self._exclude_claude_directory(repo_path)
 
         logger.info(f"Git setup complete: repo={repo_path}, branch={feature_branch}")
@@ -363,10 +364,42 @@ class ClaudeCodeSpawner:
             cwd=repo_path
         )
 
+        self._install_pre_push_hook(repo_path, branch)
         self._exclude_claude_directory(repo_path)
 
         logger.info(f"Git setup complete: repo={repo_path}, branch={branch}")
         return repo_path
+
+    def _install_pre_push_hook(self, repo_path: Path, expected_branch: str) -> None:
+        """Install a pre-push hook that validates the branch name (#57).
+
+        Prevents Claude Code from pushing to any branch other than the assigned one.
+        The hook checks the current branch against the expected branch and rejects
+        pushes from the wrong branch.
+
+        Args:
+            repo_path: Path to the git repository
+            expected_branch: The branch name that is allowed to be pushed
+        """
+        hooks_dir = repo_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        pre_push_hook = hooks_dir / "pre-push"
+
+        hook_content = f"""#!/bin/bash
+# ClaudeVN pre-push hook — validates branch before push (#57)
+EXPECTED_BRANCH="{expected_branch}"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
+    echo "ERROR: Push rejected. Current branch '$CURRENT_BRANCH' does not match" >&2
+    echo "       assigned branch '$EXPECTED_BRANCH'." >&2
+    echo "       Switch to '$EXPECTED_BRANCH' before pushing." >&2
+    exit 1
+fi
+"""
+        pre_push_hook.write_text(hook_content)
+        pre_push_hook.chmod(0o755)
+        logger.debug(f"Installed pre-push hook for branch {expected_branch} in {repo_path}")
 
     def _exclude_claude_directory(self, repo_path: Path) -> None:
         """Add .claude/ to .git/info/exclude so Claude Code's internal files
@@ -777,8 +810,149 @@ class ClaudeCodeSpawner:
             )
             return False
 
+    @staticmethod
+    def _classify_task_complexity(work_type: str, title: str, description: str) -> str:
+        """Classify task complexity based on work type and content.
+
+        Returns one of: 'simple', 'standard', 'complex'.
+
+        Simple tasks (docs, scaffolding, small fixes) get lower effort/turns.
+        Standard tasks (implementation, bug fixes) get moderate limits.
+        Complex tasks (architecture, research, decomposition) get higher limits.
+
+        Args:
+            work_type: Work type from the work_assigned event (task, bug, feature, docs, etc.)
+            title: Task title
+            description: Task description
+
+        Returns:
+            Complexity level: 'simple', 'standard', or 'complex'
+        """
+        title_lower = title.lower()
+        desc_lower = description.lower()
+        combined = f"{title_lower} {desc_lower}"
+
+        # Simple: docs, scaffolding, config, formatting
+        simple_types = {"docs", "documentation"}
+        simple_keywords = [
+            "scaffold", "stub", "placeholder", "readme", "documentation",
+            "formatting", "lint", "config", "rename", "typo",
+        ]
+        if work_type in simple_types:
+            return "simple"
+        if any(kw in combined for kw in simple_keywords):
+            return "simple"
+
+        # Complex: architecture, research, decomposition, multi-component
+        complex_keywords = [
+            "architect", "design", "research", "decompos", "refactor",
+            "migration", "multi-component", "system-wide", "cross-cutting",
+        ]
+        if any(kw in combined for kw in complex_keywords):
+            return "complex"
+
+        # Standard: everything else (bug, feature, task, review, test, etc.)
+        return "standard"
+
+    @staticmethod
+    def _get_effort_for_complexity(complexity: str) -> str:
+        """Map complexity to SDK effort level.
+
+        Args:
+            complexity: One of 'simple', 'standard', 'complex'
+
+        Returns:
+            SDK effort value: 'medium', 'high', or 'max'
+        """
+        return {"simple": "medium", "standard": "high", "complex": "max"}.get(
+            complexity, "high"
+        )
+
+    @staticmethod
+    def _get_max_turns_for_complexity(complexity: str) -> int:
+        """Map complexity to max_turns safety net.
+
+        Args:
+            complexity: One of 'simple', 'standard', 'complex'
+
+        Returns:
+            Maximum conversation turns
+        """
+        return {"simple": 30, "standard": 50, "complex": 100}.get(complexity, 50)
+
+    def _build_stable_system_instructions(self) -> str:
+        """Build stable instructions for the system_prompt append field (#58).
+
+        These instructions are identical across all tasks on this compute instance
+        and benefit from prompt caching. Dynamic per-task content goes in CLAUDE.md.
+
+        Returns:
+            Stable instruction text for system_prompt append
+        """
+        sections = [
+            "## ClaudeVN Compute Instance",
+            "",
+            f"You are running as compute instance `{self.compute_id}`.",
+            "",
+            "## Git Conventions",
+            "",
+            "When working on a Git branch:",
+            "- Stage all changes: `git add -A`",
+            '- Commit with a descriptive message: `git commit -m "<description>"`',
+            "- Push your assigned branch explicitly (do not use `git push origin HEAD`)",
+            "- CRITICAL: Do NOT create or switch branches. Do NOT run: "
+            "`git checkout -b`, `git switch -c`, `git branch`",
+            "- You MUST commit and push your changes before finishing",
+            "- The system relies on your branch having commits to create PRs and merge",
+            "",
+            "## Output Format",
+            "",
+            "IMPORTANT: Output your result as valid JSON at the end of your response.",
+            "Your JSON output should be on a single line starting with `{` and ending with `}`.",
+            "The system will parse this JSON to get your result.",
+            "",
+            "For decomposition tasks, output JSON like:",
+            "```",
+            '{"issues": [...], "confidence": 0.85, "reasoning": "..."}',
+            "```",
+            "",
+        ]
+
+        # Serving repo availability is stable per-instance
+        if self.serving_repo_url and self.SERVING_REPO_PATH.exists():
+            sections.extend([
+                "## Serving Repository",
+                "",
+                f"The ClaudeVN serving codebase is available at `{self.SERVING_REPO_PATH}` (shallow clone of main).",
+                "Inspect it to understand existing patterns, module structure, and conventions before making decisions.",
+                "This repo is updated with `git pull` at the start of every task.",
+                "",
+            ])
+
+        return "\n".join(sections)
+
+    def _build_system_prompt(self) -> Dict[str, Any]:
+        """Build the system_prompt configuration for the Agent SDK (#58).
+
+        Uses the ``claude_code`` preset for full Claude Code behavior and
+        appends stable ClaudeVN-specific instructions. The SDK automatically
+        applies cache_control markers to system prompt blocks.
+
+        Returns:
+            Dict suitable for ClaudeAgentOptions.system_prompt
+        """
+        return {
+            "type": "preset",
+            "preset": "claude_code",
+            "append": self._build_stable_system_instructions(),
+        }
+
     def _create_claude_md(self, work_assigned_event: Dict[str, Any]) -> str:
-        """Create CLAUDE.md content from work assignment.
+        """Create CLAUDE.md content with per-task dynamic content (#58).
+
+        Stable instructions (git conventions, output format, serving repo) are
+        now in the system_prompt append field for prompt caching. This method
+        only generates task-specific content.
 
         Args:
             work_assigned_event: work_assigned event data
@@ -795,7 +969,7 @@ class ClaudeCodeSpawner:
         # Get merged instructions from skills
         merged_instructions = skills.get("merged_instructions", "")
 
-        # Build CLAUDE.md
+        # Build CLAUDE.md — per-task dynamic content only
         sections = [
             f"# Task: {title}",
             "",
@@ -825,52 +999,29 @@ class ClaudeCodeSpawner:
         if context.get("requirements"):
             sections.append(f"\n**Requirements:**\n{context['requirements']}")
 
-        # Document serving repo availability if present
-        if self.serving_repo_url and self.SERVING_REPO_PATH.exists():
-            sections.extend([
-                "",
-                "## Serving Repository",
-                "",
-                f"The ClaudeVN serving codebase is available at `{self.SERVING_REPO_PATH}` (shallow clone of main).",
-                "Inspect it to understand existing patterns, module structure, and conventions before making decisions.",
-                "This repo is updated with `git pull` at the start of every task.",
-                "",
-            ])
-
-        # Add git workflow instructions when repository context is present
+        # Branch assignment — task-specific details (branch name, base)
         if context.get("repository"):
             branch_name = work_assigned_event.get("branch_name", "")
             sections.extend([
                 "",
-                "## Git Workflow",
+                "## Branch Assignment",
                 "",
-                "You are working on a Git branch. Follow these steps:",
                 f"- **Branch:** `{branch_name}`",
                 f"- **Base:** `{context.get('base_branch', 'main')}`",
-                "",
-                "### Commit your work",
-                "When you have completed the task:",
-                "1. Stage all changes: `git add -A`",
-                "2. Commit with a descriptive message: `git commit -m \"<description of changes>\"`",
-                "3. Push your branch: `git push origin HEAD`",
-                "",
-                "IMPORTANT: You MUST commit and push your changes before finishing.",
-                "The system relies on your branch having commits to create PRs and merge.",
+                f"- Push command: `git push origin {branch_name}`",
                 "",
             ])
 
+        # Scope constraints to prevent over-scoping (#60)
         sections.extend([
+            "## Scope",
             "",
-            "## Output Format",
-            "",
-            "IMPORTANT: Output your result as valid JSON at the end of your response.",
-            "Your JSON output should be on a single line starting with `{` and ending with `}`.",
-            "The system will parse this JSON to get your result.",
-            "",
-            "For decomposition tasks, output JSON like:",
-            "```",
-            '{"issues": [...], "confidence": 0.85, "reasoning": "..."}',
-            "```",
+            "Focus ONLY on what the task description asks for. Do not:",
+            "- Add functionality beyond what is requested",
+            "- Write comprehensive test suites — only write Tier 1 tests "
+            "(mockable unit tests covering new functionality)",
+            "- Create detailed documentation unless documentation is the task",
+            "- Refactor or improve unrelated code",
             "",
         ])
 
@@ -952,6 +1103,12 @@ sys.exit(1)
             work_assigned_event: work_assigned event data
             mcp_servers: MCP server configuration for SDK
         """
+        # Extract model from work assignment (set by serving's model resolution)
+        model = work_assigned_event.get("model")
+        if model:
+            logger.info(f"Task {task_id}: using model {model}")
+        else:
+            logger.info(f"Task {task_id}: using default model (no model specified)")
         # Build environment variables for the SDK subprocess
         env_vars: Dict[str, str] = {}
         env_vars["CLAUDEVN_COMPUTE_ID"] = self.compute_id
@@ -975,11 +1132,29 @@ sys.exit(1)
             env_vars["GIT_ASKPASS"] = str(askpass_script.resolve())
             env_vars["GIT_TERMINAL_PROMPT"] = "0"
 
-        # Initial prompt to start work
+        # Classify task complexity for effort/max_turns (#60)
+        title = work_assigned_event.get("title", "")
+        description = work_assigned_event.get("description", "")
+        work_type = work_assigned_event.get("work_type", "task")
+        complexity = self._classify_task_complexity(work_type, title, description)
+        effort = self._get_effort_for_complexity(complexity)
+        max_turns = self._get_max_turns_for_complexity(complexity)
+        logger.info(
+            f"Task {task_id}: complexity={complexity}, effort={effort}, max_turns={max_turns}"
+        )
+
+        # Direct prompt with task context instead of generic "read CLAUDE.md" (#60)
         initial_prompt = (
-            "Read CLAUDE.md and complete the task. "
+            f"Complete this task: {title}\n\n"
+            f"{description}\n\n"
+            "Read CLAUDE.md for additional context and scope constraints. "
+            "Evaluate what you can accomplish but keep your focus strictly on "
+            "what the task description asks for. Do not over-deliver.\n\n"
             "Output your final result as a JSON object on a single line."
         )
+
+        # Build system prompt with claude_code preset for caching (#58)
+        system_prompt = self._build_system_prompt()
 
         logger.info(f"Starting SDK task execution in {workspace}")
 
@@ -992,6 +1167,10 @@ sys.exit(1)
                 cwd=workspace,
                 mcp_servers=mcp_servers,
                 env_vars=env_vars,
+                system_prompt=system_prompt,
+                model=model,
+                effort=effort,
+                max_turns=max_turns,
             )
         )
 
@@ -1003,6 +1182,10 @@ sys.exit(1)
         cwd: Path,
         mcp_servers: Dict[str, Any],
         env_vars: Dict[str, str],
+        system_prompt: Optional[Dict[str, Any]] = None,
+        model: Optional[str] = None,
+        effort: Optional[str] = None,
+        max_turns: Optional[int] = None,
     ) -> None:
         """Execute a task via SDK and handle the result.
 
@@ -1017,6 +1200,10 @@ sys.exit(1)
             cwd: Working directory
             mcp_servers: MCP server configuration
             env_vars: Environment variables
+            system_prompt: System prompt configuration for caching (#58)
+            model: Claude model identifier (None = use default)
+            effort: SDK effort level (None = use default)
+            max_turns: Maximum conversation turns (None = unlimited)
         """
         instance = self._instances.get(task_id)
         started_at = instance["started_at"] if instance else datetime.now(timezone.utc)
@@ -1028,6 +1215,10 @@ sys.exit(1)
                 cwd=cwd,
                 mcp_servers=mcp_servers,
                 env_vars=env_vars,
+                system_prompt=system_prompt,
+                model=model,
+                effort=effort,
+                max_turns=max_turns,
             )
 
             stopped_at = datetime.now(timezone.utc)
@@ -1286,6 +1477,108 @@ sys.exit(1)
         except Exception as e:
             logger.error(f"Error submitting characterization result: {e}")
 
+    def _verify_and_fix_branch(
+        self,
+        repo_dir: Path,
+        expected_branch: str,
+        instance_id: str,
+    ) -> bool:
+        """Verify HEAD is on the expected branch and recover if not (#57).
+
+        If Claude Code switched to a different branch, this method:
+        1. Logs a WARNING with both branch names
+        2. Checks out the expected branch
+        3. Cherry-picks all commits from the wrong branch that aren't in expected
+
+        Args:
+            repo_dir: Path to the git repository
+            expected_branch: The branch name the instance should be on
+            instance_id: Instance ID for logging
+
+        Returns:
+            True if branch is correct (or was recovered), False if recovery failed
+        """
+        try:
+            current_result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            )
+            current_branch = current_result.stdout.strip()
+
+            if current_branch == expected_branch:
+                return True
+
+            logger.warning(
+                f"Branch mismatch for {instance_id}: "
+                f"expected '{expected_branch}', found '{current_branch}'"
+            )
+
+            # Get commits on the wrong branch that aren't in expected branch
+            wrong_branch_tip = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            ).stdout.strip()
+
+            # Find commits unique to the wrong branch (not in expected)
+            log_result = subprocess.run(
+                ["git", "log", f"{expected_branch}..{current_branch}",
+                 "--reverse", "--format=%H"],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            )
+            commits_to_recover = [
+                c for c in log_result.stdout.strip().splitlines() if c
+            ]
+
+            # Switch to expected branch
+            subprocess.run(
+                ["git", "checkout", expected_branch],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            )
+
+            if commits_to_recover:
+                logger.info(
+                    f"Recovering {len(commits_to_recover)} commit(s) from "
+                    f"'{current_branch}' to '{expected_branch}' for {instance_id}"
+                )
+                for commit_hash in commits_to_recover:
+                    try:
+                        subprocess.run(
+                            ["git", "cherry-pick", commit_hash],
+                            cwd=str(repo_dir), capture_output=True, text=True,
+                            check=True
+                        )
+                    except subprocess.CalledProcessError as cp_err:
+                        logger.error(
+                            f"Cherry-pick of {commit_hash[:8]} failed for "
+                            f"{instance_id}: {cp_err.stderr or cp_err.stdout}. "
+                            f"Aborting cherry-pick."
+                        )
+                        subprocess.run(
+                            ["git", "cherry-pick", "--abort"],
+                            cwd=str(repo_dir), capture_output=True, text=True
+                        )
+                        return False
+
+                logger.info(
+                    f"Successfully recovered work from '{current_branch}' "
+                    f"to '{expected_branch}' for {instance_id}"
+                )
+            else:
+                # No unique commits — maybe work is uncommitted (handled elsewhere)
+                logger.info(
+                    f"No commits to recover from '{current_branch}' for "
+                    f"{instance_id}, switched to '{expected_branch}'"
+                )
+
+            return True
+
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"Branch verification failed for {instance_id}: "
+                f"{e.stderr or e.stdout}"
+            )
+            return False
+
     async def _commit_and_push_changes(
         self,
         task_id: str,
@@ -1297,6 +1590,7 @@ sys.exit(1)
         """Safety net: commit and push any uncommitted changes after Claude exits.
 
         If Claude didn't commit/push its work, this ensures changes are not lost.
+        Verifies branch before pushing and recovers work if branch changed (#57).
         Retries push on transient failures with exponential backoff (#831).
 
         Args:
@@ -1325,6 +1619,17 @@ sys.exit(1)
         git_token = context.get("git_token") or self.git_token
 
         try:
+            # Verify branch before committing/pushing (#57)
+            expected_branch = instance.get("branch_name")
+            if expected_branch:
+                if not self._verify_and_fix_branch(
+                    repo_dir, expected_branch, instance_id
+                ):
+                    logger.error(
+                        f"Branch recovery failed for {instance_id}. "
+                        f"Attempting push from current branch as fallback."
+                    )
+
             # Check for uncommitted changes
             status_result = subprocess.run(
                 ["git", "status", "--porcelain"],
@@ -1361,7 +1666,8 @@ sys.exit(1)
                     capture_output=True, text=True
                 )
 
-            # Push to remote with retry (#831) using HTTP token auth (#14)
+            # Push to expected branch explicitly (#57) with retry (#831)
+            # using HTTP token auth (#14)
             push_env = os.environ.copy()
             if git_token:
                 askpass_script = repo_dir / ".git-askpass"
@@ -1370,11 +1676,14 @@ sys.exit(1)
                 push_env["GIT_ASKPASS"] = str(askpass_script.resolve())
                 push_env["GIT_TERMINAL_PROMPT"] = "0"
 
+            # Use explicit branch name in push to avoid pushing wrong branch
+            push_refspec = f"HEAD:{expected_branch}" if expected_branch else "HEAD"
+
             last_error = None
             for attempt in range(1, max_retries + 1):
                 try:
                     subprocess.run(
-                        ["git", "push", "origin", "HEAD"],
+                        ["git", "push", "origin", push_refspec],
                         cwd=str(repo_dir), check=True,
                         capture_output=True, text=True, env=push_env
                     )

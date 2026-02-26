@@ -3,6 +3,7 @@ name: Code Implementation
 description: Writes and modifies production-quality code following project conventions and best practices.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Code Implementation

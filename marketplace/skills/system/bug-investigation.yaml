@@ -3,6 +3,7 @@ name: Bug Investigation
 description: Debugs issues, identifies root causes, and implements targeted fixes with regression tests.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Bug Investigation
