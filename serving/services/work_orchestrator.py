@@ -1180,6 +1180,7 @@ class WorkOrchestrator:
                 context=context,
                 mcp_config=mcp_config,
                 model=model,
+                work_type=work.work_type,
             )
 
             if success:

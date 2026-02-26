@@ -810,6 +810,76 @@ fi
             )
             return False
 
+    @staticmethod
+    def _classify_task_complexity(work_type: str, title: str, description: str) -> str:
+        """Classify task complexity based on work type and content.
+
+        Returns one of: 'simple', 'standard', 'complex'.
+
+        Simple tasks (docs, scaffolding, small fixes) get lower effort/turns.
+        Standard tasks (implementation, bug fixes) get moderate limits.
+        Complex tasks (architecture, research, decomposition) get higher limits.
+
+        Args:
+            work_type: Work type from the work_assigned event (task, bug, feature, docs, etc.)
+            title: Task title
+            description: Task description
+
+        Returns:
+            Complexity level: 'simple', 'standard', or 'complex'
+        """
+        title_lower = title.lower()
+        desc_lower = description.lower()
+        combined = f"{title_lower} {desc_lower}"
+
+        # Simple: docs, scaffolding, config, formatting
+        simple_types = {"docs", "documentation"}
+        simple_keywords = [
+            "scaffold", "stub", "placeholder", "readme", "documentation",
+            "formatting", "lint", "config", "rename", "typo",
+        ]
+        if work_type in simple_types:
+            return "simple"
+        if any(kw in combined for kw in simple_keywords):
+            return "simple"
+
+        # Complex: architecture, research, decomposition, multi-component
+        complex_keywords = [
+            "architect", "design", "research", "decompos", "refactor",
+            "migration", "multi-component", "system-wide", "cross-cutting",
+        ]
+        if any(kw in combined for kw in complex_keywords):
+            return "complex"
+
+        # Standard: everything else (bug, feature, task, review, test, etc.)
+        return "standard"
+
+    @staticmethod
+    def _get_effort_for_complexity(complexity: str) -> str:
+        """Map complexity to SDK effort level.
+
+        Args:
+            complexity: One of 'simple', 'standard', 'complex'
+
+        Returns:
+            SDK effort value: 'medium', 'high', or 'max'
+        """
+        return {"simple": "medium", "standard": "high", "complex": "max"}.get(
+            complexity, "high"
+        )
+
+    @staticmethod
+    def _get_max_turns_for_complexity(complexity: str) -> int:
+        """Map complexity to max_turns safety net.
+
+        Args:
+            complexity: One of 'simple', 'standard', 'complex'
+
+        Returns:
+            Maximum conversation turns
+        """
+        return {"simple": 30, "standard": 50, "complex": 100}.get(complexity, 50)
+
     def _build_stable_system_instructions(self) -> str:
         """Build stable instructions for the system_prompt append field (#58).
 
@@ -942,6 +1012,19 @@ fi
                 "",
             ])
 
+        # Scope constraints to prevent over-scoping (#60)
+        sections.extend([
+            "## Scope",
+            "",
+            "Focus ONLY on what the task description asks for. Do not:",
+            "- Add functionality beyond what is requested",
+            "- Write comprehensive test suites — only write Tier 1 tests "
+            "(mockable unit tests covering new functionality)",
+            "- Create detailed documentation unless documentation is the task",
+            "- Refactor or improve unrelated code",
+            "",
+        ])
+
         return "\n".join(sections)
 
     def _setup_mcp_tools(
@@ -1049,9 +1132,24 @@ sys.exit(1)
             env_vars["GIT_ASKPASS"] = str(askpass_script.resolve())
             env_vars["GIT_TERMINAL_PROMPT"] = "0"
 
-        # Initial prompt to start work
+        # Classify task complexity for effort/max_turns (#60)
+        title = work_assigned_event.get("title", "")
+        description = work_assigned_event.get("description", "")
+        work_type = work_assigned_event.get("work_type", "task")
+        complexity = self._classify_task_complexity(work_type, title, description)
+        effort = self._get_effort_for_complexity(complexity)
+        max_turns = self._get_max_turns_for_complexity(complexity)
+        logger.info(
+            f"Task {task_id}: complexity={complexity}, effort={effort}, max_turns={max_turns}"
+        )
+
+        # Direct prompt with task context instead of generic "read CLAUDE.md" (#60)
         initial_prompt = (
-            "Read CLAUDE.md and complete the task. "
+            f"Complete this task: {title}\n\n"
+            f"{description}\n\n"
+            "Read CLAUDE.md for additional context and scope constraints. "
+            "Evaluate what you can accomplish but keep your focus strictly on "
+            "what the task description asks for. Do not over-deliver.\n\n"
             "Output your final result as a JSON object on a single line."
         )
 
@@ -1071,6 +1169,8 @@ sys.exit(1)
                 env_vars=env_vars,
                 system_prompt=system_prompt,
                 model=model,
+                effort=effort,
+                max_turns=max_turns,
             )
         )
 
@@ -1084,6 +1184,8 @@ sys.exit(1)
         env_vars: Dict[str, str],
         system_prompt: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
+        effort: Optional[str] = None,
+        max_turns: Optional[int] = None,
     ) -> None:
         """Execute a task via SDK and handle the result.
 
@@ -1100,6 +1202,8 @@ sys.exit(1)
             env_vars: Environment variables
             system_prompt: System prompt configuration for caching (#58)
             model: Claude model identifier (None = use default)
+            effort: SDK effort level (None = use default)
+            max_turns: Maximum conversation turns (None = unlimited)
         """
         instance = self._instances.get(task_id)
         started_at = instance["started_at"] if instance else datetime.now(timezone.utc)
@@ -1113,6 +1217,8 @@ sys.exit(1)
                 env_vars=env_vars,
                 system_prompt=system_prompt,
                 model=model,
+                effort=effort,
+                max_turns=max_turns,
             )
 
             stopped_at = datetime.now(timezone.utc)

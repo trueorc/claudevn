@@ -3746,3 +3746,126 @@ class TestBuildSystemPrompt:
         # These should still be present
         assert "## Branch Assignment" in content
         assert "## Description" in content
+
+
+class TestTaskComplexityClassification:
+    """Tests for _classify_task_complexity (#60)."""
+
+    def test_docs_work_type_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "docs", "Update README", "Add installation section"
+        )
+        assert complexity == "simple"
+
+    def test_documentation_work_type_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "documentation", "Write API docs", "Document all endpoints"
+        )
+        assert complexity == "simple"
+
+    def test_scaffold_keyword_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Scaffold test files", "Create placeholder test files"
+        )
+        assert complexity == "simple"
+
+    def test_typo_keyword_is_simple(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "bug", "Fix typo in config", "Variable name misspelled"
+        )
+        assert complexity == "simple"
+
+    def test_architecture_keyword_is_complex(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "feature", "Design new architecture", "Multi-component system redesign"
+        )
+        assert complexity == "complex"
+
+    def test_decomposition_keyword_is_complex(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Decompose goal into issues", "Break down into sub-tasks"
+        )
+        assert complexity == "complex"
+
+    def test_refactor_keyword_is_complex(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Refactor auth system", "Major restructuring of authentication"
+        )
+        assert complexity == "complex"
+
+    def test_standard_bug_fix(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "bug", "Fix login error", "Users get 500 on login"
+        )
+        assert complexity == "standard"
+
+    def test_standard_feature(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "feature", "Add user endpoint", "Create REST endpoint for users"
+        )
+        assert complexity == "standard"
+
+    def test_standard_task_default(self):
+        complexity = ClaudeCodeSpawner._classify_task_complexity(
+            "task", "Implement caching", "Add Redis cache layer"
+        )
+        assert complexity == "standard"
+
+
+class TestEffortAndMaxTurnsMapping:
+    """Tests for _get_effort_for_complexity and _get_max_turns_for_complexity (#60)."""
+
+    def test_simple_effort(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("simple") == "medium"
+
+    def test_standard_effort(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("standard") == "high"
+
+    def test_complex_effort(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("complex") == "max"
+
+    def test_unknown_effort_defaults_to_high(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("unknown") == "high"
+
+    def test_simple_max_turns(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("simple") == 30
+
+    def test_standard_max_turns(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("standard") == 50
+
+    def test_complex_max_turns(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("complex") == 100
+
+    def test_unknown_max_turns_defaults_to_50(self):
+        assert ClaudeCodeSpawner._get_max_turns_for_complexity("unknown") == 50
+
+
+class TestClaudeMdScopeConstraints:
+    """Tests for scope constraints in CLAUDE.md (#60)."""
+
+    def test_scope_section_present(self, tmp_path):
+        spawner = make_spawner(tmp_path)
+        event = {
+            "task_id": "task-1",
+            "title": "Test Task",
+            "description": "Do something",
+            "skills": {},
+            "context": {},
+        }
+        content = spawner._create_claude_md(event)
+        assert "## Scope" in content
+        assert "Focus ONLY on what the task description asks for" in content
+        assert "Do not over-deliver" not in content  # that's in the prompt, not CLAUDE.md
+
+    def test_scope_mentions_tier1_tests(self, tmp_path):
+        spawner = make_spawner(tmp_path)
+        event = {
+            "task_id": "task-1",
+            "title": "Test Task",
+            "description": "Do something",
+            "skills": {},
+            "context": {},
+        }
+        content = spawner._create_claude_md(event)
+        assert "Tier 1" in content
+        assert "Refactor or improve unrelated code" in content
