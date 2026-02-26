@@ -84,6 +84,13 @@ class Skill(BaseModel):
     constraints: List[str] = Field(default_factory=list, description="What NOT to do")
     dependencies: List[str] = Field(default_factory=list, description="Skill IDs that are automatically included when this skill is selected")
 
+    # Model preference
+    preferred_model: Optional[str] = Field(
+        None,
+        description="Preferred Claude model for this skill (e.g. 'opus', 'sonnet', 'haiku'). "
+        "Resolved by the work orchestrator; not a mandate."
+    )
+
     # Usage tracking
     usage_count: int = Field(default=0, description="Number of times used in agent composition")
     last_used_at: Optional[datetime] = Field(None, description="Last time this skill was used in composition")
@@ -110,6 +117,7 @@ class Skill(BaseModel):
             "conflicts_with": [],
             "constraints": ["Do not refactor unrelated code"],
             "dependencies": [],
+            "preferred_model": "opus",
             "marketplace_id": "marketplace-001",
             "marketplace_name": "ClaudeVN Central",
             "marketplace_tier": "root",

@@ -402,7 +402,8 @@ class SSEConnectionManager:
         branch_name: str,
         skills: dict[str, Any],
         context: dict[str, Any],
-        mcp_config: dict[str, Any]
+        mcp_config: dict[str, Any],
+        model: str | None = None,
     ) -> bool:
         """Send a work_assigned event to a compute instance.
 
@@ -415,6 +416,7 @@ class SSEConnectionManager:
             skills: Skill configuration
             context: Work context
             mcp_config: MCP configuration
+            model: Resolved Claude model identifier (None = use default)
 
         Returns:
             True if event was queued successfully
@@ -432,8 +434,10 @@ class SSEConnectionManager:
             "branch_name": branch_name,
             "skills": skills,
             "context": context,
-            "mcp_config": mcp_config
+            "mcp_config": mcp_config,
         }
+        if model:
+            data["model"] = model
 
         # Store work data for potential re-dispatch on rejection
         if connection:

@@ -37,6 +37,9 @@ class SpawnRequest(BaseModel):
     repo_url: Optional[str] = Field(None, description="Repository URL to clone")
     base_branch: str = Field(default="main", description="Base branch to work from")
 
+    # Model selection
+    model: Optional[str] = Field(None, description="Resolved Claude model identifier for compute execution")
+
     # Resource limits
     max_concurrent_work: int = Field(default=1, ge=1, le=10, description="Max concurrent work items")
     idle_timeout: int = Field(default=300, ge=0, description="Seconds to wait idle before stopping (0=never)")

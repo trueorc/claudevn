@@ -112,6 +112,7 @@ async def execute_task(
     allowed_tools: Optional[List[str]] = None,
     max_turns: Optional[int] = None,
     system_prompt: Optional[Dict[str, Any]] = None,
+    model: Optional[str] = None,
 ) -> ExecutionResult:
     """Execute a task using the Claude Agent SDK query() function.
 
@@ -130,6 +131,8 @@ async def execute_task(
             ``{"type": "preset", "preset": "claude_code", "append": "..."}``
             to get the full Claude Code system prompt with caching (#58).
             If None, uses SDK default (minimal prompt).
+        model: Claude model identifier (e.g. 'claude-opus-4-20250514').
+            If None, uses the SDK/CLI default model.
 
     Returns:
         ExecutionResult with output, status, and metadata
@@ -142,16 +145,21 @@ async def execute_task(
             error="Demo mode enabled - real compute execution is disabled",
         )
 
-    options = ClaudeAgentOptions(
-        cwd=str(cwd),
-        system_prompt=system_prompt,
-        mcp_servers=mcp_servers,
-        permission_mode="bypassPermissions",
-        setting_sources=["project"],
-        env=env_vars or {},
-        max_turns=max_turns,
-        allowed_tools=allowed_tools or [],
-    )
+    options_kwargs: Dict[str, Any] = {
+        "cwd": str(cwd),
+        "system_prompt": system_prompt,
+        "mcp_servers": mcp_servers,
+        "permission_mode": "bypassPermissions",
+        "setting_sources": ["project"],
+        "env": env_vars or {},
+        "max_turns": max_turns,
+        "allowed_tools": allowed_tools or [],
+    }
+    if model:
+        options_kwargs["model"] = model
+        logger.info(f"Using model: {model}")
+
+    options = ClaudeAgentOptions(**options_kwargs)
 
     output_parts: List[str] = []
     tool_calls: List[str] = []
