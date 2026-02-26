@@ -254,6 +254,14 @@ class PRService:
             self._repo_manager.pull_from_origin(project, ssh_key_path=ssh_key_path)
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.strip() if e.stderr else str(e)
+            # If the upstream has no refs yet (empty repo / first push scenario),
+            # there's nothing to sync — proceed with the merge.
+            if "couldn't find remote ref" in error_msg:
+                logger.info(
+                    f"Upstream has no refs yet for {project}, "
+                    "skipping sync (first push scenario)"
+                )
+                return
             logger.error(f"Upstream sync failed for {project}: {error_msg}")
             raise ValueError(
                 f"Pre-merge upstream sync failed for {project}: {error_msg}. "

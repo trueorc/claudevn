@@ -693,18 +693,29 @@ class ProjectService:
         # Resolve git_project_name
         git_project_name = repo.metadata.get("git_project_name")
         has_internal_clone = bool(git_project_name)
+
+        # Infer git_project_name for linked repos cloned before metadata was stored
+        if not git_project_name and not repo.is_internal:
+            candidate = f"{project_id}_{repo.repo_id}"
+            from git.repo_manager import RepoManager
+            if RepoManager().repo_exists(candidate):
+                git_project_name = candidate
+                has_internal_clone = True
+                # Backfill metadata so future lookups are fast
+                repo.metadata["git_project_name"] = candidate
+                await self._save_project(project)
+
         if not git_project_name:
             # For internal repos without metadata, try filesystem resolution
             if repo.is_internal:
                 from api.compute import _resolve_git_project_name
                 git_project_name = _resolve_git_project_name(project_id)
             else:
-                # External repos use project_id as-is
+                # External repos with no internal clone use project_id as-is
                 git_project_name = project_id
 
-        # Resolve clone_url
+        # Resolve clone_url — linked repos with internal clones always use serving URL
         if has_internal_clone and not repo.is_internal:
-            # Linked repo cloned into internal server — use internal URL
             from git.repo_manager import RepoManager
             clone_url = RepoManager().get_repo_url(git_project_name)
         elif repo.is_internal and not repo.url:
