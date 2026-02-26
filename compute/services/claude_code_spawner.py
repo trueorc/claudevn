@@ -318,6 +318,7 @@ class ClaudeCodeSpawner:
         )
         logger.debug(f"Feature branch {feature_branch} created and checked out")
 
+        self._install_pre_push_hook(repo_path, feature_branch)
         self._exclude_claude_directory(repo_path)
 
         logger.info(f"Git setup complete: repo={repo_path}, branch={feature_branch}")
@@ -363,10 +364,42 @@ class ClaudeCodeSpawner:
             cwd=repo_path
         )
 
+        self._install_pre_push_hook(repo_path, branch)
         self._exclude_claude_directory(repo_path)
 
         logger.info(f"Git setup complete: repo={repo_path}, branch={branch}")
         return repo_path
+
+    def _install_pre_push_hook(self, repo_path: Path, expected_branch: str) -> None:
+        """Install a pre-push hook that validates the branch name (#57).
+
+        Prevents Claude Code from pushing to any branch other than the assigned one.
+        The hook checks the current branch against the expected branch and rejects
+        pushes from the wrong branch.
+
+        Args:
+            repo_path: Path to the git repository
+            expected_branch: The branch name that is allowed to be pushed
+        """
+        hooks_dir = repo_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        pre_push_hook = hooks_dir / "pre-push"
+
+        hook_content = f"""#!/bin/bash
+# ClaudeVN pre-push hook — validates branch before push (#57)
+EXPECTED_BRANCH="{expected_branch}"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
+    echo "ERROR: Push rejected. Current branch '$CURRENT_BRANCH' does not match" >&2
+    echo "       assigned branch '$EXPECTED_BRANCH'." >&2
+    echo "       Switch to '$EXPECTED_BRANCH' before pushing." >&2
+    exit 1
+fi
+"""
+        pre_push_hook.write_text(hook_content)
+        pre_push_hook.chmod(0o755)
+        logger.debug(f"Installed pre-push hook for branch {expected_branch} in {repo_path}")
 
     def _exclude_claude_directory(self, repo_path: Path) -> None:
         """Add .claude/ to .git/info/exclude so Claude Code's internal files
@@ -848,11 +881,17 @@ class ClaudeCodeSpawner:
                 f"- **Branch:** `{branch_name}`",
                 f"- **Base:** `{context.get('base_branch', 'main')}`",
                 "",
+                "### CRITICAL: Branch Rules",
+                "",
+                f"You are on branch `{branch_name}`. Do NOT create or switch to any other branch.",
+                "Do NOT run: `git checkout -b`, `git switch -c`, `git branch`, or any command that creates or switches branches.",
+                f"All your work MUST be committed to `{branch_name}`. The system will reject pushes to other branches.",
+                "",
                 "### Commit your work",
                 "When you have completed the task:",
                 "1. Stage all changes: `git add -A`",
                 "2. Commit with a descriptive message: `git commit -m \"<description of changes>\"`",
-                "3. Push your branch: `git push origin HEAD`",
+                f"3. Push your branch: `git push origin {branch_name}`",
                 "",
                 "IMPORTANT: You MUST commit and push your changes before finishing.",
                 "The system relies on your branch having commits to create PRs and merge.",
@@ -1286,6 +1325,108 @@ sys.exit(1)
         except Exception as e:
             logger.error(f"Error submitting characterization result: {e}")
 
+    def _verify_and_fix_branch(
+        self,
+        repo_dir: Path,
+        expected_branch: str,
+        instance_id: str,
+    ) -> bool:
+        """Verify HEAD is on the expected branch and recover if not (#57).
+
+        If Claude Code switched to a different branch, this method:
+        1. Logs a WARNING with both branch names
+        2. Checks out the expected branch
+        3. Cherry-picks all commits from the wrong branch that aren't in expected
+
+        Args:
+            repo_dir: Path to the git repository
+            expected_branch: The branch name the instance should be on
+            instance_id: Instance ID for logging
+
+        Returns:
+            True if branch is correct (or was recovered), False if recovery failed
+        """
+        try:
+            current_result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            )
+            current_branch = current_result.stdout.strip()
+
+            if current_branch == expected_branch:
+                return True
+
+            logger.warning(
+                f"Branch mismatch for {instance_id}: "
+                f"expected '{expected_branch}', found '{current_branch}'"
+            )
+
+            # Get commits on the wrong branch that aren't in expected branch
+            wrong_branch_tip = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            ).stdout.strip()
+
+            # Find commits unique to the wrong branch (not in expected)
+            log_result = subprocess.run(
+                ["git", "log", f"{expected_branch}..{current_branch}",
+                 "--reverse", "--format=%H"],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            )
+            commits_to_recover = [
+                c for c in log_result.stdout.strip().splitlines() if c
+            ]
+
+            # Switch to expected branch
+            subprocess.run(
+                ["git", "checkout", expected_branch],
+                cwd=str(repo_dir), capture_output=True, text=True, check=True
+            )
+
+            if commits_to_recover:
+                logger.info(
+                    f"Recovering {len(commits_to_recover)} commit(s) from "
+                    f"'{current_branch}' to '{expected_branch}' for {instance_id}"
+                )
+                for commit_hash in commits_to_recover:
+                    try:
+                        subprocess.run(
+                            ["git", "cherry-pick", commit_hash],
+                            cwd=str(repo_dir), capture_output=True, text=True,
+                            check=True
+                        )
+                    except subprocess.CalledProcessError as cp_err:
+                        logger.error(
+                            f"Cherry-pick of {commit_hash[:8]} failed for "
+                            f"{instance_id}: {cp_err.stderr or cp_err.stdout}. "
+                            f"Aborting cherry-pick."
+                        )
+                        subprocess.run(
+                            ["git", "cherry-pick", "--abort"],
+                            cwd=str(repo_dir), capture_output=True, text=True
+                        )
+                        return False
+
+                logger.info(
+                    f"Successfully recovered work from '{current_branch}' "
+                    f"to '{expected_branch}' for {instance_id}"
+                )
+            else:
+                # No unique commits — maybe work is uncommitted (handled elsewhere)
+                logger.info(
+                    f"No commits to recover from '{current_branch}' for "
+                    f"{instance_id}, switched to '{expected_branch}'"
+                )
+
+            return True
+
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"Branch verification failed for {instance_id}: "
+                f"{e.stderr or e.stdout}"
+            )
+            return False
+
     async def _commit_and_push_changes(
         self,
         task_id: str,
@@ -1297,6 +1438,7 @@ sys.exit(1)
         """Safety net: commit and push any uncommitted changes after Claude exits.
 
         If Claude didn't commit/push its work, this ensures changes are not lost.
+        Verifies branch before pushing and recovers work if branch changed (#57).
         Retries push on transient failures with exponential backoff (#831).
 
         Args:
@@ -1325,6 +1467,17 @@ sys.exit(1)
         git_token = context.get("git_token") or self.git_token
 
         try:
+            # Verify branch before committing/pushing (#57)
+            expected_branch = instance.get("branch_name")
+            if expected_branch:
+                if not self._verify_and_fix_branch(
+                    repo_dir, expected_branch, instance_id
+                ):
+                    logger.error(
+                        f"Branch recovery failed for {instance_id}. "
+                        f"Attempting push from current branch as fallback."
+                    )
+
             # Check for uncommitted changes
             status_result = subprocess.run(
                 ["git", "status", "--porcelain"],
@@ -1361,7 +1514,8 @@ sys.exit(1)
                     capture_output=True, text=True
                 )
 
-            # Push to remote with retry (#831) using HTTP token auth (#14)
+            # Push to expected branch explicitly (#57) with retry (#831)
+            # using HTTP token auth (#14)
             push_env = os.environ.copy()
             if git_token:
                 askpass_script = repo_dir / ".git-askpass"
@@ -1370,11 +1524,14 @@ sys.exit(1)
                 push_env["GIT_ASKPASS"] = str(askpass_script.resolve())
                 push_env["GIT_TERMINAL_PROMPT"] = "0"
 
+            # Use explicit branch name in push to avoid pushing wrong branch
+            push_refspec = f"HEAD:{expected_branch}" if expected_branch else "HEAD"
+
             last_error = None
             for attempt in range(1, max_retries + 1):
                 try:
                     subprocess.run(
-                        ["git", "push", "origin", "HEAD"],
+                        ["git", "push", "origin", push_refspec],
                         cwd=str(repo_dir), check=True,
                         capture_output=True, text=True, env=push_env
                     )
