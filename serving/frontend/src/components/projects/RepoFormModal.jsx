@@ -72,12 +72,17 @@ function RepoFormModal({ isOpen, onClose, onSuccess, projectId }) {
           default_branch: defaultBranch.trim() || 'main'
         })
       } else {
-        await addRepoToProject(projectId, {
+        const repo = await addRepoToProject(projectId, {
           name: name.trim(),
           url: url.trim(),
           default_branch: defaultBranch.trim() || 'main',
           ssh_key_id: sshKeyId || undefined
         })
+        if (repo.metadata?.clone_status === 'error') {
+          toast.warning(`Repository linked but auto-clone failed: ${repo.metadata.clone_error || 'Unknown error'}. Use the Clone button to retry.`)
+        } else if (repo.metadata?.clone_status === 'cloned') {
+          toast.success('Repository linked and cloned successfully')
+        }
       }
       onSuccess()
       onClose()

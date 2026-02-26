@@ -298,10 +298,17 @@ class ProjectService:
                     f"Auto-cloned linked repo {repo_id} as {git_project_name}"
                 )
             else:
+                # Ensure clone failure is recorded in metadata
+                repo.metadata.setdefault("clone_status", "error")
+                repo.metadata["clone_error"] = result.message
+                await self._save_project(project)
                 logger.warning(
                     f"Auto-clone failed for repo {repo_id}: {result.message}"
                 )
         except Exception as e:
+            repo.metadata["clone_status"] = "error"
+            repo.metadata["clone_error"] = str(e)
+            await self._save_project(project)
             logger.warning(f"Auto-clone failed for repo {repo_id}: {e}")
 
         logger.info(f"Added repo {repo_id} to project {project_id}")
