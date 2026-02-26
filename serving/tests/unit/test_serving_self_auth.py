@@ -218,7 +218,7 @@ class TestGracefulDegradation:
 
     @pytest.mark.asyncio
     async def test_status_not_configured_by_default(self, auth_service):
-        status = auth_service.get_status()
+        status = await auth_service.get_status()
         assert status["status"] == AuthStatus.NOT_CONFIGURED.value
         assert status["authenticated"] is False
 

@@ -117,13 +117,60 @@ class ClaudeAuthService:
             self._status = AuthStatus.NOT_CONFIGURED
             self._expires_at = None
 
-    def get_status(self) -> dict[str, Any]:
-        """Get current authentication status."""
+    async def get_status(self) -> dict[str, Any]:
+        """Get current authentication status.
+
+        When status is NOT_CONFIGURED, performs a lightweight Redis check
+        to detect externally-imported credentials (e.g. via import-credentials.py)
+        without requiring a service restart.
+        """
+        if self._status == AuthStatus.NOT_CONFIGURED and self._redis:
+            await self._lazy_check_redis()
+
         return {
             "status": self._status.value,
             "authenticated": self._status == AuthStatus.AUTHENTICATED,
             "expires_at": self._expires_at,
             "message": self._error_message,
+        }
+
+    async def _lazy_check_redis(self) -> None:
+        """Check Redis for credentials when status is NOT_CONFIGURED.
+
+        Only called when no tokens are cached. Uses EXISTS for a cheap
+        check before doing a full reload.
+        """
+        try:
+            prefix = getattr(self._redis, '_prefix', 'claudevn:')
+            key = f"{prefix}auth:serving"
+            exists = await self._redis._redis.exists(key)
+            if exists:
+                await self.refresh_from_redis()
+        except Exception as e:
+            logger.warning(f"Lazy Redis check failed: {e}")
+
+    async def refresh_from_redis(self) -> dict[str, Any]:
+        """Force reload all tokens from Redis and update status.
+
+        Useful after external credential import or for manual recovery.
+
+        Returns:
+            Updated status dict.
+        """
+        await self._load_from_redis()
+        self._update_status()
+
+        # Apply serving token to env if found
+        serving_token = self._tokens.get("serving")
+        if serving_token and serving_token.get("status") == TokenStatus.ACTIVE.value:
+            self._apply_token_to_env(serving_token["token"])
+
+        logger.info(f"Refreshed from Redis: {len(self._tokens)} token(s), status={self._status.value}")
+
+        return {
+            "status": self._status.value,
+            "authenticated": self._status == AuthStatus.AUTHENTICATED,
+            "tokens_loaded": len(self._tokens),
         }
 
     async def store_token(

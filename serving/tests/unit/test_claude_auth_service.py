@@ -37,8 +37,9 @@ def service_with_redis(redis_mock):
 class TestInit:
     """Test service initialization."""
 
-    def test_initial_status(self, service):
-        status = service.get_status()
+    @pytest.mark.asyncio
+    async def test_initial_status(self, service):
+        status = await service.get_status()
         assert status["status"] == AuthStatus.NOT_CONFIGURED.value
         assert status["authenticated"] is False
 
@@ -46,7 +47,7 @@ class TestInit:
     async def test_initialize_no_tokens(self, service):
         await service.initialize()
         try:
-            status = service.get_status()
+            status = await service.get_status()
             assert status["status"] == AuthStatus.NOT_CONFIGURED.value
             assert status["authenticated"] is False
         finally:
@@ -66,7 +67,7 @@ class TestInit:
 
         await service_with_redis.initialize()
         try:
-            status = service_with_redis.get_status()
+            status = await service_with_redis.get_status()
             assert status["status"] == AuthStatus.AUTHENTICATED.value
             assert status["authenticated"] is True
         finally:
@@ -83,7 +84,7 @@ class TestStoreToken:
         assert result["message"] == "Token stored successfully"
         assert result["expires_at"] is not None
 
-        status = service.get_status()
+        status = await service.get_status()
         assert status["authenticated"] is True
 
     @pytest.mark.asyncio
@@ -191,12 +192,12 @@ class TestClearCredentials:
     @pytest.mark.asyncio
     async def test_clear_existing_token(self, service):
         await service.store_token("sk-ant-oat01-clear-test")
-        assert service.get_status()["authenticated"] is True
+        assert (await service.get_status())["authenticated"] is True
 
         result = await service.clear_credentials()
         assert result is True
-        assert service.get_status()["authenticated"] is False
-        assert service.get_status()["status"] == AuthStatus.NOT_CONFIGURED.value
+        assert (await service.get_status())["authenticated"] is False
+        assert (await service.get_status())["status"] == AuthStatus.NOT_CONFIGURED.value
 
     @pytest.mark.asyncio
     async def test_clear_deletes_from_redis(self, service_with_redis, redis_mock):
@@ -217,21 +218,22 @@ class TestClearCredentials:
         # b should still be active
         token_b = await service.get_token("b")
         assert token_b == "sk-ant-oat01-b"
-        assert service.get_status()["authenticated"] is True
+        assert (await service.get_status())["authenticated"] is True
 
 
 class TestGetStatus:
     """Test status reporting."""
 
-    def test_status_not_configured(self, service):
-        status = service.get_status()
+    @pytest.mark.asyncio
+    async def test_status_not_configured(self, service):
+        status = await service.get_status()
         assert status["status"] == "not_configured"
         assert status["authenticated"] is False
 
     @pytest.mark.asyncio
     async def test_status_authenticated(self, service):
         await service.store_token("sk-ant-oat01-test")
-        status = service.get_status()
+        status = await service.get_status()
         assert status["status"] == "authenticated"
         assert status["authenticated"] is True
         assert status["expires_at"] is not None
@@ -242,7 +244,7 @@ class TestGetStatus:
         service._tokens["serving"]["status"] = TokenStatus.EXPIRED.value
         service._update_status()
 
-        status = service.get_status()
+        status = await service.get_status()
         assert status["status"] == "expired"
         assert status["authenticated"] is False
 
@@ -352,7 +354,7 @@ class TestExpiryCheck:
 
         await service._check_expiry()
         assert service._tokens["serving"]["status"] == TokenStatus.EXPIRED.value
-        assert service.get_status()["status"] == AuthStatus.EXPIRED.value
+        assert (await service.get_status())["status"] == AuthStatus.EXPIRED.value
 
     @pytest.mark.asyncio
     async def test_check_expiry_keeps_valid(self, service):
@@ -360,7 +362,7 @@ class TestExpiryCheck:
         # Expiry is ~365 days in the future by default
         await service._check_expiry()
         assert service._tokens["serving"]["status"] == TokenStatus.ACTIVE.value
-        assert service.get_status()["status"] == AuthStatus.AUTHENTICATED.value
+        assert (await service.get_status())["status"] == AuthStatus.AUTHENTICATED.value
 
     @pytest.mark.asyncio
     async def test_check_expiry_saves_to_redis(self, service_with_redis, redis_mock):
@@ -636,3 +638,120 @@ class TestRegistryAuthStatusSync:
                 assert call_args[0][1] == ComputeAuthStatus.UNAUTHORIZED
             finally:
                 await service_with_redis.shutdown()
+
+
+class TestLazyRedisCheck:
+    """Test lazy Redis check when status is NOT_CONFIGURED."""
+
+    @pytest.mark.asyncio
+    async def test_lazy_check_detects_imported_credentials(self, service_with_redis, redis_mock):
+        """get_status detects externally-imported credentials on first poll."""
+        # Service starts NOT_CONFIGURED with no cached tokens
+        assert service_with_redis._status == AuthStatus.NOT_CONFIGURED
+        assert len(service_with_redis._tokens) == 0
+
+        # Simulate external import: Redis now has a serving token
+        redis_mock._redis.exists = AsyncMock(return_value=1)
+        redis_mock._redis.scan = AsyncMock(return_value=(0, [b"claudevn:auth:serving"]))
+        redis_mock._redis.hgetall = AsyncMock(return_value={
+            b"token": b"sk-ant-oat01-imported",
+            b"component_type": b"serving",
+            b"authorized_at": b"2026-02-24T00:00:00+00:00",
+            b"expires_at": b"2027-02-24T00:00:00+00:00",
+            b"status": b"active",
+        })
+
+        # get_status should auto-detect the imported token
+        status = await service_with_redis.get_status()
+        assert status["status"] == AuthStatus.AUTHENTICATED.value
+        assert status["authenticated"] is True
+
+    @pytest.mark.asyncio
+    async def test_lazy_check_skips_when_already_authenticated(self, service_with_redis, redis_mock):
+        """No Redis check when already authenticated."""
+        await service_with_redis.store_token("sk-ant-oat01-existing")
+        redis_mock._redis.exists = AsyncMock()
+
+        status = await service_with_redis.get_status()
+        assert status["authenticated"] is True
+        # exists should NOT have been called (skipped because already authenticated)
+        redis_mock._redis.exists.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lazy_check_skips_without_redis(self, service):
+        """No lazy check when Redis is not configured."""
+        status = await service.get_status()
+        assert status["status"] == AuthStatus.NOT_CONFIGURED.value
+        # Should not raise - gracefully handles no Redis
+
+    @pytest.mark.asyncio
+    async def test_lazy_check_no_keys_in_redis(self, service_with_redis, redis_mock):
+        """Stays NOT_CONFIGURED when Redis has no auth keys."""
+        redis_mock._redis.exists = AsyncMock(return_value=0)
+
+        status = await service_with_redis.get_status()
+        assert status["status"] == AuthStatus.NOT_CONFIGURED.value
+        assert status["authenticated"] is False
+
+    @pytest.mark.asyncio
+    async def test_lazy_check_handles_redis_error(self, service_with_redis, redis_mock):
+        """Gracefully handles Redis errors during lazy check."""
+        redis_mock._redis.exists = AsyncMock(side_effect=ConnectionError("Redis down"))
+
+        # Should not raise
+        status = await service_with_redis.get_status()
+        assert status["status"] == AuthStatus.NOT_CONFIGURED.value
+
+
+class TestRefreshFromRedis:
+    """Test explicit refresh_from_redis method."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_loads_new_tokens(self, service_with_redis, redis_mock):
+        """refresh_from_redis picks up externally-imported credentials."""
+        redis_mock._redis.scan = AsyncMock(return_value=(0, [b"claudevn:auth:serving"]))
+        redis_mock._redis.hgetall = AsyncMock(return_value={
+            b"token": b"sk-ant-oat01-refreshed",
+            b"component_type": b"serving",
+            b"authorized_at": b"2026-02-24T00:00:00+00:00",
+            b"expires_at": b"2027-02-24T00:00:00+00:00",
+            b"status": b"active",
+        })
+
+        result = await service_with_redis.refresh_from_redis()
+        assert result["status"] == AuthStatus.AUTHENTICATED.value
+        assert result["authenticated"] is True
+        assert result["tokens_loaded"] == 1
+
+    @pytest.mark.asyncio
+    async def test_refresh_applies_serving_token_to_env(self, service_with_redis, redis_mock):
+        """refresh_from_redis applies serving token to process environment."""
+        redis_mock._redis.scan = AsyncMock(return_value=(0, [b"claudevn:auth:serving"]))
+        redis_mock._redis.hgetall = AsyncMock(return_value={
+            b"token": b"sk-ant-oat01-env-test",
+            b"component_type": b"serving",
+            b"authorized_at": b"2026-02-24T00:00:00+00:00",
+            b"expires_at": b"2027-02-24T00:00:00+00:00",
+            b"status": b"active",
+        })
+
+        with patch.object(service_with_redis, "_apply_token_to_env") as mock_apply:
+            await service_with_redis.refresh_from_redis()
+            mock_apply.assert_called_once_with("sk-ant-oat01-env-test")
+
+    @pytest.mark.asyncio
+    async def test_refresh_returns_not_configured_when_empty(self, service_with_redis, redis_mock):
+        """refresh_from_redis returns NOT_CONFIGURED when Redis is empty."""
+        redis_mock._redis.scan = AsyncMock(return_value=(0, []))
+
+        result = await service_with_redis.refresh_from_redis()
+        assert result["status"] == AuthStatus.NOT_CONFIGURED.value
+        assert result["authenticated"] is False
+        assert result["tokens_loaded"] == 0
+
+    @pytest.mark.asyncio
+    async def test_refresh_without_redis(self, service):
+        """refresh_from_redis works gracefully without Redis."""
+        result = await service.refresh_from_redis()
+        assert result["status"] == AuthStatus.NOT_CONFIGURED.value
+        assert result["tokens_loaded"] == 0
