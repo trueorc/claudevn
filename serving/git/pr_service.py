@@ -366,6 +366,7 @@ class PRService:
             await redis.set_branch_status(
                 project=project,
                 branch=pr.branch,
+                status=PRStatus.MERGED.value,
                 upstream_sync_status="failed",
                 upstream_push_error=error_msg,
             )
@@ -408,6 +409,7 @@ class PRService:
         await redis.set_branch_status(
             project=project,
             branch=pr.branch,
+            status=PRStatus.MERGED.value,
             upstream_sync_status="synced",
         )
 
