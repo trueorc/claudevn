@@ -595,14 +595,23 @@ exit 0
 
         logger.info(f"Cloning repository from {url} to {repo_path}")
 
-        # Build git clone command
+        # Build git clone command.
+        # When SSH key auth is provided and the URL is HTTPS, convert to SSH
+        # format so that GIT_SSH_COMMAND auth works (SSH keys don't authenticate
+        # over HTTPS transport).
+        clone_url = url
         env = os.environ.copy()
         if ssh_key_path:
             env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+            from git.url_utils import https_to_ssh
+            converted = https_to_ssh(url)
+            if converted:
+                clone_url = converted
+                logger.info(f"Converted clone URL to SSH: {clone_url}")
 
         # Clone as bare (NOT --mirror, which sets a dangerous catch-all refspec)
         subprocess.run(
-            ["git", "clone", "--bare", url, str(repo_path)],
+            ["git", "clone", "--bare", clone_url, str(repo_path)],
             check=True,
             capture_output=True,
             env=env
@@ -624,12 +633,11 @@ exit 0
             capture_output=True
         )
 
-        # Configure origin for push
+        # Configure origin push URL (uses SSH URL when SSH key auth is active)
         subprocess.run(
-            ["git", "-C", str(repo_path), "remote", "set-url", "--push", "origin", url],
+            ["git", "-C", str(repo_path), "remote", "set-url", "--push", "origin", clone_url],
             check=True,
             capture_output=True,
-            env=env
         )
 
         # Set default branch

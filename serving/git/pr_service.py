@@ -223,6 +223,38 @@ class PRService:
             return str(private_path)
         return None
 
+    def _ensure_ssh_remote_urls(self, repo_path: Path) -> None:
+        """Convert origin remote URLs from HTTPS to SSH if needed.
+
+        Repos linked before #47 may have HTTPS remote URLs which fail
+        with SSH key auth. This detects and fixes both fetch and push
+        URLs on the fly.
+        """
+        from git.url_utils import https_to_ssh, is_https_url
+
+        for flag in (None, "--push"):
+            args = ["remote", "get-url"]
+            if flag:
+                args.append(flag)
+            args.append("origin")
+            result = self._git_cmd(repo_path, *args)
+            if result.returncode != 0:
+                continue
+            current_url = result.stdout.strip()
+            if not is_https_url(current_url):
+                continue
+            ssh_url = https_to_ssh(current_url)
+            if ssh_url is None:
+                continue
+
+            label = "push" if flag else "fetch"
+            logger.info(f"Migrating {label} URL from HTTPS to SSH: {ssh_url}")
+            set_args = ["remote", "set-url"]
+            if flag:
+                set_args.append(flag)
+            set_args.extend(["origin", ssh_url])
+            self._git_cmd(repo_path, *set_args)
+
     def _sync_upstream(self, project: str, repo_path: Path) -> None:
         """Fetch latest upstream changes for linked repos before merge.
 
@@ -248,6 +280,8 @@ class PRService:
         ssh_key_path = None
         if ssh_key_id:
             ssh_key_path = self._resolve_ssh_key_path(ssh_key_id)
+            # Migrate HTTPS URLs to SSH for repos linked before #47
+            self._ensure_ssh_remote_urls(repo_path)
 
         logger.info(f"Syncing upstream before merge for linked repo: {project}")
         try:
@@ -308,6 +342,11 @@ class PRService:
         push_env = {**os.environ}
         if ssh_key_path:
             push_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+
+            # Auto-convert HTTPS remote URLs to SSH for repos linked before #47.
+            # SSH key auth requires SSH transport; HTTPS URLs will fail with
+            # "could not read Username".
+            self._ensure_ssh_remote_urls(repo_path)
 
         # Push default branch to origin
         push_result = subprocess.run(
