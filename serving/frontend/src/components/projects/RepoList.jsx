@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { GitBranch, ExternalLink, Trash2, Server, RefreshCw, Upload, Link } from 'lucide-react'
 import Card, { CardBody } from '../common/Card'
 import { getRepoStatus, syncRepo, pushRepo, cloneRepo } from '../../api/sshKeys'
@@ -12,6 +12,10 @@ function LinkedRepoStatus({ projectId, repo }) {
   const [syncing, setSyncing] = useState(false)
   const [pushing, setPushing] = useState(false)
   const [cloning, setCloning] = useState(false)
+
+  useEffect(() => {
+    loadStatus()
+  }, [])
 
   const loadStatus = async () => {
     setLoading(true)

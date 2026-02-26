@@ -735,6 +735,114 @@ class TestRepositoryManagement:
 
 
 # =============================================================================
+# Test: Auto-Clone on Add Repo
+# =============================================================================
+
+class TestAutoCloneOnAddRepo:
+    """Test auto-clone behavior when adding linked repos."""
+
+    @pytest.fixture
+    def service(self):
+        return ProjectService()
+
+    @pytest.fixture
+    def create_request(self):
+        return ProjectCreateRequest(
+            name="Test Project",
+            description="Test"
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_clone_success_updates_url(self, service, create_request):
+        """Test that successful auto-clone updates repo.url to internal URL."""
+        project = await service.create_project(create_request)
+
+        mock_sync_result = MagicMock()
+        mock_sync_result.success = True
+        mock_sync_result.message = "Cloned successfully"
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.clone_repo = AsyncMock(return_value=mock_sync_result)
+
+        mock_repo_manager = MagicMock()
+        mock_repo_manager.get_repo_url = MagicMock(return_value="http://serving:8002/git/test.git")
+
+        with patch("services.repo_sync_service.get_repo_sync_service", return_value=mock_sync_service), \
+             patch("api.git.get_repo_manager", return_value=mock_repo_manager):
+            repo = await service.add_repo(
+                project.project_id,
+                RepoAddRequest(name="ext-repo", url="https://github.com/org/repo.git")
+            )
+
+        assert repo is not None
+        assert repo.url == "http://serving:8002/git/test.git"
+        mock_sync_service.clone_repo.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_auto_clone_failure_sets_error_metadata(self, service, create_request):
+        """Test that failed auto-clone records error in metadata."""
+        project = await service.create_project(create_request)
+
+        mock_sync_result = MagicMock()
+        mock_sync_result.success = False
+        mock_sync_result.message = "Authentication failed"
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.clone_repo = AsyncMock(return_value=mock_sync_result)
+
+        with patch("services.repo_sync_service.get_repo_sync_service", return_value=mock_sync_service):
+            repo = await service.add_repo(
+                project.project_id,
+                RepoAddRequest(name="ext-repo", url="https://github.com/org/repo.git")
+            )
+
+        assert repo is not None
+        assert repo.metadata.get("clone_status") == "error"
+        assert repo.metadata.get("clone_error") == "Authentication failed"
+        # URL should remain the original external URL
+        assert repo.url == "https://github.com/org/repo.git"
+
+    @pytest.mark.asyncio
+    async def test_auto_clone_exception_sets_error_metadata(self, service, create_request):
+        """Test that exception during auto-clone records error in metadata."""
+        project = await service.create_project(create_request)
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.clone_repo = AsyncMock(side_effect=RuntimeError("Connection refused"))
+
+        with patch("services.repo_sync_service.get_repo_sync_service", return_value=mock_sync_service):
+            repo = await service.add_repo(
+                project.project_id,
+                RepoAddRequest(name="ext-repo", url="https://github.com/org/repo.git")
+            )
+
+        assert repo is not None
+        assert repo.metadata.get("clone_status") == "error"
+        assert "Connection refused" in repo.metadata.get("clone_error", "")
+        # URL should remain the original external URL
+        assert repo.url == "https://github.com/org/repo.git"
+
+    @pytest.mark.asyncio
+    async def test_auto_clone_failure_still_adds_repo(self, service, create_request):
+        """Test that repo is added to project even if auto-clone fails."""
+        project = await service.create_project(create_request)
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.clone_repo = AsyncMock(side_effect=RuntimeError("Network error"))
+
+        with patch("services.repo_sync_service.get_repo_sync_service", return_value=mock_sync_service):
+            repo = await service.add_repo(
+                project.project_id,
+                RepoAddRequest(name="ext-repo", url="https://github.com/org/repo.git")
+            )
+
+        assert repo is not None
+        updated = await service.get_project(project.project_id)
+        assert len(updated.repos) == 1
+        assert updated.repos[0].name == "ext-repo"
+
+
+# =============================================================================
 # Test: Statistics
 # =============================================================================
 
