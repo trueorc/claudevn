@@ -3373,3 +3373,280 @@ class TestGitAskpassAbsolutePath:
         assert os.path.isabs(askpass_path), (
             f"GIT_ASKPASS must be absolute, got: {askpass_path}"
         )
+
+
+class TestVerifyAndFixBranch:
+    """Tests for _verify_and_fix_branch branch mismatch recovery (#57)."""
+
+    def test_correct_branch_returns_true(self, tmp_path):
+        """When HEAD is on the expected branch, returns True without changes."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(stdout="f/issue_abc/compute-001\n")
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is True
+        # Only one call: rev-parse to check current branch
+        assert mock_run.call_count == 1
+
+    def test_wrong_branch_recovers_commits(self, tmp_path):
+        """When HEAD is on wrong branch, cherry-picks commits to expected branch."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout="work-branch\n"),       # rev-parse HEAD (wrong branch)
+                Mock(stdout="abc123\n"),             # rev-parse HEAD (tip)
+                Mock(stdout="abc123\n"),             # git log (1 commit to recover)
+                Mock(),                              # git checkout expected
+                Mock(),                              # git cherry-pick abc123
+            ]
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is True
+        # Verify checkout was called with expected branch
+        checkout_call = mock_run.call_args_list[3]
+        assert "checkout" in checkout_call[0][0]
+        assert "f/issue_abc/compute-001" in checkout_call[0][0]
+        # Verify cherry-pick was called
+        cherry_pick_call = mock_run.call_args_list[4]
+        assert "cherry-pick" in cherry_pick_call[0][0]
+
+    def test_wrong_branch_no_commits_to_recover(self, tmp_path):
+        """When on wrong branch but no unique commits, just switches branch."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout="work-branch\n"),       # rev-parse HEAD (wrong)
+                Mock(stdout="abc123\n"),             # rev-parse HEAD (tip)
+                Mock(stdout="\n"),                   # git log (no unique commits)
+                Mock(),                              # git checkout expected
+            ]
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is True
+        assert mock_run.call_count == 4
+
+    def test_cherry_pick_failure_aborts_and_returns_false(self, tmp_path):
+        """When cherry-pick fails, aborts and returns False."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        cherry_pick_err = subprocess.CalledProcessError(
+            1, "git cherry-pick", stderr="Conflict"
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout="work-branch\n"),       # rev-parse HEAD (wrong)
+                Mock(stdout="abc123\n"),             # rev-parse HEAD (tip)
+                Mock(stdout="abc123\n"),             # git log (1 commit)
+                Mock(),                              # git checkout expected
+                cherry_pick_err,                     # cherry-pick fails
+                Mock(),                              # cherry-pick --abort
+            ]
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is False
+        # Verify cherry-pick --abort was called
+        abort_call = mock_run.call_args_list[5]
+        assert "cherry-pick" in abort_call[0][0]
+        assert "--abort" in abort_call[0][0]
+
+    def test_rev_parse_failure_returns_false(self, tmp_path):
+        """When git rev-parse fails, returns False gracefully."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                1, "git rev-parse", stderr="fatal: not a git repository"
+            )
+            result = spawner._verify_and_fix_branch(
+                repo_dir, "f/issue_abc/compute-001", "cc-1"
+            )
+
+        assert result is False
+
+
+class TestCommitAndPushBranchVerification:
+    """Tests for branch verification in _commit_and_push_changes (#57)."""
+
+    @pytest.mark.asyncio
+    async def test_push_uses_explicit_branch_refspec(self, tmp_path):
+        """Push uses HEAD:branch_name refspec instead of bare HEAD."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "branch_name": "f/issue_abc/compute-001",
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run, \
+             patch.object(spawner, "_verify_and_fix_branch", return_value=True):
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status (no changes)
+                Mock(),           # git push
+            ]
+            result = await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        assert result is True
+        push_call = mock_run.call_args_list[-1]
+        push_cmd = push_call[0][0]
+        assert "HEAD:f/issue_abc/compute-001" in push_cmd
+
+    @pytest.mark.asyncio
+    async def test_push_falls_back_to_head_without_branch_name(self, tmp_path):
+        """When no branch_name in instance, push uses plain HEAD."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status
+                Mock(),           # git push
+            ]
+            result = await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        assert result is True
+        push_call = mock_run.call_args_list[-1]
+        push_cmd = push_call[0][0]
+        assert push_cmd == ["git", "push", "origin", "HEAD"]
+
+    @pytest.mark.asyncio
+    async def test_branch_recovery_failure_still_attempts_push(self, tmp_path):
+        """Even if branch recovery fails, still attempts push as fallback."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "branch_name": "f/issue_abc/compute-001",
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run, \
+             patch.object(spawner, "_verify_and_fix_branch", return_value=False):
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status
+                Mock(),           # git push (still attempts)
+            ]
+            result = await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_verify_called_with_correct_args(self, tmp_path):
+        """_verify_and_fix_branch is called with correct repo_dir and branch."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "branch_name": "f/issue_abc/compute-001",
+            "event": {"context": {}},
+        }
+
+        with patch("subprocess.run") as mock_run, \
+             patch.object(spawner, "_verify_and_fix_branch", return_value=True) as mock_verify:
+            mock_run.side_effect = [
+                Mock(stdout=""),  # git status
+                Mock(),           # git push
+            ]
+            await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        mock_verify.assert_called_once_with(
+            repo_dir, "f/issue_abc/compute-001", "cc-1"
+        )
+
+
+class TestInstallPrePushHook:
+    """Tests for _install_pre_push_hook (#57)."""
+
+    def test_creates_hook_file(self, tmp_path):
+        """Pre-push hook file is created with correct content."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        (repo_dir / ".git" / "hooks").mkdir(parents=True)
+
+        spawner._install_pre_push_hook(repo_dir, "f/issue_abc/compute-001")
+
+        hook_path = repo_dir / ".git" / "hooks" / "pre-push"
+        assert hook_path.exists()
+        content = hook_path.read_text()
+        assert "f/issue_abc/compute-001" in content
+        assert "EXPECTED_BRANCH" in content
+
+    def test_hook_is_executable(self, tmp_path):
+        """Pre-push hook is created with executable permissions."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        (repo_dir / ".git" / "hooks").mkdir(parents=True)
+
+        spawner._install_pre_push_hook(repo_dir, "f/issue_abc/compute-001")
+
+        hook_path = repo_dir / ".git" / "hooks" / "pre-push"
+        assert os.access(str(hook_path), os.X_OK)
+
+    def test_creates_hooks_dir_if_missing(self, tmp_path):
+        """Creates .git/hooks directory if it doesn't exist."""
+        spawner = make_spawner(tmp_path)
+        repo_dir = tmp_path / "repo"
+        (repo_dir / ".git").mkdir(parents=True)
+
+        spawner._install_pre_push_hook(repo_dir, "f/issue_abc/compute-001")
+
+        hook_path = repo_dir / ".git" / "hooks" / "pre-push"
+        assert hook_path.exists()
+
+
+class TestCreateClaudeMdBranchInstructions:
+    """Tests for strengthened branch instructions in CLAUDE.md (#57)."""
+
+    def test_claude_md_prohibits_branch_switching(self, tmp_path):
+        """Generated CLAUDE.md includes branch switching prohibition."""
+        spawner = make_spawner(tmp_path)
+
+        work_event = {
+            "branch_name": "f/issue_abc/compute-001",
+            "context": {
+                "repository": "http://localhost/repo.git",
+                "base_branch": "main",
+            },
+            "task": {"description": "test task"},
+        }
+
+        content = spawner._create_claude_md(work_event)
+
+        assert "Do NOT create or switch to any other branch" in content
+        assert "Do NOT run: `git checkout -b`" in content
+        assert "git push origin f/issue_abc/compute-001" in content
