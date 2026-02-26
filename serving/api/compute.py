@@ -526,10 +526,15 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
 
     work = await work_map.get_work(event.task_id)
     if not work:
-        logger.debug(
-            f"No work item found for task_id={event.task_id}, "
-            "skipping work/issue transition"
-        )
+        # Conflict resolution tasks have synthetic IDs: conflict-{work_id}-{random}
+        # Extract the original work_id and handle post-conflict re-merge (#55)
+        if event.task_id.startswith("conflict-"):
+            await _handle_conflict_resolution_completed(event, work_map)
+        else:
+            logger.debug(
+                f"No work item found for task_id={event.task_id}, "
+                "skipping work/issue transition"
+            )
         return
 
     # Handle started event
@@ -898,6 +903,68 @@ async def _dispatch_conflict_resolution_work(
 
     except Exception as e:
         logger.error(f"Error dispatching conflict resolution work: {e}")
+
+
+async def _handle_conflict_resolution_completed(event, work_map) -> None:
+    """Handle completion of a conflict resolution task by re-triggering merge.
+
+    Conflict resolution tasks have synthetic IDs: conflict-{work_id}-{random}.
+    After the compute rebases and pushes, we need to look up the original work
+    item and call _auto_create_and_merge_pr so the PR gets re-approved and
+    merged. Without this, resolved PRs stay stuck in 'conflict' status (#55).
+    """
+    from models.work_map import WorkStatus
+
+    task_id = event.task_id
+    is_success = (
+        event.event.value == "claude_code_completed"
+        and event.exit_code is not None
+        and event.exit_code == 0
+    )
+
+    # Extract original work_id: "conflict-{work_id}-{random_hex}"
+    parts = task_id.split("-", 1)  # ["conflict", "{work_id}-{random}"]
+    if len(parts) < 2:
+        logger.warning(f"Malformed conflict task_id: {task_id}")
+        return
+
+    # work_id format is "work_{hex}" — rejoin everything except the last segment
+    remainder = parts[1]  # e.g. "work_abc123-7d65ee98"
+    # Split from the right to separate the random suffix
+    segments = remainder.rsplit("-", 1)
+    if len(segments) == 2:
+        original_work_id = segments[0]  # "work_abc123"
+    else:
+        original_work_id = remainder
+
+    work = await work_map.get_work(original_work_id)
+    if not work:
+        logger.warning(
+            f"Conflict resolution completed ({task_id}) but original work "
+            f"{original_work_id} not found"
+        )
+        return
+
+    if not is_success:
+        logger.warning(
+            f"Conflict resolution failed for {task_id} "
+            f"(exit_code={event.exit_code}), work {original_work_id} unchanged"
+        )
+        return
+
+    logger.info(
+        f"Conflict resolution succeeded ({task_id}), "
+        f"re-triggering merge for work {original_work_id}"
+    )
+
+    # Re-trigger the PR merge pipeline with the original work item
+    branch_name = event.branch_name or work.branch_name
+    if branch_name and work.project_id:
+        await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+
+        # Cascade dependents now that the merge can proceed
+        if work.status == WorkStatus.COMPLETED:
+            await work_map.cascade_dependents(work.work_id)
 
 
 async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> None:
