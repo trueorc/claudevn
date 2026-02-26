@@ -15,6 +15,19 @@ const statusOptions = [
   { value: 'failed', label: 'Failed' }
 ]
 
+// Mirrors backend VALID_TRANSITIONS in issue_ops_service.py
+const validTransitions = {
+  backlog: ['ready'],
+  ready: ['in_progress', 'backlog'],
+  in_progress: ['blocked', 'done', 'failed'],
+  blocked: ['in_progress', 'ready'],
+  done: ['backlog'],
+  failed: ['ready', 'in_progress', 'backlog'],
+}
+
+// Transitions that require a reason
+const reasonRequired = new Set(['done:backlog', 'failed:backlog'])
+
 const priorityColors = {
   P0: 'error',
   P1: 'warning',
@@ -42,24 +55,47 @@ function IssueDetailModal({ isOpen, onClose, issue, onEdit, onSuccess, viewOnly 
   const [statusLoading, setStatusLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [error, setError] = useState(null)
+  const [reasonPrompt, setReasonPrompt] = useState(null) // { targetStatus }
+  const [reasonText, setReasonText] = useState('')
 
   if (!issue) return null
+
+  const allowedNextStatuses = validTransitions[issue.status] || []
 
   const handleStatusChange = async (newStatus) => {
     if (viewOnly) return
     if (newStatus === issue.status) return
 
+    // Check if reason is required
+    const key = `${issue.status}:${newStatus}`
+    if (reasonRequired.has(key)) {
+      setReasonPrompt({ targetStatus: newStatus })
+      setReasonText('')
+      return
+    }
+
+    await executeStatusChange(newStatus)
+  }
+
+  const executeStatusChange = async (newStatus, reason = null) => {
     setStatusLoading(true)
     setError(null)
 
     try {
-      await updateIssueStatus(issue.issue_id, newStatus)
+      await updateIssueStatus(issue.issue_id, newStatus, reason)
+      setReasonPrompt(null)
+      setReasonText('')
       onSuccess?.()
     } catch (err) {
       setError(err.message || 'Failed to update status')
     } finally {
       setStatusLoading(false)
     }
+  }
+
+  const handleReasonSubmit = () => {
+    if (!reasonText.trim()) return
+    executeStatusChange(reasonPrompt.targetStatus, reasonText.trim())
   }
 
   const handleDelete = async () => {
@@ -143,17 +179,51 @@ function IssueDetailModal({ isOpen, onClose, issue, onEdit, onSuccess, viewOnly 
           <div className="detail-section">
             <label className="detail-label">Status</label>
             <div className="status-buttons">
-              {statusOptions.map(opt => (
-                <button
-                  key={opt.value}
-                  className={`status-btn ${issue.status === opt.value ? 'active' : ''}`}
-                  onClick={() => handleStatusChange(opt.value)}
-                  disabled={statusLoading}
-                >
-                  {opt.label}
-                </button>
-              ))}
+              {statusOptions
+                .filter(opt =>
+                  opt.value === issue.status || allowedNextStatuses.includes(opt.value)
+                )
+                .map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`status-btn ${issue.status === opt.value ? 'active' : ''}`}
+                    onClick={() => handleStatusChange(opt.value)}
+                    disabled={statusLoading || opt.value === issue.status}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
             </div>
+            {reasonPrompt && (
+              <div className="reason-prompt">
+                <label className="detail-label">
+                  Reason for moving back to Backlog
+                </label>
+                <textarea
+                  className="reason-textarea"
+                  value={reasonText}
+                  onChange={(e) => setReasonText(e.target.value)}
+                  placeholder="Explain why this issue needs to be reworked..."
+                  rows={3}
+                  autoFocus
+                />
+                <div className="reason-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setReasonPrompt(null); setReasonText('') }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleReasonSubmit}
+                    disabled={!reasonText.trim() || statusLoading}
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
