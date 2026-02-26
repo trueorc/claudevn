@@ -1193,6 +1193,10 @@ class PRService:
     async def process_merge_queue(self, project: str) -> List[Dict[str, Any]]:
         """Process pending merges from the queue.
 
+        After each successful merge, syncs the bare repo from upstream
+        so the next merge starts from the latest state. This prevents
+        spurious conflicts when sequential merges touch overlapping files.
+
         Args:
             project: Project/repo name
 
@@ -1200,6 +1204,7 @@ class PRService:
             List of merge results
         """
         redis = await self._get_redis()
+        repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         results = []
 
         while True:
@@ -1210,6 +1215,17 @@ class PRService:
             try:
                 result = await self.merge(project, branch)
                 results.append(result)
+
+                # After a successful merge, sync upstream so the next
+                # merge in the queue starts from the latest state.
+                if result.get("success"):
+                    try:
+                        self._sync_upstream(project, repo_path)
+                    except Exception as e:
+                        logger.warning(
+                            f"Inter-merge upstream sync failed for {project}: {e}. "
+                            "Continuing with next merge."
+                        )
             except ValueError as e:
                 results.append({
                     "success": False,
