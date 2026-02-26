@@ -794,7 +794,10 @@ def _resolve_git_project_name(project_id: str) -> str:
 async def _dispatch_conflict_resolution_work(
     work, branch_name: str, compute_id: str, pr
 ) -> None:
-    """Dispatch a conflict resolution task back to the compute that owns the branch.
+    """Dispatch a conflict resolution task to the best available compute.
+
+    Tries the original compute first. If it's disconnected, falls back to
+    any idle compute via the SSE connection manager.
 
     Sends a work_assigned SSE event with is_conflict_resolution=True so the
     spawner checks out the existing conflicting branch rather than creating a new one.
@@ -816,9 +819,30 @@ async def _dispatch_conflict_resolution_work(
         main_head = repo_mgr.get_branch_head(git_project_name, "main") or ""
         conflicting_files = pr.conflicting_files or []
 
+        # Determine target compute: prefer original, fallback to any idle
+        sse_manager = get_sse_connection_manager()
+        target_compute_id = compute_id
+
+        original_conn = sse_manager.get_connection(compute_id)
+        if not original_conn:
+            # Original compute disconnected — find any idle compute
+            idle_connections = sse_manager.get_idle_connections()
+            if idle_connections:
+                target_compute_id = idle_connections[0].compute_id
+                logger.info(
+                    f"Original compute {compute_id} disconnected, "
+                    f"routing conflict resolution to {target_compute_id}"
+                )
+            else:
+                logger.warning(
+                    f"No available compute for conflict resolution of {branch_name} "
+                    f"(original {compute_id} disconnected, no idle computes)"
+                )
+                return
+
         task_id = f"conflict-{work.work_id}-{uuid4().hex[:8]}"
         task_api_key = generate_api_key()
-        await register_compute_key(compute_id, task_api_key)
+        await register_compute_key(target_compute_id, task_api_key)
 
         files_list = "\n".join(f"  - `{f}`" for f in conflicting_files)
         description = (
@@ -835,9 +859,8 @@ async def _dispatch_conflict_resolution_work(
             f"Do NOT create new features or modify behavior."
         )
 
-        sse_manager = get_sse_connection_manager()
         success = await sse_manager.send_work_assigned(
-            compute_id=compute_id,
+            compute_id=target_compute_id,
             task_id=task_id,
             title=f"Resolve conflicts: {branch_name}",
             description=description,
@@ -864,10 +887,13 @@ async def _dispatch_conflict_resolution_work(
         )
 
         if success:
-            logger.info(f"Dispatched conflict resolution task {task_id} to {compute_id}")
+            logger.info(
+                f"Dispatched conflict resolution task {task_id} to {target_compute_id}"
+            )
         else:
             logger.warning(
-                f"Failed to dispatch conflict resolution to {compute_id} for {branch_name}"
+                f"Failed to dispatch conflict resolution to {target_compute_id} "
+                f"for {branch_name}"
             )
 
     except Exception as e:
@@ -876,6 +902,9 @@ async def _dispatch_conflict_resolution_work(
 
 async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> None:
     """Auto-create a PR and trigger merge queue processing after work completion.
+
+    Handles both fresh PRs and post-conflict-resolution re-entry (where
+    the PR already exists in CONFLICT status after rebase+push).
 
     Args:
         work: Completed WorkItem
@@ -888,18 +917,51 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         pr_service = PRService()
         git_project_name = _resolve_git_project_name(work.project_id)
 
-        # Create PR
-        pr = await pr_service.create_pr(
-            project=git_project_name,
-            branch=branch_name,
-            compute_id=compute_id,
-            task_id=work.work_id,
-            title=work.title,
-        )
-        logger.info(f"Auto-created PR for branch {branch_name} (work {work.work_id})")
+        pr = None
+        conflict_resolved = False
+        try:
+            # Create PR (first time)
+            pr = await pr_service.create_pr(
+                project=git_project_name,
+                branch=branch_name,
+                compute_id=compute_id,
+                task_id=work.work_id,
+                title=work.title,
+            )
+            logger.info(f"Auto-created PR for branch {branch_name} (work {work.work_id})")
+        except ValueError:
+            # PR already exists — likely post-conflict-resolution re-entry.
+            # Check if the existing PR was in CONFLICT status and conflicts
+            # are now resolved after the compute rebased and pushed.
+            existing_pr = await pr_service.get_pr(git_project_name, branch_name)
+            if existing_pr and existing_pr.status == PRStatus.CONFLICT:
+                # Verify conflicts are resolved by running dry-run merge
+                dry_run = await pr_service.dry_run_merge(git_project_name, branch_name)
+                if dry_run.get("can_merge"):
+                    logger.info(
+                        f"Conflicts resolved for {branch_name}, re-approving PR"
+                    )
+                    pr = existing_pr
+                    conflict_resolved = True
+                else:
+                    # Still conflicting — re-dispatch resolution
+                    logger.warning(
+                        f"PR {branch_name} still has conflicts after resolution attempt"
+                    )
+                    await _dispatch_conflict_resolution_work(
+                        work, branch_name, compute_id, existing_pr
+                    )
+                    return
+            else:
+                # PR exists in a non-conflict state — nothing to do
+                logger.info(
+                    f"PR already exists for {branch_name} "
+                    f"(status: {existing_pr.status.value if existing_pr else 'unknown'})"
+                )
+                return
 
-        # If the PR already has conflicts, dispatch resolution work instead of approving.
-        if pr.status == PRStatus.CONFLICT:
+        # If the PR has conflicts on creation (not post-resolution), dispatch resolution.
+        if not conflict_resolved and pr.status == PRStatus.CONFLICT:
             logger.warning(
                 f"PR has conflicts on creation, dispatching conflict resolution for {branch_name}"
             )
@@ -914,19 +976,27 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
             reviewed_by="auto-approved",
         )
 
+        # Add to merge queue (needed for post-resolution re-entry where the
+        # branch was popped from the queue during the original failed merge)
+        redis = await pr_service._get_redis()
+        await redis.add_to_merge_queue(git_project_name, branch_name)
+
         # Trigger merge queue processing
         results = await pr_service.process_merge_queue(git_project_name)
         for result in results:
             if result.get("success"):
                 logger.info(f"Auto-merged branch {result.get('branch', branch_name)}")
             elif result.get("reason") == "conflict":
-                # A race condition caused a conflict after approval — dispatch resolution
-                logger.warning(
-                    f"Merge conflict for {branch_name} after approval, dispatching resolution"
-                )
-                await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
+                # Merge conflict — dispatch resolution to the branch's compute
+                conflict_branch = result.get("branch", branch_name)
+                conflict_pr = await pr_service.get_pr(git_project_name, conflict_branch)
+                if conflict_pr:
+                    dispatch_compute = conflict_pr.compute_id or compute_id
+                    await _dispatch_conflict_resolution_work(
+                        work, conflict_branch, dispatch_compute, conflict_pr
+                    )
             else:
-                logger.warning(f"Auto-merge failed for {branch_name}: {result.get('error')}")
+                logger.warning(f"Auto-merge failed for {result.get('branch', branch_name)}: {result.get('error')}")
 
     except Exception as e:
         logger.warning(f"Auto PR/merge failed for {branch_name}: {e}")
