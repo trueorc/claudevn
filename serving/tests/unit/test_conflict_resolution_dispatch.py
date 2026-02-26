@@ -273,3 +273,141 @@ class TestDispatchConflictResolutionWork:
             )
 
 
+# =============================================================================
+# Issue #55: Conflict resolution completed re-triggers merge
+# =============================================================================
+
+
+def _make_conflict_event(task_id, exit_code=0, branch_name="feat/my-branch"):
+    """Build a mock ComputeEventRequest for conflict resolution completion."""
+    event = MagicMock()
+    event.task_id = task_id
+    event.compute_id = "compute-001"
+    event.event.value = "claude_code_completed"
+    event.exit_code = exit_code
+    event.branch_name = branch_name
+    event.error = None
+    event.duration_seconds = 30
+    return event
+
+
+class TestConflictResolutionRemerge:
+    """Issue #55: After conflict resolution, re-trigger merge pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_extracts_work_id_and_retriggers_merge(self):
+        """Successful conflict resolution extracts work_id and calls _auto_create_and_merge_pr."""
+        from api.compute import _handle_conflict_resolution_completed
+
+        event = _make_conflict_event("conflict-work_abc123-7d65ee98")
+        work = MagicMock()
+        work.work_id = "work_abc123"
+        work.branch_name = "feat/my-branch"
+        work.project_id = "proj-1"
+        work.status = MagicMock(value="completed")
+
+        mock_work_map = MagicMock()
+        mock_work_map.get_work = AsyncMock(return_value=work)
+        mock_work_map.cascade_dependents = AsyncMock()
+
+        with patch("api.compute._auto_create_and_merge_pr", new_callable=AsyncMock) as mock_merge:
+            await _handle_conflict_resolution_completed(event, mock_work_map)
+
+        mock_work_map.get_work.assert_awaited_once_with("work_abc123")
+        mock_merge.assert_awaited_once_with(work, "feat/my-branch", "compute-001")
+
+    @pytest.mark.asyncio
+    async def test_failed_conflict_resolution_does_not_retrigger(self):
+        """Failed conflict resolution (nonzero exit) does not re-trigger merge."""
+        from api.compute import _handle_conflict_resolution_completed
+
+        event = _make_conflict_event("conflict-work_abc123-7d65ee98", exit_code=1)
+        work = MagicMock()
+        work.work_id = "work_abc123"
+
+        mock_work_map = MagicMock()
+        mock_work_map.get_work = AsyncMock(return_value=work)
+
+        with patch("api.compute._auto_create_and_merge_pr", new_callable=AsyncMock) as mock_merge:
+            await _handle_conflict_resolution_completed(event, mock_work_map)
+
+        mock_merge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_original_work_is_handled(self):
+        """If original work item is not found, log warning and return gracefully."""
+        from api.compute import _handle_conflict_resolution_completed
+
+        event = _make_conflict_event("conflict-work_gone999-aabbccdd")
+
+        mock_work_map = MagicMock()
+        mock_work_map.get_work = AsyncMock(return_value=None)
+
+        with patch("api.compute._auto_create_and_merge_pr", new_callable=AsyncMock) as mock_merge:
+            await _handle_conflict_resolution_completed(event, mock_work_map)
+
+        mock_merge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_uses_event_branch_name_over_work_branch(self):
+        """Event branch_name takes precedence over work.branch_name."""
+        from api.compute import _handle_conflict_resolution_completed
+
+        event = _make_conflict_event(
+            "conflict-work_abc123-7d65ee98",
+            branch_name="f/issue_123/compute-001",
+        )
+        work = MagicMock()
+        work.work_id = "work_abc123"
+        work.branch_name = "old-branch"
+        work.project_id = "proj-1"
+        work.status = MagicMock(value="completed")
+
+        mock_work_map = MagicMock()
+        mock_work_map.get_work = AsyncMock(return_value=work)
+        mock_work_map.cascade_dependents = AsyncMock()
+
+        with patch("api.compute._auto_create_and_merge_pr", new_callable=AsyncMock) as mock_merge:
+            await _handle_conflict_resolution_completed(event, mock_work_map)
+
+        mock_merge.assert_awaited_once_with(work, "f/issue_123/compute-001", "compute-001")
+
+    @pytest.mark.asyncio
+    async def test_cascades_dependents_when_work_already_completed(self):
+        """After re-merge, cascade dependents if work was already in COMPLETED status."""
+        from api.compute import _handle_conflict_resolution_completed
+        from models.work_map import WorkStatus
+
+        event = _make_conflict_event("conflict-work_abc123-7d65ee98")
+        work = MagicMock()
+        work.work_id = "work_abc123"
+        work.branch_name = "feat/my-branch"
+        work.project_id = "proj-1"
+        work.status = WorkStatus.COMPLETED
+
+        mock_work_map = MagicMock()
+        mock_work_map.get_work = AsyncMock(return_value=work)
+        mock_work_map.cascade_dependents = AsyncMock()
+
+        with patch("api.compute._auto_create_and_merge_pr", new_callable=AsyncMock):
+            await _handle_conflict_resolution_completed(event, mock_work_map)
+
+        mock_work_map.cascade_dependents.assert_awaited_once_with("work_abc123")
+
+    @pytest.mark.asyncio
+    async def test_handle_work_status_routes_conflict_tasks(self):
+        """_handle_work_status_update routes conflict-* tasks to the new handler."""
+        from api.compute import _handle_work_status_update
+
+        event = _make_conflict_event("conflict-work_abc123-7d65ee98")
+
+        mock_work_map = MagicMock()
+        mock_work_map.get_work = AsyncMock(return_value=None)
+
+        with patch("services.work_map_service.get_work_map_service", return_value=mock_work_map), \
+             patch("api.compute._handle_conflict_resolution_completed", new_callable=AsyncMock, create=True) as mock_handler:
+            await _handle_work_status_update(event)
+
+        mock_handler.assert_awaited_once_with(event, mock_work_map)
+
+
