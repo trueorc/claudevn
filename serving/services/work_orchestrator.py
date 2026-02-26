@@ -926,6 +926,69 @@ class WorkOrchestrator:
         except Exception as e:
             logger.warning(f"Error removing work from bucket tree: {e}")
 
+    def _sync_project_repo(self, project_id: str) -> None:
+        """Sync the bare repo from upstream before compute clones from it.
+
+        For linked repos, fetches the latest state from the upstream origin
+        so that compute instances clone from the most up-to-date default
+        branch. This prevents spurious merge conflicts when multiple
+        computes branch from the same stale HEAD.
+
+        Internal (non-linked) repos are skipped — their bare repo IS the
+        source of truth and is updated directly by merges.
+
+        Args:
+            project_id: Project/repo name
+        """
+        import subprocess
+        from pathlib import Path
+        from config import get_config
+        from git.repo_manager import RepoManager
+
+        config = get_config()
+        repo_path = Path(config.git.repos_path) / f"{project_id}.git"
+
+        if not repo_path.exists():
+            logger.debug(f"Repo not found for sync: {project_id}")
+            return
+
+        # Check if this is a linked repo
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", "claudevn.isLinked"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0 or result.stdout.strip() != "true":
+            return
+
+        # Resolve SSH key for authenticated fetch
+        ssh_key_path = None
+        key_result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", "claudevn.sshKeyId"],
+            capture_output=True, text=True
+        )
+        if key_result.returncode == 0 and key_result.stdout.strip():
+            ssh_key_id = key_result.stdout.strip()
+            try:
+                from git.ssh_key_service import get_ssh_key_service
+                ssh_service = get_ssh_key_service()
+                private_path = ssh_service._private_key_path(ssh_key_id)
+                if private_path.exists():
+                    ssh_key_path = str(private_path)
+            except Exception:
+                pass
+
+        logger.info(f"Pre-clone upstream sync for linked repo: {project_id}")
+        try:
+            repo_manager = RepoManager()
+            repo_manager.pull_from_origin(project_id, ssh_key_path=ssh_key_path)
+        except Exception as e:
+            # Non-fatal: sync failure should not block work assignment.
+            # The compute will clone whatever state the bare repo has.
+            logger.warning(
+                f"Pre-clone upstream sync failed for {project_id}: {e}. "
+                "Proceeding with existing repo state."
+            )
+
     async def _spawn_for_work(self, work) -> None:
         """Assign work to a compute instance.
 
@@ -938,6 +1001,11 @@ class WorkOrchestrator:
         """
         work_id = work.work_id
         logger.info(f"Assigning work {work_id}: {work.title}")
+
+        # Sync bare repo from upstream so compute clones start from
+        # the latest HEAD (prevents stale-HEAD merge conflicts).
+        if work.project_id:
+            self._sync_project_repo(work.project_id)
 
         # Mark as being processed
         self._active_spawns[work_id] = datetime.now(timezone.utc)
