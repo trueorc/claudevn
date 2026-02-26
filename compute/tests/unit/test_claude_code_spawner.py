@@ -218,7 +218,8 @@ class TestCreateClaudeMd:
         assert "This is a test task" in content
         assert "## Skills" in content
         assert "Use pytest for testing." in content
-        assert "## Output Format" in content
+        # Output Format moved to stable system instructions (#58)
+        assert "## Output Format" not in content
 
     def test_create_claude_md_with_context(self, tmp_path):
         """Test creating CLAUDE.md with full context."""
@@ -266,8 +267,8 @@ class TestCreateClaudeMd:
         assert "## Skills" in content
         assert "No specific skills provided." in content
 
-    def test_create_claude_md_includes_serving_repo_when_present(self, tmp_path):
-        """Serving Repository section appears when repo is configured and cloned."""
+    def test_create_claude_md_serving_repo_moved_to_stable(self, tmp_path):
+        """Serving Repository section is in stable instructions, not CLAUDE.md (#58)."""
         fake_repo_path = tmp_path / "serving_repo"
         fake_repo_path.mkdir(parents=True)
 
@@ -286,8 +287,8 @@ class TestCreateClaudeMd:
         with patch.object(ClaudeCodeSpawner, "SERVING_REPO_PATH", new=fake_repo_path):
             content = spawner._create_claude_md(event)
 
-        assert "## Serving Repository" in content
-        assert str(fake_repo_path) in content
+        # Serving repo is now in stable system instructions, not dynamic CLAUDE.md
+        assert "## Serving Repository" not in content
 
     def test_create_claude_md_omits_serving_repo_when_not_configured(self, tmp_path):
         """No Serving Repository section when serving_repo_url is None."""
@@ -527,7 +528,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -580,7 +581,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -624,7 +625,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -662,7 +663,7 @@ class TestStartTask:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, '_run_and_handle_result', side_effect=capture_run):
@@ -3324,7 +3325,7 @@ class TestGitAskpassAbsolutePath:
 
         captured = {}
 
-        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars, **kwargs):
             captured["env_vars"] = env_vars
 
         with patch.object(spawner, "_run_and_handle_result", side_effect=capture_run):
@@ -3630,10 +3631,10 @@ class TestInstallPrePushHook:
 
 
 class TestCreateClaudeMdBranchInstructions:
-    """Tests for strengthened branch instructions in CLAUDE.md (#57)."""
+    """Tests for branch instructions in CLAUDE.md (#57, #58)."""
 
-    def test_claude_md_prohibits_branch_switching(self, tmp_path):
-        """Generated CLAUDE.md includes branch switching prohibition."""
+    def test_claude_md_includes_branch_assignment(self, tmp_path):
+        """Generated CLAUDE.md includes branch assignment with push command."""
         spawner = make_spawner(tmp_path)
 
         work_event = {
@@ -3647,6 +3648,101 @@ class TestCreateClaudeMdBranchInstructions:
 
         content = spawner._create_claude_md(work_event)
 
-        assert "Do NOT create or switch to any other branch" in content
-        assert "Do NOT run: `git checkout -b`" in content
+        assert "## Branch Assignment" in content
+        assert "f/issue_abc/compute-001" in content
         assert "git push origin f/issue_abc/compute-001" in content
+
+    def test_stable_instructions_prohibit_branch_switching(self, tmp_path):
+        """Stable system instructions include branch switching prohibition (#57)."""
+        spawner = make_spawner(tmp_path)
+
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "Do NOT create or switch branches" in instructions
+        assert "`git checkout -b`" in instructions
+
+
+class TestBuildSystemPrompt:
+    """Tests for _build_system_prompt and _build_stable_system_instructions (#58)."""
+
+    def test_system_prompt_uses_claude_code_preset(self, tmp_path):
+        """System prompt uses the claude_code preset for full behavior."""
+        spawner = make_spawner(tmp_path)
+        prompt = spawner._build_system_prompt()
+
+        assert prompt["type"] == "preset"
+        assert prompt["preset"] == "claude_code"
+        assert "append" in prompt
+
+    def test_stable_instructions_include_compute_id(self, tmp_path):
+        """Stable instructions identify the compute instance."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "compute-001" in instructions
+
+    def test_stable_instructions_include_git_conventions(self, tmp_path):
+        """Stable instructions include git workflow conventions."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "## Git Conventions" in instructions
+        assert "git add -A" in instructions
+        assert "commit" in instructions
+
+    def test_stable_instructions_include_output_format(self, tmp_path):
+        """Stable instructions include JSON output format requirements."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "## Output Format" in instructions
+        assert "JSON" in instructions
+
+    def test_stable_instructions_include_serving_repo_when_present(self, tmp_path):
+        """Serving repo section appears in stable instructions when configured."""
+        fake_repo_path = tmp_path / "serving_repo"
+        fake_repo_path.mkdir(parents=True)
+
+        spawner = make_spawner(
+            tmp_path,
+            serving_repo_url="git@github.com:Guarrdon/trueorc.git",
+        )
+
+        with patch.object(ClaudeCodeSpawner, "SERVING_REPO_PATH", new=fake_repo_path):
+            instructions = spawner._build_stable_system_instructions()
+
+        assert "## Serving Repository" in instructions
+        assert str(fake_repo_path) in instructions
+
+    def test_stable_instructions_omit_serving_repo_when_not_configured(self, tmp_path):
+        """No serving repo in stable instructions when not configured."""
+        spawner = make_spawner(tmp_path)
+        instructions = spawner._build_stable_system_instructions()
+
+        assert "## Serving Repository" not in instructions
+
+    def test_dynamic_claude_md_does_not_contain_stable_content(self, tmp_path):
+        """Dynamic CLAUDE.md should not contain stable instructions (#58)."""
+        spawner = make_spawner(tmp_path)
+
+        event = {
+            "task_id": "task-123",
+            "title": "Test Task",
+            "description": "Do something",
+            "skills": {},
+            "context": {
+                "repository": "http://localhost/repo.git",
+                "base_branch": "main",
+            },
+            "branch_name": "f/issue_abc/compute-001",
+        }
+
+        content = spawner._create_claude_md(event)
+
+        # These sections should NOT be in dynamic CLAUDE.md
+        assert "## Output Format" not in content
+        assert "## Git Conventions" not in content
+        assert "## Serving Repository" not in content
+        # These should still be present
+        assert "## Branch Assignment" in content
+        assert "## Description" in content
