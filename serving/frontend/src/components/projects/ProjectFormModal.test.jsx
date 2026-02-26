@@ -6,11 +6,9 @@ import ProjectFormModal from './ProjectFormModal'
 vi.mock('../../api/projects', () => ({
   createProject: vi.fn(),
   updateProject: vi.fn(),
-  addRepoToProject: vi.fn(),
-  createInternalRepo: vi.fn(),
 }))
 
-import { createProject, updateProject, addRepoToProject, createInternalRepo } from '../../api/projects'
+import { createProject, updateProject } from '../../api/projects'
 
 describe('ProjectFormModal', () => {
   const defaultProps = {
@@ -22,10 +20,8 @@ describe('ProjectFormModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    createProject.mockResolvedValue({ project_id: 'proj_test123' })
+    createProject.mockResolvedValue({ project_id: 'proj_test123', repos: [] })
     updateProject.mockResolvedValue({})
-    addRepoToProject.mockResolvedValue({})
-    createInternalRepo.mockResolvedValue({})
   })
 
   it('renders the new project form', () => {
@@ -209,16 +205,15 @@ describe('ProjectFormModal', () => {
         icon: null,
         icon_color: null,
         labels: [],
+        repos: [],
       })
     })
 
-    expect(createInternalRepo).not.toHaveBeenCalled()
-    expect(addRepoToProject).not.toHaveBeenCalled()
     expect(defaultProps.onSuccess).toHaveBeenCalled()
     expect(defaultProps.onClose).toHaveBeenCalled()
   })
 
-  it('creates project with internal repo', async () => {
+  it('creates project with repos included atomically in request', async () => {
     render(<ProjectFormModal {...defaultProps} />)
 
     // Set project name
@@ -226,7 +221,7 @@ describe('ProjectFormModal', () => {
       target: { value: 'Test Project' },
     })
 
-    // Open repo section and add a repo
+    // Open repo section and add an internal repo
     fireEvent.click(screen.getByText('Repositories'))
     fireEvent.change(screen.getByPlaceholderText('Repository name'), {
       target: { value: 'my-repo' },
@@ -237,15 +232,25 @@ describe('ProjectFormModal', () => {
     fireEvent.click(screen.getByText('Create Project'))
 
     await waitFor(() => {
-      expect(createProject).toHaveBeenCalled()
-      expect(createInternalRepo).toHaveBeenCalledWith('proj_test123', {
-        name: 'my-repo',
-        default_branch: 'main',
+      expect(createProject).toHaveBeenCalledWith({
+        name: 'Test Project',
+        description: '',
+        icon: null,
+        icon_color: null,
+        labels: [],
+        repos: [
+          {
+            mode: 'create',
+            name: 'my-repo',
+            url: null,
+            default_branch: 'main',
+          },
+        ],
       })
     })
   })
 
-  it('creates project with external repo', async () => {
+  it('creates project with external repo included atomically', async () => {
     render(<ProjectFormModal {...defaultProps} />)
 
     fireEvent.change(screen.getByLabelText('Name'), {
@@ -266,13 +271,67 @@ describe('ProjectFormModal', () => {
     fireEvent.click(screen.getByText('Create Project'))
 
     await waitFor(() => {
-      expect(createProject).toHaveBeenCalled()
-      expect(addRepoToProject).toHaveBeenCalledWith('proj_test123', {
-        name: 'ext-repo',
-        url: 'https://github.com/test/repo.git',
-        default_branch: 'main',
+      expect(createProject).toHaveBeenCalledWith({
+        name: 'Test Project',
+        description: '',
+        icon: null,
+        icon_color: null,
+        labels: [],
+        repos: [
+          {
+            mode: 'link',
+            name: 'ext-repo',
+            url: 'https://github.com/test/repo.git',
+            default_branch: 'main',
+          },
+        ],
       })
     })
+  })
+
+  it('surfaces clone errors from response repos', async () => {
+    createProject.mockResolvedValue({
+      project_id: 'proj_test123',
+      repos: [
+        {
+          repo_id: 'repo_abc',
+          name: 'ext-repo',
+          url: 'https://github.com/test/repo.git',
+          metadata: {
+            clone_error: 'Authentication failed',
+          },
+        },
+      ],
+    })
+
+    render(<ProjectFormModal {...defaultProps} />)
+
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Test Project' },
+    })
+
+    fireEvent.click(screen.getByText('Repositories'))
+    fireEvent.click(screen.getByText('Link External'))
+
+    fireEvent.change(screen.getByPlaceholderText('Repository name'), {
+      target: { value: 'ext-repo' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/org/repo.git'), {
+      target: { value: 'https://github.com/test/repo.git' },
+    })
+
+    fireEvent.click(screen.getByText('Add to list'))
+    fireEvent.click(screen.getByText('Create Project'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/clone errors/)).toBeDefined()
+      expect(screen.getByText(/Authentication failed/)).toBeDefined()
+    })
+
+    // onSuccess is still called (project was created)
+    expect(defaultProps.onSuccess).toHaveBeenCalled()
+    // onClose is NOT called when there are clone errors (user sees the error)
+    expect(defaultProps.onClose).not.toHaveBeenCalled()
   })
 
   it('shows error on project creation failure', async () => {

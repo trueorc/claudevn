@@ -11,7 +11,8 @@ from models.project import (
     RepoAddRequest, RepoCreateInternalRequest,
     ProjectListResponse, ProjectStats,
     ActivitySummary, ActivityIndicator, ActivityEvent,
-    ActivityEventType, ProjectActivityResponse
+    ActivityEventType, ProjectActivityResponse,
+    PendingRepoRequest
 )
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,12 @@ class ProjectService:
         return self._projects.get(project_id)
 
     async def create_project(self, request: ProjectCreateRequest) -> Project:
-        """Create a new project."""
+        """Create a new project.
+
+        If request.repos is provided, repos are created/linked atomically
+        as part of project creation. Clone errors are recorded in each
+        repo's metadata rather than failing the whole operation.
+        """
         project_id = f"proj_{uuid.uuid4().hex[:12]}"
 
         project = Project(
@@ -158,6 +164,37 @@ class ProjectService:
 
         self._projects[project_id] = project
         await self._save_project(project)
+
+        # Process pending repos atomically
+        for pending_repo in request.repos:
+            try:
+                if pending_repo.mode == "create":
+                    await self.create_internal_repo(
+                        project_id,
+                        RepoCreateInternalRequest(
+                            name=pending_repo.name,
+                            default_branch=pending_repo.default_branch,
+                        ),
+                    )
+                elif pending_repo.mode == "link" and pending_repo.url:
+                    await self.add_repo(
+                        project_id,
+                        RepoAddRequest(
+                            name=pending_repo.name,
+                            url=pending_repo.url,
+                            default_branch=pending_repo.default_branch,
+                        ),
+                    )
+                else:
+                    logger.warning(
+                        f"Skipping repo '{pending_repo.name}': "
+                        f"invalid mode '{pending_repo.mode}' or missing URL"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to process repo '{pending_repo.name}' "
+                    f"during project creation: {e}"
+                )
 
         logger.info(f"Created project {project_id}: {project.name}")
         return project

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, FolderGit2, Code, Database, Server, Globe, Folder, Box, Layers, Cpu, Cloud, Shield, ChevronDown, ChevronRight, Plus, GitBranch, Trash2 } from 'lucide-react'
 import Modal from '../common/Modal'
-import { createProject, updateProject, addRepoToProject, createInternalRepo } from '../../api/projects'
+import { createProject, updateProject } from '../../api/projects'
 import '../common/Modal.css'
 import './Projects.css'
 
@@ -333,23 +333,29 @@ function ProjectFormModal({ isOpen, onClose, onSuccess, project = null }) {
       if (isEditing) {
         await updateProject(project.project_id, data)
       } else {
-        const created = await createProject(data)
-        const projectId = created.project_id
+        // Send repos atomically with project creation
+        const createData = {
+          ...data,
+          repos: pendingRepos.map((repo) => ({
+            mode: repo.mode,
+            name: repo.name,
+            url: repo.url,
+            default_branch: repo.default_branch,
+          })),
+        }
 
-        // Add pending repos sequentially
-        for (const repo of pendingRepos) {
-          if (repo.mode === 'create') {
-            await createInternalRepo(projectId, {
-              name: repo.name,
-              default_branch: repo.default_branch,
-            })
-          } else {
-            await addRepoToProject(projectId, {
-              name: repo.name,
-              url: repo.url,
-              default_branch: repo.default_branch,
-            })
-          }
+        const created = await createProject(createData)
+
+        // Surface clone errors from repos that failed
+        const repoErrors = (created.repos || [])
+          .filter((r) => r.metadata?.clone_error)
+          .map((r) => `${r.name}: ${r.metadata.clone_error}`)
+
+        if (repoErrors.length > 0) {
+          setError(`Project created, but some repos had clone errors:\n${repoErrors.join('\n')}`)
+          setSaving(false)
+          onSuccess()
+          return
         }
       }
 

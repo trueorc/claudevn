@@ -109,6 +109,14 @@ class Project(BaseModel):
         return next((r for r in self.repos if r.repo_id == self.primary_repo_id), None)
 
 
+class PendingRepoRequest(BaseModel):
+    """A repo to create or link during project creation."""
+    mode: str = Field(..., description="'create' for internal or 'link' for external")
+    name: str = Field(..., description="Repository name")
+    url: Optional[str] = Field(None, description="External URL (required for 'link' mode)")
+    default_branch: str = Field(default="main", description="Default branch name")
+
+
 class ProjectCreateRequest(BaseModel):
     """Request to create a new project."""
     name: str
@@ -117,6 +125,10 @@ class ProjectCreateRequest(BaseModel):
     icon_color: Optional[str] = None
     labels: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    repos: List[PendingRepoRequest] = Field(
+        default_factory=list,
+        description="Repos to create/link atomically during project creation"
+    )
 
 
 class ProjectUpdateRequest(BaseModel):
