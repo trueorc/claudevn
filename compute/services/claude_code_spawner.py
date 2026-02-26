@@ -1020,6 +1020,12 @@ sys.exit(1)
             work_assigned_event: work_assigned event data
             mcp_servers: MCP server configuration for SDK
         """
+        # Extract model from work assignment (set by serving's model resolution)
+        model = work_assigned_event.get("model")
+        if model:
+            logger.info(f"Task {task_id}: using model {model}")
+        else:
+            logger.info(f"Task {task_id}: using default model (no model specified)")
         # Build environment variables for the SDK subprocess
         env_vars: Dict[str, str] = {}
         env_vars["CLAUDEVN_COMPUTE_ID"] = self.compute_id
@@ -1064,6 +1070,7 @@ sys.exit(1)
                 mcp_servers=mcp_servers,
                 env_vars=env_vars,
                 system_prompt=system_prompt,
+                model=model,
             )
         )
 
@@ -1076,6 +1083,7 @@ sys.exit(1)
         mcp_servers: Dict[str, Any],
         env_vars: Dict[str, str],
         system_prompt: Optional[Dict[str, Any]] = None,
+        model: Optional[str] = None,
     ) -> None:
         """Execute a task via SDK and handle the result.
 
@@ -1091,6 +1099,7 @@ sys.exit(1)
             mcp_servers: MCP server configuration
             env_vars: Environment variables
             system_prompt: System prompt configuration for caching (#58)
+            model: Claude model identifier (None = use default)
         """
         instance = self._instances.get(task_id)
         started_at = instance["started_at"] if instance else datetime.now(timezone.utc)
@@ -1103,6 +1112,7 @@ sys.exit(1)
                 mcp_servers=mcp_servers,
                 env_vars=env_vars,
                 system_prompt=system_prompt,
+                model=model,
             )
 
             stopped_at = datetime.now(timezone.utc)

@@ -3,6 +3,7 @@ name: Security Reviewer
 description: Reviews code for security vulnerabilities, applies secure coding practices, and identifies potential attack vectors.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Security Reviewer

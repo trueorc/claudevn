@@ -1127,6 +1127,13 @@ class WorkAssignment(BaseModel):
     dependencies: List[str] = Field(default_factory=list, description="Completed dependency work IDs")
     dependency_outputs: Dict[str, Any] = Field(default_factory=dict, description="Outputs from dependencies")
 
+    # Model selection
+    model: Optional[str] = Field(
+        None,
+        description="Resolved Claude model identifier for compute execution "
+        "(e.g. 'claude-opus-4-20250514'). None means use default (Sonnet)."
+    )
+
     # Repository details for linked repos
     git_project_name: Optional[str] = Field(
         None,

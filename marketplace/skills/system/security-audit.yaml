@@ -3,6 +3,7 @@ name: Security Audit
 description: Performs security audits, identifies vulnerabilities, and recommends remediation for code and infrastructure.
 version: "1.0.0"
 author: system
+preferred_model: opus
 
 instructions: |
   # Security Audit
