@@ -488,10 +488,13 @@ class WorkMapService:
         self,
         issue_id: str,
         status: IssueStatus,
-        compute_id: Optional[str] = None
+        compute_id: Optional[str] = None,
+        reason: Optional[str] = None
     ) -> Optional[Issue]:
         """Update issue status with validation."""
-        return await self._issue_service.update_issue_status(issue_id, status, compute_id)
+        return await self._issue_service.update_issue_status(
+            issue_id, status, compute_id, reason=reason
+        )
 
     async def complete_issue(
         self,
@@ -663,19 +666,21 @@ class WorkMapService:
                 )
                 return None
 
-        # Get project git info
+        # Get project git info — always resolve through resolve_repo_details()
+        # so compute gets the internal serving URL, never an external origin.
         repo_url = None
         base_branch = "main"
         if issue.project_id:
             try:
                 project_service = get_project_service()
-                project = await project_service.get_project(issue.project_id)
-                if project:
-                    primary_repo = project.primary_repo
-                    if primary_repo:
-                        repo_url = primary_repo.url
-                        base_branch = primary_repo.default_branch
-                    else:
+                repo_details = await project_service.resolve_repo_details(issue.project_id)
+                if repo_details:
+                    repo_url = repo_details["clone_url"]
+                    base_branch = repo_details["default_branch"]
+                else:
+                    # Fallback: try project-level default
+                    project = await project_service.get_project(issue.project_id)
+                    if project:
                         base_branch = project.default_base_branch
             except Exception as e:
                 logger.warning(f"Error getting project info for issue {issue_id}: {e}")

@@ -115,8 +115,12 @@ export async function updateIssue(issueId, updates) {
   })
 }
 
-export async function updateIssueStatus(issueId, status) {
-  return request(`/issues/${issueId}/status?status=${encodeURIComponent(status)}`, {
+export async function updateIssueStatus(issueId, status, reason = null) {
+  let url = `/issues/${issueId}/status?status=${encodeURIComponent(status)}`
+  if (reason) {
+    url += `&reason=${encodeURIComponent(reason)}`
+  }
+  return request(url, {
     method: 'POST'
   })
 }

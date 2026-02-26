@@ -1621,11 +1621,13 @@ async def update_issue(issue_id: str, request: IssueUpdateRequest):
 async def update_issue_status(
     issue_id: str,
     new_status: str = Query(..., alias="status", description="New status"),
-    compute_id: Optional[str] = Query(None, description="Compute ID")
+    compute_id: Optional[str] = Query(None, description="Compute ID"),
+    reason: Optional[str] = Query(None, description="Reason (required for DONE/FAILED → BACKLOG)")
 ):
     """Update issue status.
 
-    Status flow: backlog → ready → in_progress → blocked → done → failed
+    Status flow: backlog → ready → in_progress → blocked → done/failed
+    Override: done/failed → backlog (requires reason)
     """
     service = get_work_map_service()
 
@@ -1637,12 +1639,15 @@ async def update_issue_status(
             detail=f"Invalid status: {new_status}. Must be one of: {[s.value for s in IssueStatus]}"
         )
 
-    issue = await service.update_issue_status(issue_id, issue_status, compute_id)
+    issue = await service.update_issue_status(
+        issue_id, issue_status, compute_id, reason=reason
+    )
 
     if not issue:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot update status for issue '{issue_id}'. Check transition rules."
+            detail=f"Cannot update status for issue '{issue_id}'. Check transition rules. "
+                   f"DONE/FAILED → BACKLOG requires a reason parameter."
         )
 
     return issue

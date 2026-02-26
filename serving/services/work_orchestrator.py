@@ -1068,14 +1068,15 @@ class WorkOrchestrator:
                 "requirements": work.description,
             }
 
-            # Include repo details so compute knows the correct clone URL and project name
+            # Include repo details so compute knows the correct clone URL and project name.
+            # Always override repository and base_branch — compute must clone from
+            # the internal serving URL, never from an external origin.
             if repo_details:
                 context["git_project_name"] = repo_details["git_project_name"]
                 context["clone_url"] = repo_details["clone_url"]
                 context["default_branch"] = repo_details["default_branch"]
-                # Override repository with resolved clone_url if not already set
-                if not context.get("repository"):
-                    context["repository"] = repo_details["clone_url"]
+                context["repository"] = repo_details["clone_url"]
+                context["base_branch"] = repo_details["default_branch"]
 
             # Generate a real API key for this work assignment
             from mcp.auth import generate_api_key, register_compute_key
