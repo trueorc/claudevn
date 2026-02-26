@@ -810,8 +810,79 @@ fi
             )
             return False
 
+    def _build_stable_system_instructions(self) -> str:
+        """Build stable instructions for the system_prompt append field (#58).
+
+        These instructions are identical across all tasks on this compute instance
+        and benefit from prompt caching. Dynamic per-task content goes in CLAUDE.md.
+
+        Returns:
+            Stable instruction text for system_prompt append
+        """
+        sections = [
+            "## ClaudeVN Compute Instance",
+            "",
+            f"You are running as compute instance `{self.compute_id}`.",
+            "",
+            "## Git Conventions",
+            "",
+            "When working on a Git branch:",
+            "- Stage all changes: `git add -A`",
+            '- Commit with a descriptive message: `git commit -m "<description>"`',
+            "- Push your assigned branch explicitly (do not use `git push origin HEAD`)",
+            "- CRITICAL: Do NOT create or switch branches. Do NOT run: "
+            "`git checkout -b`, `git switch -c`, `git branch`",
+            "- You MUST commit and push your changes before finishing",
+            "- The system relies on your branch having commits to create PRs and merge",
+            "",
+            "## Output Format",
+            "",
+            "IMPORTANT: Output your result as valid JSON at the end of your response.",
+            "Your JSON output should be on a single line starting with `{` and ending with `}`.",
+            "The system will parse this JSON to get your result.",
+            "",
+            "For decomposition tasks, output JSON like:",
+            "```",
+            '{"issues": [...], "confidence": 0.85, "reasoning": "..."}',
+            "```",
+            "",
+        ]
+
+        # Serving repo availability is stable per-instance
+        if self.serving_repo_url and self.SERVING_REPO_PATH.exists():
+            sections.extend([
+                "## Serving Repository",
+                "",
+                f"The ClaudeVN serving codebase is available at `{self.SERVING_REPO_PATH}` (shallow clone of main).",
+                "Inspect it to understand existing patterns, module structure, and conventions before making decisions.",
+                "This repo is updated with `git pull` at the start of every task.",
+                "",
+            ])
+
+        return "\n".join(sections)
+
+    def _build_system_prompt(self) -> Dict[str, Any]:
+        """Build the system_prompt configuration for the Agent SDK (#58).
+
+        Uses the ``claude_code`` preset for full Claude Code behavior and
+        appends stable ClaudeVN-specific instructions. The SDK automatically
+        applies cache_control markers to system prompt blocks.
+
+        Returns:
+            Dict suitable for ClaudeAgentOptions.system_prompt
+        """
+        return {
+            "type": "preset",
+            "preset": "claude_code",
+            "append": self._build_stable_system_instructions(),
+        }
+
     def _create_claude_md(self, work_assigned_event: Dict[str, Any]) -> str:
-        """Create CLAUDE.md content from work assignment.
+        """Create CLAUDE.md content with per-task dynamic content (#58).
+
+        Stable instructions (git conventions, output format, serving repo) are
+        now in the system_prompt append field for prompt caching. This method
+        only generates task-specific content.
 
         Args:
             work_assigned_event: work_assigned event data
@@ -828,7 +899,7 @@ fi
         # Get merged instructions from skills
         merged_instructions = skills.get("merged_instructions", "")
 
-        # Build CLAUDE.md
+        # Build CLAUDE.md — per-task dynamic content only
         sections = [
             f"# Task: {title}",
             "",
@@ -858,60 +929,18 @@ fi
         if context.get("requirements"):
             sections.append(f"\n**Requirements:**\n{context['requirements']}")
 
-        # Document serving repo availability if present
-        if self.serving_repo_url and self.SERVING_REPO_PATH.exists():
-            sections.extend([
-                "",
-                "## Serving Repository",
-                "",
-                f"The ClaudeVN serving codebase is available at `{self.SERVING_REPO_PATH}` (shallow clone of main).",
-                "Inspect it to understand existing patterns, module structure, and conventions before making decisions.",
-                "This repo is updated with `git pull` at the start of every task.",
-                "",
-            ])
-
-        # Add git workflow instructions when repository context is present
+        # Branch assignment — task-specific details (branch name, base)
         if context.get("repository"):
             branch_name = work_assigned_event.get("branch_name", "")
             sections.extend([
                 "",
-                "## Git Workflow",
+                "## Branch Assignment",
                 "",
-                "You are working on a Git branch. Follow these steps:",
                 f"- **Branch:** `{branch_name}`",
                 f"- **Base:** `{context.get('base_branch', 'main')}`",
-                "",
-                "### CRITICAL: Branch Rules",
-                "",
-                f"You are on branch `{branch_name}`. Do NOT create or switch to any other branch.",
-                "Do NOT run: `git checkout -b`, `git switch -c`, `git branch`, or any command that creates or switches branches.",
-                f"All your work MUST be committed to `{branch_name}`. The system will reject pushes to other branches.",
-                "",
-                "### Commit your work",
-                "When you have completed the task:",
-                "1. Stage all changes: `git add -A`",
-                "2. Commit with a descriptive message: `git commit -m \"<description of changes>\"`",
-                f"3. Push your branch: `git push origin {branch_name}`",
-                "",
-                "IMPORTANT: You MUST commit and push your changes before finishing.",
-                "The system relies on your branch having commits to create PRs and merge.",
+                f"- Push command: `git push origin {branch_name}`",
                 "",
             ])
-
-        sections.extend([
-            "",
-            "## Output Format",
-            "",
-            "IMPORTANT: Output your result as valid JSON at the end of your response.",
-            "Your JSON output should be on a single line starting with `{` and ending with `}`.",
-            "The system will parse this JSON to get your result.",
-            "",
-            "For decomposition tasks, output JSON like:",
-            "```",
-            '{"issues": [...], "confidence": 0.85, "reasoning": "..."}',
-            "```",
-            "",
-        ])
 
         return "\n".join(sections)
 
@@ -1020,6 +1049,9 @@ sys.exit(1)
             "Output your final result as a JSON object on a single line."
         )
 
+        # Build system prompt with claude_code preset for caching (#58)
+        system_prompt = self._build_system_prompt()
+
         logger.info(f"Starting SDK task execution in {workspace}")
 
         # Launch the execution in a background async task
@@ -1031,6 +1063,7 @@ sys.exit(1)
                 cwd=workspace,
                 mcp_servers=mcp_servers,
                 env_vars=env_vars,
+                system_prompt=system_prompt,
             )
         )
 
@@ -1042,6 +1075,7 @@ sys.exit(1)
         cwd: Path,
         mcp_servers: Dict[str, Any],
         env_vars: Dict[str, str],
+        system_prompt: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Execute a task via SDK and handle the result.
 
@@ -1056,6 +1090,7 @@ sys.exit(1)
             cwd: Working directory
             mcp_servers: MCP server configuration
             env_vars: Environment variables
+            system_prompt: System prompt configuration for caching (#58)
         """
         instance = self._instances.get(task_id)
         started_at = instance["started_at"] if instance else datetime.now(timezone.utc)
@@ -1067,6 +1102,7 @@ sys.exit(1)
                 cwd=cwd,
                 mcp_servers=mcp_servers,
                 env_vars=env_vars,
+                system_prompt=system_prompt,
             )
 
             stopped_at = datetime.now(timezone.utc)

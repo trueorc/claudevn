@@ -111,6 +111,7 @@ async def execute_task(
     env_vars: Optional[Dict[str, str]] = None,
     allowed_tools: Optional[List[str]] = None,
     max_turns: Optional[int] = None,
+    system_prompt: Optional[Dict[str, Any]] = None,
 ) -> ExecutionResult:
     """Execute a task using the Claude Agent SDK query() function.
 
@@ -125,6 +126,10 @@ async def execute_task(
         env_vars: Additional environment variables for the CLI subprocess
         allowed_tools: List of allowed tool names (None = all tools)
         max_turns: Maximum conversation turns (None = unlimited)
+        system_prompt: System prompt configuration. Use
+            ``{"type": "preset", "preset": "claude_code", "append": "..."}``
+            to get the full Claude Code system prompt with caching (#58).
+            If None, uses SDK default (minimal prompt).
 
     Returns:
         ExecutionResult with output, status, and metadata
@@ -139,6 +144,7 @@ async def execute_task(
 
     options = ClaudeAgentOptions(
         cwd=str(cwd),
+        system_prompt=system_prompt,
         mcp_servers=mcp_servers,
         permission_mode="bypassPermissions",
         setting_sources=["project"],
