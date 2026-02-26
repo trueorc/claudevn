@@ -45,15 +45,16 @@ class RepoManager:
         cmd = ["git", "-C", str(repo_path), *args]
         return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
-    def _seed_initial_commit(self, repo_path: Path) -> None:
+    def _seed_initial_commit(self, repo_path: Path, branch: str = "main") -> None:
         """Create an initial empty commit in a bare repository.
 
         Uses a temporary clone to create the commit, then cleans up.
-        This ensures refs/heads/main exists so that
-        `git clone --branch main` succeeds.
+        This ensures the default branch ref exists so that
+        ``git clone --branch {branch}`` succeeds.
 
         Args:
             repo_path: Path to the bare repository
+            branch: Branch name to seed (defaults to "main")
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Clone the bare repo into a temp working directory
@@ -75,6 +76,15 @@ class RepoManager:
                 capture_output=True
             )
 
+            # Ensure we're on the correct branch (empty repos default to
+            # whatever `init.defaultBranch` is configured as, which may
+            # differ from the requested branch name)
+            subprocess.run(
+                ["git", "-C", tmp_dir, "checkout", "-B", branch],
+                check=True,
+                capture_output=True
+            )
+
             # Create an empty initial commit
             subprocess.run(
                 ["git", "-C", tmp_dir, "commit", "--allow-empty", "-m", "Initial commit"],
@@ -84,12 +94,12 @@ class RepoManager:
 
             # Push back to the bare repo
             subprocess.run(
-                ["git", "-C", tmp_dir, "push", "origin", "main"],
+                ["git", "-C", tmp_dir, "push", "origin", f"HEAD:refs/heads/{branch}"],
                 check=True,
                 capture_output=True
             )
 
-        logger.debug(f"Seeded initial commit in {repo_path}")
+        logger.debug(f"Seeded initial commit on '{branch}' in {repo_path}")
 
     def _repo_path(self, project: str) -> Path:
         """Get path to project repository.
@@ -344,21 +354,25 @@ class RepoManager:
         """Generate pre-receive hook that validates pushes."""
         return f'''#!/bin/bash
 # ClaudeVN pre-receive hook for {project}
-# Validates branch naming and blocks direct pushes to main
+# Validates branch naming and blocks direct pushes to the default branch
 # Types: f (feature), b (bugfix), r (refactor), d (docs), t (test)
+
+# Dynamically determine the default branch from the bare repo's HEAD
+DEFAULT_BRANCH=$(git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||')
+DEFAULT_BRANCH="${{DEFAULT_BRANCH:-main}}"
 
 while read oldrev newrev refname; do
     branch=$(echo "$refname" | sed 's|refs/heads/||')
 
-    # STRICTLY block direct pushes to main/master
-    # Compute instances can NEVER push to main - only Serving (via merge process)
-    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    # STRICTLY block direct pushes to the default branch
+    # Compute instances can NEVER push to the default branch - only Serving (via merge process)
+    if [ "$branch" = "$DEFAULT_BRANCH" ]; then
         echo "ERROR: Direct push to $branch is FORBIDDEN."
-        echo "       Only Serving can merge to main."
+        echo "       Only Serving can merge to $DEFAULT_BRANCH."
         exit 1
     fi
 
-    # Skip validation for special branches
+    # Skip validation for develop
     if [ "$branch" = "develop" ]; then
         continue
     fi
@@ -390,6 +404,10 @@ exit 0
 # ClaudeVN post-receive hook for {project}
 # Publishes push events to Redis
 
+# Dynamically determine the default branch from the bare repo's HEAD
+DEFAULT_BRANCH=$(git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||')
+DEFAULT_BRANCH="${{DEFAULT_BRANCH:-main}}"
+
 REDIS_HOST="${{REDIS_HOST:-{redis_config.host}}}"
 REDIS_PORT="${{REDIS_PORT:-{redis_config.port}}}"
 REDIS_PREFIX="${{REDIS_PREFIX:-{redis_config.key_prefix}}}"
@@ -399,8 +417,8 @@ while read oldrev newrev refname; do
     branch=$(echo "$refname" | sed 's|refs/heads/||')
     timestamp=$(date -Iseconds)
 
-    # Skip main branch events (shouldn't happen due to pre-receive)
-    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    # Skip default branch events (handled by merge process)
+    if [ "$branch" = "$DEFAULT_BRANCH" ]; then
         continue
     fi
 
@@ -496,11 +514,11 @@ exit 0
             True if branch was deleted, False if branch not found
 
         Raises:
-            ValueError: If attempting to delete protected branch (main/master)
+            ValueError: If attempting to delete the default branch
         """
-        # Protect main/master branches
-        protected_branches = {"main", "master"}
-        if branch in protected_branches:
+        # Protect the default branch
+        default_branch = self.get_default_branch(project)
+        if branch == default_branch:
             raise ValueError(f"Cannot delete protected branch: {branch}")
 
         repo_path = self._repo_path(project)
@@ -577,14 +595,23 @@ exit 0
 
         logger.info(f"Cloning repository from {url} to {repo_path}")
 
-        # Build git clone command
+        # Build git clone command.
+        # When SSH key auth is provided and the URL is HTTPS, convert to SSH
+        # format so that GIT_SSH_COMMAND auth works (SSH keys don't authenticate
+        # over HTTPS transport).
+        clone_url = url
         env = os.environ.copy()
         if ssh_key_path:
             env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+            from git.url_utils import https_to_ssh
+            converted = https_to_ssh(url)
+            if converted:
+                clone_url = converted
+                logger.info(f"Converted clone URL to SSH: {clone_url}")
 
         # Clone as bare (NOT --mirror, which sets a dangerous catch-all refspec)
         subprocess.run(
-            ["git", "clone", "--bare", url, str(repo_path)],
+            ["git", "clone", "--bare", clone_url, str(repo_path)],
             check=True,
             capture_output=True,
             env=env
@@ -606,12 +633,11 @@ exit 0
             capture_output=True
         )
 
-        # Configure origin for push
+        # Configure origin push URL (uses SSH URL when SSH key auth is active)
         subprocess.run(
-            ["git", "-C", str(repo_path), "remote", "set-url", "--push", "origin", url],
+            ["git", "-C", str(repo_path), "remote", "set-url", "--push", "origin", clone_url],
             check=True,
             capture_output=True,
-            env=env
         )
 
         # Set default branch
@@ -642,6 +668,20 @@ exit 0
                 check=True,
                 capture_output=True
             )
+
+        # Detect empty linked repos: if the default branch has no ref,
+        # seed an initial commit so compute instances can clone successfully.
+        branches_result = subprocess.run(
+            ["git", "-C", str(repo_path), "branch", "--list"],
+            capture_output=True,
+            text=True
+        )
+        if not branches_result.stdout.strip():
+            logger.info(
+                f"Linked repo {project} is empty, seeding initial commit "
+                f"on '{default_branch}'"
+            )
+            self._seed_initial_commit(repo_path, branch=default_branch)
 
         # Install hooks
         self.install_hooks(project)
@@ -678,9 +718,24 @@ exit 0
         if ssh_key_path:
             env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
-        # Fetch all branches and tags from origin
+        # Check if this is a linked repo (has compute feature branches to preserve)
+        is_linked_result = self._git_cmd(repo_path, "config", "--get", "claudevn.isLinked")
+        is_linked = (
+            is_linked_result.returncode == 0
+            and is_linked_result.stdout.strip() == "true"
+        )
+
+        if is_linked:
+            # Linked repos: fetch only from origin with restricted refspec (set by
+            # clone_from_url). Omit --prune to preserve local compute feature branches
+            # that don't exist on the upstream remote.
+            cmd = ["git", "-C", str(repo_path), "fetch", "origin", "--tags"]
+        else:
+            # Internal repos: fetch all remotes and prune stale tracking refs
+            cmd = ["git", "-C", str(repo_path), "fetch", "--all", "--prune", "--tags"]
+
         result = subprocess.run(
-            ["git", "-C", str(repo_path), "fetch", "--all", "--prune", "--tags"],
+            cmd,
             capture_output=True,
             text=True,
             env=env

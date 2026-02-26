@@ -195,24 +195,23 @@ class ProjectService:
 
         repo_count = 0
 
-        # Clean up internal Git repositories
+        # Clean up Git repositories (both internal and cloned linked repos)
         for repo in project.repos:
-            if repo.is_internal:
-                git_project_name = repo.metadata.get("git_project_name")
-                if git_project_name:
-                    try:
-                        from api.git import get_repo_manager
-                        repo_manager = get_repo_manager()
-                        if repo_manager.delete_repo(git_project_name):
-                            repo_count += 1
-                            logger.info(
-                                f"Deleted internal Git repo {git_project_name}"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to delete internal Git repo "
-                            f"{git_project_name}: {e}"
+            git_project_name = repo.metadata.get("git_project_name")
+            if git_project_name:
+                try:
+                    from api.git import get_repo_manager
+                    repo_manager = get_repo_manager()
+                    if repo_manager.delete_repo(git_project_name):
+                        repo_count += 1
+                        logger.info(
+                            f"Deleted Git repo {git_project_name}"
                         )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete Git repo "
+                        f"{git_project_name}: {e}"
+                    )
 
         # Clean up activity events (in-memory)
         self._activity_events.pop(project_id, None)
@@ -247,12 +246,22 @@ class ProjectService:
         project_id: str,
         request: RepoAddRequest
     ) -> Optional[RepoConfig]:
-        """Add a repository to a project."""
+        """Add a repository to a project.
+
+        For linked (external) repos, automatically clones into the internal
+        git server so compute instances can access via internal URLs.
+        """
         project = self._projects.get(project_id)
         if not project:
             return None
 
         repo_id = f"repo_{uuid.uuid4().hex[:8]}"
+        git_project_name = f"{project_id}_{repo_id}"
+
+        # Merge git_project_name and origin_url into metadata
+        metadata = dict(request.metadata) if request.metadata else {}
+        metadata["git_project_name"] = git_project_name
+        metadata["origin_url"] = request.url
 
         repo = RepoConfig(
             repo_id=repo_id,
@@ -260,7 +269,7 @@ class ProjectService:
             url=request.url,
             default_branch=request.default_branch,
             ssh_key_id=request.ssh_key_id,
-            metadata=request.metadata,
+            metadata=metadata,
             added_at=datetime.now(timezone.utc)
         )
 
@@ -272,6 +281,35 @@ class ProjectService:
 
         project.updated_at = datetime.now(timezone.utc)
         await self._save_project(project)
+
+        # Auto-clone linked repo into internal git server
+        try:
+            from services.repo_sync_service import get_repo_sync_service
+            sync_service = get_repo_sync_service()
+            result = await sync_service.clone_repo(project_id, repo_id)
+
+            if result.success:
+                # Update URL to internal clone URL for compute access
+                from api.git import get_repo_manager
+                repo_manager = get_repo_manager()
+                repo.url = repo_manager.get_repo_url(git_project_name)
+                await self._save_project(project)
+                logger.info(
+                    f"Auto-cloned linked repo {repo_id} as {git_project_name}"
+                )
+            else:
+                # Ensure clone failure is recorded in metadata
+                repo.metadata.setdefault("clone_status", "error")
+                repo.metadata["clone_error"] = result.message
+                await self._save_project(project)
+                logger.warning(
+                    f"Auto-clone failed for repo {repo_id}: {result.message}"
+                )
+        except Exception as e:
+            repo.metadata["clone_status"] = "error"
+            repo.metadata["clone_error"] = str(e)
+            await self._save_project(project)
+            logger.warning(f"Auto-clone failed for repo {repo_id}: {e}")
 
         logger.info(f"Added repo {repo_id} to project {project_id}")
         return repo
@@ -351,8 +389,8 @@ class ProjectService:
         project.updated_at = datetime.now(timezone.utc)
         await self._save_project(project)
 
-        # Clean up internal Git repo if applicable
-        if repo and repo.is_internal:
+        # Clean up Git repo if applicable (both internal and cloned linked repos)
+        if repo:
             git_project_name = repo.metadata.get("git_project_name")
             if git_project_name:
                 try:
@@ -360,11 +398,11 @@ class ProjectService:
                     repo_manager = get_repo_manager()
                     repo_manager.delete_repo(git_project_name)
                     logger.info(
-                        f"Deleted internal Git repo {git_project_name}"
+                        f"Deleted Git repo {git_project_name}"
                     )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to delete internal Git repo "
+                        f"Failed to delete Git repo "
                         f"{git_project_name}: {e}"
                     )
 
@@ -626,6 +664,78 @@ class ProjectService:
             items=items,
             total=len(items)
         )
+
+
+    async def resolve_repo_details(
+        self,
+        project_id: str,
+        repo_id: Optional[str] = None
+    ) -> Optional[Dict[str, str]]:
+        """Resolve git_project_name, clone_url, and default_branch for a project's repo.
+
+        For linked repos, the bare repo name is '{project_id}_{repo_id}', making
+        the clone URL 'http://serving:8002/git/{project_id}_{repo_id}.git'.
+
+        Args:
+            project_id: Project ID to look up
+            repo_id: Specific repo ID (uses primary repo if not specified)
+
+        Returns:
+            Dict with git_project_name, clone_url, default_branch; or None if not found
+        """
+        project = self._projects.get(project_id)
+        if not project:
+            return None
+
+        # Find the target repo
+        repo: Optional[RepoConfig] = None
+        if repo_id:
+            repo = next((r for r in project.repos if r.repo_id == repo_id), None)
+        else:
+            repo = project.primary_repo
+
+        if not repo:
+            return None
+
+        # Resolve git_project_name
+        git_project_name = repo.metadata.get("git_project_name")
+        has_internal_clone = bool(git_project_name)
+
+        # Infer git_project_name for linked repos cloned before metadata was stored
+        if not git_project_name and not repo.is_internal:
+            candidate = f"{project_id}_{repo.repo_id}"
+            from git.repo_manager import RepoManager
+            if RepoManager().repo_exists(candidate):
+                git_project_name = candidate
+                has_internal_clone = True
+                # Backfill metadata so future lookups are fast
+                repo.metadata["git_project_name"] = candidate
+                await self._save_project(project)
+
+        if not git_project_name:
+            # For internal repos without metadata, try filesystem resolution
+            if repo.is_internal:
+                from api.compute import _resolve_git_project_name
+                git_project_name = _resolve_git_project_name(project_id)
+            else:
+                # External repos with no internal clone use project_id as-is
+                git_project_name = project_id
+
+        # Resolve clone_url — linked repos with internal clones always use serving URL
+        if has_internal_clone and not repo.is_internal:
+            from git.repo_manager import RepoManager
+            clone_url = RepoManager().get_repo_url(git_project_name)
+        elif repo.is_internal and not repo.url:
+            from git.repo_manager import RepoManager
+            clone_url = RepoManager().get_repo_url(git_project_name)
+        else:
+            clone_url = repo.url
+
+        return {
+            "git_project_name": git_project_name,
+            "clone_url": clone_url,
+            "default_branch": repo.default_branch,
+        }
 
 
 # Singleton instance

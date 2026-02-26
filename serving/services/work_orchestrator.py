@@ -926,6 +926,69 @@ class WorkOrchestrator:
         except Exception as e:
             logger.warning(f"Error removing work from bucket tree: {e}")
 
+    def _sync_project_repo(self, project_id: str) -> None:
+        """Sync the bare repo from upstream before compute clones from it.
+
+        For linked repos, fetches the latest state from the upstream origin
+        so that compute instances clone from the most up-to-date default
+        branch. This prevents spurious merge conflicts when multiple
+        computes branch from the same stale HEAD.
+
+        Internal (non-linked) repos are skipped — their bare repo IS the
+        source of truth and is updated directly by merges.
+
+        Args:
+            project_id: Project/repo name
+        """
+        import subprocess
+        from pathlib import Path
+        from config import get_config
+        from git.repo_manager import RepoManager
+
+        config = get_config()
+        repo_path = Path(config.git.repos_path) / f"{project_id}.git"
+
+        if not repo_path.exists():
+            logger.debug(f"Repo not found for sync: {project_id}")
+            return
+
+        # Check if this is a linked repo
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", "claudevn.isLinked"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0 or result.stdout.strip() != "true":
+            return
+
+        # Resolve SSH key for authenticated fetch
+        ssh_key_path = None
+        key_result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", "claudevn.sshKeyId"],
+            capture_output=True, text=True
+        )
+        if key_result.returncode == 0 and key_result.stdout.strip():
+            ssh_key_id = key_result.stdout.strip()
+            try:
+                from git.ssh_key_service import get_ssh_key_service
+                ssh_service = get_ssh_key_service()
+                private_path = ssh_service._private_key_path(ssh_key_id)
+                if private_path.exists():
+                    ssh_key_path = str(private_path)
+            except Exception:
+                pass
+
+        logger.info(f"Pre-clone upstream sync for linked repo: {project_id}")
+        try:
+            repo_manager = RepoManager()
+            repo_manager.pull_from_origin(project_id, ssh_key_path=ssh_key_path)
+        except Exception as e:
+            # Non-fatal: sync failure should not block work assignment.
+            # The compute will clone whatever state the bare repo has.
+            logger.warning(
+                f"Pre-clone upstream sync failed for {project_id}: {e}. "
+                "Proceeding with existing repo state."
+            )
+
     async def _spawn_for_work(self, work) -> None:
         """Assign work to a compute instance.
 
@@ -938,6 +1001,11 @@ class WorkOrchestrator:
         """
         work_id = work.work_id
         logger.info(f"Assigning work {work_id}: {work.title}")
+
+        # Sync bare repo from upstream so compute clones start from
+        # the latest HEAD (prevents stale-HEAD merge conflicts).
+        if work.project_id:
+            self._sync_project_repo(work.project_id)
 
         # Mark as being processed
         self._active_spawns[work_id] = datetime.now(timezone.utc)
@@ -1049,6 +1117,15 @@ class WorkOrchestrator:
             # Compose skills into merged instructions
             skills_content = await self._compose_skills_for_sse(skills, connection.compute_id)
 
+            # Resolve repository details for linked repos
+            repo_details = None
+            try:
+                from services.project_service import get_project_service
+                project_service = get_project_service()
+                repo_details = await project_service.resolve_repo_details(work.project_id)
+            except Exception as e:
+                logger.debug(f"Could not resolve repo details for {work.project_id}: {e}")
+
             # Build work context — merge stored context (has repo_url, goal_id, etc.)
             # and map repo_url → repository for compute-side consumption
             context = {
@@ -1058,6 +1135,16 @@ class WorkOrchestrator:
                 "relevant_files": work.context.get("relevant_files", []),
                 "requirements": work.description,
             }
+
+            # Include repo details so compute knows the correct clone URL and project name.
+            # Always override repository and base_branch — compute must clone from
+            # the internal serving URL, never from an external origin.
+            if repo_details:
+                context["git_project_name"] = repo_details["git_project_name"]
+                context["clone_url"] = repo_details["clone_url"]
+                context["default_branch"] = repo_details["default_branch"]
+                context["repository"] = repo_details["clone_url"]
+                context["base_branch"] = repo_details["default_branch"]
 
             # Generate a real API key for this work assignment
             from mcp.auth import generate_api_key, register_compute_key

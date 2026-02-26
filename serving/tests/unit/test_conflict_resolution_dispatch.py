@@ -151,6 +151,9 @@ class TestAutoCreateAndMergePr:
         mock_pr_service.create_pr = AsyncMock(return_value=clean_pr)
         mock_pr_service.update_status = AsyncMock()
         mock_pr_service.process_merge_queue = AsyncMock(return_value=[{"success": True, "branch": "feat/my-branch"}])
+        mock_pr_service._get_redis = AsyncMock(
+            return_value=AsyncMock(add_to_merge_queue=AsyncMock())
+        )
 
         with patch("api.compute._resolve_git_project_name", return_value="proj-1_repo-abc"), \
              patch("git.pr_service.PRService", return_value=mock_pr_service), \
@@ -174,6 +177,12 @@ class TestAutoCreateAndMergePr:
         mock_pr_service.process_merge_queue = AsyncMock(
             return_value=[{"success": False, "reason": "conflict", "branch": "feat/my-branch"}]
         )
+        mock_pr_service._get_redis = AsyncMock(
+            return_value=AsyncMock(add_to_merge_queue=AsyncMock())
+        )
+        # get_pr is needed for conflict dispatch lookup
+        conflict_pr_after_merge = _make_pr("conflict", conflicting_files=["file.py"])
+        mock_pr_service.get_pr = AsyncMock(return_value=conflict_pr_after_merge)
 
         with patch("api.compute._resolve_git_project_name", return_value="proj-1_repo-abc"), \
              patch("git.pr_service.PRService", return_value=mock_pr_service), \

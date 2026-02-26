@@ -1,6 +1,6 @@
 #!/bin/bash
 # ClaudeVN Git pre-receive hook
-# Validates branch naming and blocks direct pushes to main/master
+# Validates branch naming and blocks direct pushes to the default branch
 #
 # This hook is installed to bare repositories by RepoManager.
 # It enforces ClaudeVN branch naming conventions:
@@ -19,6 +19,10 @@ set -e
 # Read environment configuration
 CLAUDEVN_STRICT_NAMING="${CLAUDEVN_STRICT_NAMING:-true}"
 CLAUDEVN_ALLOW_MAIN_PUSH="${CLAUDEVN_ALLOW_MAIN_PUSH:-false}"
+
+# Dynamically determine the default branch from the bare repo's HEAD
+DEFAULT_BRANCH=$(git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||')
+DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 
 # Branch name validation regex
 # Format: {type}/{identifier}/{compute-id}
@@ -42,12 +46,12 @@ while read oldrev newrev refname; do
         continue
     fi
 
-    # STRICTLY block direct pushes to main/master
-    # Compute instances can NEVER push to main - only Serving (via merge process)
-    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    # STRICTLY block direct pushes to the default branch
+    # Compute instances can NEVER push to the default branch - only Serving (via merge process)
+    if [ "$branch" = "$DEFAULT_BRANCH" ]; then
         if [ "$CLAUDEVN_ALLOW_MAIN_PUSH" != "true" ]; then
             echo "ERROR: Direct push to $branch is FORBIDDEN." >&2
-            echo "       Only Serving can merge to main." >&2
+            echo "       Only Serving can merge to $DEFAULT_BRANCH." >&2
             echo "       Create a feature branch: {type}/{issue_id}/{compute-id}" >&2
             exit 1
         fi
@@ -55,8 +59,8 @@ while read oldrev newrev refname; do
 
     # Validate branch naming convention (if strict mode enabled)
     if [ "$CLAUDEVN_STRICT_NAMING" = "true" ]; then
-        # Skip validation for special branches
-        if [ "$branch" = "main" ] || [ "$branch" = "master" ] || [ "$branch" = "develop" ]; then
+        # Skip validation for the default branch and develop
+        if [ "$branch" = "$DEFAULT_BRANCH" ] || [ "$branch" = "develop" ]; then
             continue
         fi
 

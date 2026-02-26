@@ -550,3 +550,87 @@
   font-size: var(--font-size-sm);
   color: var(--text);
 }
+
+/* Linked repo status */
+.linked-repo-status {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.linked-repo-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-xs);
+}
+
+.linked-repo-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.repo-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.repo-action-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+.repo-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.repo-sync-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+}
+
+.repo-sync-badge.synced {
+  color: var(--status-online);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.repo-sync-badge.syncing {
+  color: var(--status-degraded);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.repo-sync-badge.error {
+  color: var(--status-offline);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.repo-sync-badge.not-cloned {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}

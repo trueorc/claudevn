@@ -1127,6 +1127,20 @@ class WorkAssignment(BaseModel):
     dependencies: List[str] = Field(default_factory=list, description="Completed dependency work IDs")
     dependency_outputs: Dict[str, Any] = Field(default_factory=dict, description="Outputs from dependencies")
 
+    # Repository details for linked repos
+    git_project_name: Optional[str] = Field(
+        None,
+        description="Composite bare repo name for git operations (e.g. proj_abc_repo_def)"
+    )
+    clone_url: Optional[str] = Field(
+        None,
+        description="Full HTTP clone URL for the repository"
+    )
+    default_branch: Optional[str] = Field(
+        None,
+        description="Repository's configured default branch name"
+    )
+
 
 class ProgressReport(BaseModel):
     """Progress report from compute."""

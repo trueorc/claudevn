@@ -223,6 +223,85 @@ class PRService:
             return str(private_path)
         return None
 
+    def _ensure_ssh_remote_urls(self, repo_path: Path) -> None:
+        """Convert origin remote URLs from HTTPS to SSH if needed.
+
+        Repos linked before #47 may have HTTPS remote URLs which fail
+        with SSH key auth. This detects and fixes both fetch and push
+        URLs on the fly.
+        """
+        from git.url_utils import https_to_ssh, is_https_url
+
+        for flag in (None, "--push"):
+            args = ["remote", "get-url"]
+            if flag:
+                args.append(flag)
+            args.append("origin")
+            result = self._git_cmd(repo_path, *args)
+            if result.returncode != 0:
+                continue
+            current_url = result.stdout.strip()
+            if not is_https_url(current_url):
+                continue
+            ssh_url = https_to_ssh(current_url)
+            if ssh_url is None:
+                continue
+
+            label = "push" if flag else "fetch"
+            logger.info(f"Migrating {label} URL from HTTPS to SSH: {ssh_url}")
+            set_args = ["remote", "set-url"]
+            if flag:
+                set_args.append(flag)
+            set_args.extend(["origin", ssh_url])
+            self._git_cmd(repo_path, *set_args)
+
+    def _sync_upstream(self, project: str, repo_path: Path) -> None:
+        """Fetch latest upstream changes for linked repos before merge.
+
+        For linked repos, external contributors may push changes directly
+        to the upstream repository. This ensures the local default branch
+        is up-to-date before attempting a merge, preventing silent
+        divergence or unexpected push failures.
+
+        Internal (non-linked) repos skip this step.
+
+        Args:
+            project: Project/repo name
+            repo_path: Path to the bare repository
+
+        Raises:
+            ValueError: If upstream fetch fails (merge should be aborted)
+        """
+        is_linked = self._read_git_config(repo_path, "claudevn.isLinked")
+        if is_linked != "true":
+            return
+
+        ssh_key_id = self._read_git_config(repo_path, "claudevn.sshKeyId")
+        ssh_key_path = None
+        if ssh_key_id:
+            ssh_key_path = self._resolve_ssh_key_path(ssh_key_id)
+            # Migrate HTTPS URLs to SSH for repos linked before #47
+            self._ensure_ssh_remote_urls(repo_path)
+
+        logger.info(f"Syncing upstream before merge for linked repo: {project}")
+        try:
+            self._repo_manager.pull_from_origin(project, ssh_key_path=ssh_key_path)
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            # If the upstream has no refs yet (empty repo / first push scenario),
+            # there's nothing to sync — proceed with the merge.
+            if "couldn't find remote ref" in error_msg:
+                logger.info(
+                    f"Upstream has no refs yet for {project}, "
+                    "skipping sync (first push scenario)"
+                )
+                return
+            logger.error(f"Upstream sync failed for {project}: {error_msg}")
+            raise ValueError(
+                f"Pre-merge upstream sync failed for {project}: {error_msg}. "
+                "Merge aborted to prevent divergence."
+            )
+
     async def _push_upstream(
         self,
         project: str,
@@ -264,6 +343,11 @@ class PRService:
         if ssh_key_path:
             push_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
+            # Auto-convert HTTPS remote URLs to SSH for repos linked before #47.
+            # SSH key auth requires SSH transport; HTTPS URLs will fail with
+            # "could not read Username".
+            self._ensure_ssh_remote_urls(repo_path)
+
         # Push default branch to origin
         push_result = subprocess.run(
             ["git", "-C", str(repo_path), "push", "origin", default_branch],
@@ -282,6 +366,7 @@ class PRService:
             await redis.set_branch_status(
                 project=project,
                 branch=pr.branch,
+                status=PRStatus.MERGED.value,
                 upstream_sync_status="failed",
                 upstream_push_error=error_msg,
             )
@@ -324,6 +409,7 @@ class PRService:
         await redis.set_branch_status(
             project=project,
             branch=pr.branch,
+            status=PRStatus.MERGED.value,
             upstream_sync_status="synced",
         )
 
@@ -729,6 +815,16 @@ class PRService:
         repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         work_dir = Path(f"/tmp/dry-run-merge/{project}-{uuid4()}")
 
+        # For linked repos, sync with upstream before conflict detection
+        try:
+            self._sync_upstream(project, repo_path)
+        except ValueError as e:
+            return {
+                "can_merge": False,
+                "conflicting_files": [],
+                "error": str(e)
+            }
+
         # Check if branch exists
         branch_head = self._repo_manager.get_branch_head(project, branch)
         if not branch_head:
@@ -872,6 +968,9 @@ class PRService:
         repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         work_dir = Path(f"/tmp/merge-work/{project}-{uuid4()}")
 
+        # For linked repos, sync with upstream before merging
+        self._sync_upstream(project, repo_path)
+
         # Verify PR is approved
         pr = await self.get_pr(project, branch)
         if not pr:
@@ -958,22 +1057,10 @@ class PRService:
                     "conflicting_files": conflicts
                 })
 
-                # Send SSE merge_conflict event to compute instance
-                if pr.compute_id:
-                    # Get default branch HEAD for the event
-                    main_head = self._repo_manager.get_branch_head(project, default_branch) or ""
-                    repo_url = self._repo_manager.get_repo_url(project)
-                    sse_manager = self._get_sse_manager()
-                    await sse_manager.send_merge_conflict(
-                        compute_id=pr.compute_id,
-                        issue_id=pr.task_id,
-                        branch=branch,
-                        conflicting_files=conflicts,
-                        main_head=main_head,
-                        message=f"Resolve conflicts with {default_branch} and push again",
-                        task_id=pr.task_id,
-                        repository=repo_url,
-                    )
+                # NOTE: No direct SSE merge_conflict notification here.
+                # Conflict resolution is dispatched by the caller (e.g.
+                # _auto_create_and_merge_pr via _dispatch_conflict_resolution_work)
+                # to avoid dual notification (merge_conflict + work_assigned).
 
                 logger.warning(
                     f"Merge conflict for {project}/{branch}: {conflicts}"
@@ -1057,7 +1144,7 @@ class PRService:
             upstream_result = await self._push_upstream(
                 project=project,
                 repo_path=repo_path,
-                default_branch="main",
+                default_branch=default_branch,
                 pr=pr,
                 merge_commit=merge_commit,
             )
@@ -1096,6 +1183,15 @@ class PRService:
     async def process_merge_queue(self, project: str) -> List[Dict[str, Any]]:
         """Process pending merges from the queue.
 
+        Processes all queued PRs, skipping any that conflict or fail.
+        Conflicting PRs are marked CONFLICT by merge() and left for
+        the caller to dispatch resolution. Clean PRs behind a conflict
+        still get processed.
+
+        After each successful merge, syncs the bare repo from upstream
+        so the next merge starts from the latest state. This prevents
+        spurious conflicts when sequential merges touch overlapping files.
+
         Args:
             project: Project/repo name
 
@@ -1103,6 +1199,7 @@ class PRService:
             List of merge results
         """
         redis = await self._get_redis()
+        repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         results = []
 
         while True:
@@ -1113,15 +1210,25 @@ class PRService:
             try:
                 result = await self.merge(project, branch)
                 results.append(result)
+
+                # After a successful merge, sync upstream so the next
+                # merge in the queue starts from the latest state.
+                if result.get("success"):
+                    try:
+                        self._sync_upstream(project, repo_path)
+                    except Exception as e:
+                        logger.warning(
+                            f"Inter-merge upstream sync failed for {project}: {e}. "
+                            "Continuing with next merge."
+                        )
             except ValueError as e:
                 results.append({
                     "success": False,
                     "branch": branch,
                     "error": str(e)
                 })
-                # Re-add to queue if conflict (needs resolution)
-                await redis.add_to_merge_queue(project, branch)
-                break  # Stop processing on first failure
+                # Skip failed PRs and continue processing remaining clean ones.
+                # Conflicting PRs are already marked CONFLICT by merge().
 
         return results
 

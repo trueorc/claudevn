@@ -521,10 +521,14 @@ class TestPRServiceMergeSSE:
         return service
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_sends_sse_event(
+    async def test_merge_conflict_does_not_send_sse_directly(
         self, pr_service_with_sse, mock_redis, mock_repo_manager, mock_sse_manager
     ):
-        """Test merge conflict sends SSE merge_conflict event."""
+        """Test merge conflict does NOT send SSE merge_conflict directly (#48).
+
+        Conflict notification is now handled by the caller via
+        _dispatch_conflict_resolution_work (sends work_assigned).
+        """
         mock_repo_manager.get_branch_head.return_value = "main123"
 
         def mock_subprocess(*args, **kwargs):
@@ -547,16 +551,14 @@ class TestPRServiceMergeSSE:
             with patch("shutil.rmtree"):
                 with patch("pathlib.Path.exists", return_value=True):
                     with patch("pathlib.Path.mkdir"):
-                        await pr_service_with_sse.merge("test-project", "feature/test")
+                        result = await pr_service_with_sse.merge("test-project", "feature/test")
 
-        # Verify SSE merge_conflict event was sent
-        mock_sse_manager.send_merge_conflict.assert_called_once()
-        call_kwargs = mock_sse_manager.send_merge_conflict.call_args[1]
-        assert call_kwargs["compute_id"] == "compute-001"
-        assert call_kwargs["issue_id"] == "issue-100"
-        assert call_kwargs["branch"] == "feature/test"
-        assert "src/api.py" in call_kwargs["conflicting_files"]
-        assert call_kwargs["main_head"] == "main123"
+        # Verify conflict was detected
+        assert result["success"] is False
+        assert result["reason"] == "conflict"
+        assert "src/api.py" in result["conflicts"]
+        # SSE merge_conflict should NOT be sent directly (dedup with work_assigned)
+        mock_sse_manager.send_merge_conflict.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_merge_success_sends_sse_event(

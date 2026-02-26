@@ -631,31 +631,55 @@ class IssueOpsService:
         logger.info(f"Updated issue {issue_id}")
         return issue
 
+    # Transitions that require a reason from the caller
+    REASON_REQUIRED_TRANSITIONS = {
+        (IssueStatus.DONE, IssueStatus.BACKLOG),
+        (IssueStatus.FAILED, IssueStatus.BACKLOG),
+    }
+
+    # Valid status transitions — exported for frontend consumption
+    VALID_TRANSITIONS = {
+        IssueStatus.BACKLOG: [IssueStatus.READY],
+        IssueStatus.READY: [IssueStatus.IN_PROGRESS, IssueStatus.BACKLOG],
+        IssueStatus.IN_PROGRESS: [IssueStatus.BLOCKED, IssueStatus.DONE, IssueStatus.FAILED],
+        IssueStatus.BLOCKED: [IssueStatus.IN_PROGRESS, IssueStatus.READY],
+        IssueStatus.DONE: [IssueStatus.BACKLOG],
+        IssueStatus.FAILED: [IssueStatus.READY, IssueStatus.IN_PROGRESS, IssueStatus.BACKLOG],
+    }
+
     async def update_issue_status(
         self,
         issue_id: str,
         status: IssueStatus,
         compute_id: Optional[str] = None,
-        trigger_cascade: bool = True
+        trigger_cascade: bool = True,
+        reason: Optional[str] = None
     ) -> Optional[Issue]:
-        """Update issue status with validation."""
+        """Update issue status with validation.
+
+        Args:
+            issue_id: Issue to update
+            status: New status
+            compute_id: Compute instance performing the transition
+            trigger_cascade: Whether to check/unblock dependents on DONE
+            reason: Required for DONE/FAILED → BACKLOG transitions
+        """
         issue = self._issues.get(issue_id)
         if not issue:
             return None
 
         # Validate status transitions
-        valid_transitions = {
-            IssueStatus.BACKLOG: [IssueStatus.READY],
-            IssueStatus.READY: [IssueStatus.IN_PROGRESS, IssueStatus.BACKLOG],
-            IssueStatus.IN_PROGRESS: [IssueStatus.BLOCKED, IssueStatus.DONE, IssueStatus.FAILED],
-            IssueStatus.BLOCKED: [IssueStatus.IN_PROGRESS, IssueStatus.READY],
-            IssueStatus.DONE: [],
-            IssueStatus.FAILED: [IssueStatus.READY, IssueStatus.IN_PROGRESS],
-        }
-
-        if status not in valid_transitions.get(issue.status, []):
+        if status not in self.VALID_TRANSITIONS.get(issue.status, []):
             logger.warning(f"Invalid issue status transition: {issue.status} -> {status}")
             return None
+
+        # Require reason for certain transitions
+        if (issue.status, status) in self.REASON_REQUIRED_TRANSITIONS:
+            if not reason or not reason.strip():
+                logger.warning(
+                    f"Reason required for {issue.status} -> {status} on issue {issue_id}"
+                )
+                return None
 
         old_status = issue.status
         issue.status = status
@@ -668,6 +692,10 @@ class IssueOpsService:
                 issue.assigned_compute_id = compute_id
         elif status in [IssueStatus.DONE, IssueStatus.FAILED]:
             issue.completed_at = datetime.now(timezone.utc)
+        elif status == IssueStatus.BACKLOG and old_status in [IssueStatus.DONE, IssueStatus.FAILED]:
+            # Reset completion state when moving back to backlog
+            issue.completed_at = None
+            issue.assigned_compute_id = None
 
         if self._redis:
             await self._redis._redis.srem(
@@ -676,9 +704,11 @@ class IssueOpsService:
             )
 
         await self._save_issue_to_redis(issue)
-        await self._save_issue_history_entry(
-            issue_id, "status_change", f"Status: {old_status.value} -> {status.value}"
-        )
+
+        details = f"Status: {old_status.value} -> {status.value}"
+        if reason:
+            details += f" | Reason: {reason}"
+        await self._save_issue_history_entry(issue_id, "status_change", details)
 
         if status == IssueStatus.DONE and trigger_cascade:
             await self._check_unblock_issue_dependents(issue_id)
