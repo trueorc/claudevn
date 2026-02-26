@@ -1055,22 +1055,10 @@ class PRService:
                     "conflicting_files": conflicts
                 })
 
-                # Send SSE merge_conflict event to compute instance
-                if pr.compute_id:
-                    # Get default branch HEAD for the event
-                    main_head = self._repo_manager.get_branch_head(project, default_branch) or ""
-                    repo_url = self._repo_manager.get_repo_url(project)
-                    sse_manager = self._get_sse_manager()
-                    await sse_manager.send_merge_conflict(
-                        compute_id=pr.compute_id,
-                        issue_id=pr.task_id,
-                        branch=branch,
-                        conflicting_files=conflicts,
-                        main_head=main_head,
-                        message=f"Resolve conflicts with {default_branch} and push again",
-                        task_id=pr.task_id,
-                        repository=repo_url,
-                    )
+                # NOTE: No direct SSE merge_conflict notification here.
+                # Conflict resolution is dispatched by the caller (e.g.
+                # _auto_create_and_merge_pr via _dispatch_conflict_resolution_work)
+                # to avoid dual notification (merge_conflict + work_assigned).
 
                 logger.warning(
                     f"Merge conflict for {project}/{branch}: {conflicts}"
@@ -1193,6 +1181,11 @@ class PRService:
     async def process_merge_queue(self, project: str) -> List[Dict[str, Any]]:
         """Process pending merges from the queue.
 
+        Processes all queued PRs, skipping any that conflict or fail.
+        Conflicting PRs are marked CONFLICT by merge() and left for
+        the caller to dispatch resolution. Clean PRs behind a conflict
+        still get processed.
+
         Args:
             project: Project/repo name
 
@@ -1216,9 +1209,8 @@ class PRService:
                     "branch": branch,
                     "error": str(e)
                 })
-                # Re-add to queue if conflict (needs resolution)
-                await redis.add_to_merge_queue(project, branch)
-                break  # Stop processing on first failure
+                # Skip failed PRs and continue processing remaining clean ones.
+                # Conflicting PRs are already marked CONFLICT by merge().
 
         return results
 
