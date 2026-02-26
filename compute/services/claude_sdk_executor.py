@@ -14,7 +14,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -113,6 +113,7 @@ async def execute_task(
     max_turns: Optional[int] = None,
     system_prompt: Optional[Dict[str, Any]] = None,
     model: Optional[str] = None,
+    effort: Optional[Literal["low", "medium", "high", "max"]] = None,
 ) -> ExecutionResult:
     """Execute a task using the Claude Agent SDK query() function.
 
@@ -133,6 +134,8 @@ async def execute_task(
             If None, uses SDK default (minimal prompt).
         model: Claude model identifier (e.g. 'claude-opus-4-20250514').
             If None, uses the SDK/CLI default model.
+        effort: Controls response depth — 'low'/'medium' for simple tasks,
+            'high'/'max' for complex ones. If None, uses SDK default.
 
     Returns:
         ExecutionResult with output, status, and metadata
@@ -158,6 +161,9 @@ async def execute_task(
     if model:
         options_kwargs["model"] = model
         logger.info(f"Using model: {model}")
+    if effort:
+        options_kwargs["effort"] = effort
+        logger.info(f"Using effort: {effort}")
 
     options = ClaudeAgentOptions(**options_kwargs)
 
