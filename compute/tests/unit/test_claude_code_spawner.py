@@ -3291,3 +3291,85 @@ class TestGitOpsRunAsCurrentUser:
         assert push_cmd == ["git", "push", "origin", "HEAD"]
         env = push_call[1].get("env") or push_call.kwargs.get("env", {})
         assert "GIT_ASKPASS" in env
+
+
+class TestGitAskpassAbsolutePath:
+    """Regression tests for #53: GIT_ASKPASS must use absolute paths."""
+
+    @pytest.mark.asyncio
+    async def test_start_task_askpass_is_absolute_path(self, tmp_path):
+        """GIT_ASKPASS set during SDK launch must be an absolute path."""
+        spawner = make_spawner(tmp_path)
+
+        instance_workspace = tmp_path / "instance"
+        instance_workspace.mkdir()
+
+        askpass_dir = tmp_path / "workspace" / "cc-abs"
+        askpass_dir.mkdir(parents=True, exist_ok=True)
+
+        event = {
+            "task_id": "task-abs",
+            "context": {
+                "git_token": "cvn-ct-testtoken",
+                "repository": "http://serving:8002/git/repo.git",
+            },
+        }
+
+        spawner._instances["task-abs"] = {
+            "instance_id": "cc-abs",
+            "task_id": "task-abs",
+            "workspace": str(instance_workspace),
+            "started_at": datetime.now(timezone.utc),
+        }
+
+        captured = {}
+
+        async def capture_run(task_id, instance_id, prompt, cwd, mcp_servers, env_vars):
+            captured["env_vars"] = env_vars
+
+        with patch.object(spawner, "_run_and_handle_result", side_effect=capture_run):
+            await spawner._start_task("task-abs", "cc-abs", instance_workspace, event, {})
+
+        task = spawner._execution_tasks.get("task-abs")
+        if task:
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
+
+        env = captured.get("env_vars", {})
+        askpass_path = env.get("GIT_ASKPASS", "")
+        assert os.path.isabs(askpass_path), (
+            f"GIT_ASKPASS must be absolute, got: {askpass_path}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_fallback_push_askpass_is_absolute_path(self, tmp_path):
+        """GIT_ASKPASS set during fallback push must be an absolute path."""
+        spawner = make_spawner(tmp_path)
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        instance = {
+            "repo_path": str(repo_dir),
+            "event": {
+                "context": {
+                    "git_token": "cvn-ct-compute001token",
+                },
+            },
+        }
+
+        with patch("subprocess.run") as mock_run:
+            status_result = Mock()
+            status_result.stdout = ""
+            mock_run.side_effect = [status_result, Mock()]
+
+            await spawner._commit_and_push_changes("task-1", "cc-1", instance)
+
+        push_call = mock_run.call_args_list[-1]
+        env = push_call[1].get("env") or push_call.kwargs.get("env", {})
+        askpass_path = env.get("GIT_ASKPASS", "")
+        assert os.path.isabs(askpass_path), (
+            f"GIT_ASKPASS must be absolute, got: {askpass_path}"
+        )

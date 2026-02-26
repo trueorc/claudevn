@@ -972,7 +972,7 @@ sys.exit(1)
             askpass_script = self.workspace_path / instance_id / ".git-askpass"
             askpass_script.write_text(f"#!/bin/sh\necho '{git_token}'\n")
             askpass_script.chmod(0o700)
-            env_vars["GIT_ASKPASS"] = str(askpass_script)
+            env_vars["GIT_ASKPASS"] = str(askpass_script.resolve())
             env_vars["GIT_TERMINAL_PROMPT"] = "0"
 
         # Initial prompt to start work
@@ -1367,7 +1367,7 @@ sys.exit(1)
                 askpass_script = repo_dir / ".git-askpass"
                 askpass_script.write_text(f"#!/bin/sh\necho '{git_token}'\n")
                 askpass_script.chmod(0o700)
-                push_env["GIT_ASKPASS"] = str(askpass_script)
+                push_env["GIT_ASKPASS"] = str(askpass_script.resolve())
                 push_env["GIT_TERMINAL_PROMPT"] = "0"
 
             last_error = None
