@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw } from 'lucide-react'
 import { MSG_TYPES } from '../../hooks/useConversation'
+import GoalCompletionCard from './GoalCompletionCard'
 
 const STAGE_LABELS = {
   queued: 'Queuing work...',
@@ -142,28 +143,11 @@ function GoalCompleteMessage({ msg }) {
   const issues = result?.issues_created || result?.issues || []
 
   return (
-    <div className="conv-msg conv-msg-system">
-      <div className="conv-msg-bubble conv-bubble-system conv-complete">
-        <div className="conv-msg-header">
-          <Check size={14} className="conv-icon-success" />
-          <span className="conv-msg-label">Work Items Created</span>
-        </div>
-        {issues.length > 0 && (
-          <ul className="conv-issues-list">
-            {issues.map((issue, i) => (
-              <li key={issue.issue_id || i} className="conv-issue-item">
-                <FileText size={12} />
-                <span>{issue.title}</span>
-                {issue.priority && <span className="conv-tag conv-tag-priority">{issue.priority}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-        {result?.reasoning && (
-          <p className="conv-reasoning">{result.reasoning}</p>
-        )}
-      </div>
-    </div>
+    <GoalCompletionCard
+      issues={issues}
+      reasoning={result?.reasoning}
+      startedAt={msg.startedAt}
+    />
   )
 }
 

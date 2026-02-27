@@ -93,17 +93,24 @@ export default function useConversation(projectId) {
     }
   }, [step, processingStage, processingStartedAt, isStalled, isTimedOut])
 
-  // Handle goal processing completion
+  // Handle goal processing completion — transform in-place instead of remove+add
   useEffect(() => {
     if (step === WORKFLOW_STEPS.COMPLETE && executionResult && !goalCompleteHandled.current) {
       goalCompleteHandled.current = true
-      removeByType(MSG_TYPES.GOAL_PROCESSING)
-      addMsg(MSG_TYPES.GOAL_COMPLETE, 'Work items created', {
-        result: executionResult,
-        goal: lastCreatedGoal,
-      })
+      setMessages(prev => prev.map(m =>
+        m.type === MSG_TYPES.GOAL_PROCESSING
+          ? {
+              ...m,
+              type: MSG_TYPES.GOAL_COMPLETE,
+              stage: 'complete',
+              content: 'Work items created',
+              result: executionResult,
+              goal: lastCreatedGoal,
+            }
+          : m
+      ))
     }
-  }, [step, executionResult, lastCreatedGoal, addMsg, removeByType])
+  }, [step, executionResult, lastCreatedGoal])
 
   // Handle goal processing errors
   useEffect(() => {

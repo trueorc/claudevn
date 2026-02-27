@@ -632,10 +632,12 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
             issue_ids_created=issue_ids,
         )
 
-        # Mark goal text as evaluated
+        # Mark goal text as evaluated and persist completion data
         goal = await work_map_service.get_goal(goal_id)
         if goal:
             goal.goal_text_evaluated = True
+            goal.completed_at = datetime.now(timezone.utc)
+            goal.decomposition_reasoning = decomposition.reasoning
             goal.updated_at = datetime.now(timezone.utc)
 
         if failed_issues:

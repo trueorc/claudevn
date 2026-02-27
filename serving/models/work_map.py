@@ -511,9 +511,17 @@ class Goal(BaseModel):
         default=None,
         description="Timestamp when planning/decomposition was last started"
     )
+    completed_at: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp when planning/decomposition completed successfully"
+    )
     planning_error: Optional[str] = Field(
         default=None,
         description="Error message if planning/decomposition failed"
+    )
+    decomposition_reasoning: Optional[str] = Field(
+        default=None,
+        description="AI reasoning text from the most recent decomposition"
     )
 
     # Soft delete support
