@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, FolderOpen, MessageSquare } from 'lucide-react'
-import { getGoals, getGoalComments, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress, createGoalComment } from '../api/workmap'
+import { getGoals, getGoalComments, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress, createGoalComment, getIssue } from '../api/workmap'
 import { useProjectContext } from '../contexts/ProjectContext'
 import useConversation, { INTENT_MODES } from '../hooks/useConversation'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
 import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog'
+import GoalCompletionCard from '../components/directives/GoalCompletionCard'
 import EmptyState from '../components/common/EmptyState'
 import Spinner from '../components/common/Spinner'
 import '../components/goals/Goals.css'
@@ -28,6 +29,8 @@ function GoalsPage() {
   const [goalToDelete, setGoalToDelete] = useState(null)
   const [deletingGoal, setDeletingGoal] = useState(false)
   const [addingComment, setAddingComment] = useState(false)
+  const [goalIssues, setGoalIssues] = useState([])
+  const [goalIssuesLoading, setGoalIssuesLoading] = useState(false)
   const [showArchived, setShowArchived] = useState(() => {
     const stored = localStorage.getItem('goalsShowArchived')
     return stored === 'true'
@@ -104,6 +107,27 @@ function GoalsPage() {
     }
   }, [selectedGoal, loadComments])
 
+  // Fetch issues for the selected goal's completion card
+  useEffect(() => {
+    if (!selectedGoal?.issue_ids?.length) {
+      setGoalIssues([])
+      return
+    }
+    let cancelled = false
+    setGoalIssuesLoading(true)
+    Promise.allSettled(selectedGoal.issue_ids.map(id => getIssue(id)))
+      .then(results => {
+        if (cancelled) return
+        setGoalIssues(
+          results
+            .filter(r => r.status === 'fulfilled' && r.value)
+            .map(r => r.value)
+        )
+      })
+      .finally(() => { if (!cancelled) setGoalIssuesLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedGoal?.goal_id, selectedGoal?.issue_ids])
+
   // When conversation creates a goal, refresh the sidebar list.
   // Don't auto-select — the user should stay in the conversation view
   // to see the processing progress (stage stepper / spinner).
@@ -116,12 +140,14 @@ function GoalsPage() {
   // Handlers
   const handleSelectGoal = useCallback((goal) => {
     setSelectedGoal(goal)
+    setGoalIssues([])
     clearConversation()
   }, [clearConversation])
 
   const handleBackToNew = useCallback(() => {
     setSelectedGoal(null)
     setGoalComments([])
+    setGoalIssues([])
     clearConversation()
   }, [clearConversation])
 
@@ -267,12 +293,21 @@ function GoalsPage() {
           {/* Conversation content area */}
           <div className="conv-content">
             {selectedGoal ? (
-              // Selected goal: show its comments as chat messages
-              commentsLoading ? (
+              // Selected goal: show completion card (if processed) + comments
+              commentsLoading && goalIssuesLoading ? (
                 <div className="conv-loading"><Spinner size="md" /></div>
               ) : (
                 <div className="conv-timeline">
-                  {goalComments.length === 0 && (
+                  {/* Completion card for goals that have been processed */}
+                  {selectedGoal.issue_ids?.length > 0 && goalIssues.length > 0 && (
+                    <GoalCompletionCard
+                      issues={goalIssues}
+                      reasoning={selectedGoal.decomposition_reasoning}
+                      startedAt={selectedGoal.planning_started_at}
+                      completedAt={selectedGoal.completed_at}
+                    />
+                  )}
+                  {goalComments.length === 0 && !selectedGoal.issue_ids?.length && (
                     <div className="conv-empty">
                       <MessageSquare size={32} className="conv-empty-icon" />
                       <p>No comments yet. Add context or adjust priorities below.</p>
