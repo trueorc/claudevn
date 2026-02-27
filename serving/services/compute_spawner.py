@@ -190,16 +190,33 @@ class ComputeSpawner:
         Returns:
             Spawn response with instance details
         """
+        from models.timing import TimingPhase
+        from services.timing_service import get_timing_service
+
         # Generate compute ID
         compute_id = request.compute_id or f"compute_{uuid.uuid4().hex[:8]}"
         name = request.name or f"Compute {compute_id}"
+        work_id = request.work_id or compute_id
 
         logger.info(f"Spawning compute instance: {compute_id}")
+
+        # Start total wall time timing
+        spawn_start = datetime.now(timezone.utc)
+        try:
+            timing_svc = get_timing_service()
+            await timing_svc.record_phase_start(
+                work_id, compute_id, TimingPhase.TOTAL_WALL_TIME
+            )
+        except Exception:
+            timing_svc = None
 
         # Generate API key for this instance
         from mcp.auth import generate_api_key, register_compute_key
         api_key = generate_api_key()
         await register_compute_key(compute_id, api_key)
+
+        # --- Workspace Setup Phase ---
+        ws_start = datetime.now(timezone.utc)
 
         # Create workspace directory
         workspace = self.workspaces_path / compute_id
@@ -215,9 +232,17 @@ class ComputeSpawner:
         mcp_config_path = workspace / "mcp.json"
         mcp_config_path.write_text(json.dumps(mcp_config, indent=2))
 
-        # Set up Git worktrees if repo_url is provided
+        ws_end = datetime.now(timezone.utc)
+        if timing_svc:
+            await timing_svc.record_phase(
+                work_id, compute_id, TimingPhase.WORKSPACE_SETUP, ws_start, ws_end,
+                {"skills_count": len(request.skills)}
+            )
+
+        # --- Repo Clone Phase ---
         worktree_active = None
         if request.repo_url:
+            clone_start = datetime.now(timezone.utc)
             try:
                 worktree_active = await self._setup_worktrees(
                     workspace=workspace,
@@ -229,6 +254,14 @@ class ComputeSpawner:
             except Exception as e:
                 logger.error(f"Failed to set up worktrees for {compute_id}: {e}")
                 raise
+            finally:
+                clone_end = datetime.now(timezone.utc)
+                if timing_svc:
+                    await timing_svc.record_phase(
+                        work_id, compute_id, TimingPhase.REPO_CLONE,
+                        clone_start, clone_end,
+                        {"repo_url": request.repo_url, "base_branch": request.base_branch}
+                    )
 
         # Create instance record with labels and tools for work matching
         instance = SpawnedCompute(
@@ -248,13 +281,22 @@ class ComputeSpawner:
 
         self._instances[compute_id] = instance
 
-        # Start the Claude CLI process
+        # --- SDK Launch Phase ---
+        sdk_start = datetime.now(timezone.utc)
         try:
             await self._start_process(instance, request)
         except Exception as e:
             instance.state = ComputeState.FAILED
             logger.error(f"Failed to start compute {compute_id}: {e}")
             raise
+        finally:
+            sdk_end = datetime.now(timezone.utc)
+            if timing_svc:
+                await timing_svc.record_phase(
+                    work_id, compute_id, TimingPhase.SDK_LAUNCH,
+                    sdk_start, sdk_end,
+                    {"claude_path": self.claude_path}
+                )
 
         # Get initial work if requested
         initial_work = None
@@ -509,6 +551,21 @@ Note: Your task assignment was provided when you started. You do not need to req
             else:
                 instance.state = ComputeState.FAILED
                 logger.warning(f"Compute {compute_id} exited with code {returncode}")
+
+            # Record total wall time end
+            try:
+                from models.timing import TimingPhase
+                from services.timing_service import get_timing_service
+                timing_svc = get_timing_service()
+                work_id = (
+                    instance.current_work[0] if instance.current_work else compute_id
+                )
+                await timing_svc.record_phase_end(
+                    work_id, compute_id, TimingPhase.TOTAL_WALL_TIME,
+                    {"returncode": returncode}
+                )
+            except Exception:
+                pass
 
         except asyncio.CancelledError:
             logger.info(f"Monitor for {compute_id} cancelled")

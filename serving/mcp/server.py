@@ -1,6 +1,7 @@
 """MCP Server - HTTP-based MCP endpoint for compute instances."""
 
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Tuple
 
@@ -91,7 +92,8 @@ async def call_tool(
             }
         )
 
-    # Execute tool
+    # Execute tool with timing instrumentation
+    call_start = datetime.now(timezone.utc)
     try:
         tool_fn = TOOLS[request.name]
         result, error = await tool_fn(parsed_input)
@@ -117,6 +119,27 @@ async def call_tool(
                 "details": {"error": str(e)}
             }
         )
+    finally:
+        # Record MCP tool call timing
+        call_end = datetime.now(timezone.utc)
+        try:
+            from models.timing import TimingPhase
+            from services.timing_service import get_timing_service
+            timing_svc = get_timing_service()
+            # Extract work_id from arguments (most tools include task_id)
+            work_id = (
+                request.arguments.get("task_id")
+                or request.arguments.get("work_id")
+                or request.arguments.get("decomposition_id")
+                or compute_id
+            )
+            await timing_svc.record_phase(
+                work_id, compute_id, TimingPhase.MCP_TOOL_CALL,
+                call_start, call_end,
+                {"tool_name": request.name}
+            )
+        except Exception:
+            pass
 
 
 @router.get("/tools/list")

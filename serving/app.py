@@ -60,6 +60,7 @@ from api import notifications
 from api import unified_directives
 from api import feedback
 from api import auth
+from api import timing
 # MCP server for compute communication
 from mcp import get_router
 # Marketplace HTTP client (marketplace is a separate service on port 8003)
@@ -303,6 +304,15 @@ async def lifespan(app: FastAPI):
         logger.info("MCP auth key persistence initialized")
     except Exception as e:
         logger.warning(f"Failed to initialize MCP auth persistence: {e}")
+
+    # =========================================================================
+    # Timing Service
+    # Compute lifecycle timing instrumentation with Redis persistence.
+    # =========================================================================
+    from services.timing_service import TimingService, set_timing_service
+    timing_service = TimingService(redis_client=redis_client)
+    set_timing_service(timing_service)
+    logger.info("Timing service initialized")
 
     # =========================================================================
     # OPTIONAL: Rate Limiter
@@ -965,6 +975,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error stopping health monitoring: {e}")
 
+    # Clean up timing service
+    try:
+        from services.timing_service import set_timing_service
+        set_timing_service(None)
+        logger.info("Timing service cleaned up")
+    except Exception as e:
+        logger.debug(f"Timing service cleanup: {e}")
+
     # Close Redis connection
     try:
         from git.redis_client import close_redis
@@ -1037,6 +1055,7 @@ app.include_router(profile_presets.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
+app.include_router(timing.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix
 # Note: Skill marketplace is a separate service on port 8003 - use MarketplaceClient
