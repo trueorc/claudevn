@@ -496,11 +496,19 @@
 }
 
 /* =============================================================================
-   Goal Complete
+   Goal Complete (processing card in finished state)
    ============================================================================= */
 
-.conv-complete {
+.conv-processing-complete {
+  border-style: solid;
   border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.conv-complete-issues {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .conv-issues-list {

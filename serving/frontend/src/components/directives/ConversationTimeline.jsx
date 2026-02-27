@@ -141,19 +141,37 @@ function GoalProcessingMessage({ msg, onRetry }) {
   )
 }
 
+function FinalElapsedTime({ startedAt }) {
+  if (!startedAt) return null
+  const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
+  const label = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`
+  return <span className="conv-elapsed">{label}</span>
+}
+
 function GoalCompleteMessage({ msg }) {
   const result = msg.result
   const issues = result?.issues_created || result?.issues || []
 
   return (
     <div className="conv-msg conv-msg-system">
-      <div className="conv-msg-bubble conv-bubble-system conv-complete">
-        <div className="conv-msg-header">
+      <div className="conv-msg-bubble conv-bubble-system conv-processing-card conv-processing-complete">
+        <div className="conv-processing-header">
           <Check size={14} className="conv-icon-success" />
-          <span className="conv-msg-label">Work Items Created</span>
+          <span className="conv-processing-label">Complete</span>
+          <FinalElapsedTime startedAt={msg.startedAt} />
+        </div>
+        <div className="conv-stage-stepper">
+          {STAGE_ORDER.map((stage) => (
+            <div key={stage} className="conv-stage-step done">
+              <div className="conv-stage-dot">
+                <Check size={10} />
+              </div>
+              <span className="conv-stage-name">{STAGE_LABELS[stage].replace('...', '')}</span>
+            </div>
+          ))}
         </div>
         {issues.length > 0 && (
-          <ul className="conv-issues-list">
+          <ul className="conv-issues-list conv-complete-issues">
             {issues.map((issue, i) => (
               <li key={issue.issue_id || i} className="conv-issue-item">
                 <FileText size={12} />
