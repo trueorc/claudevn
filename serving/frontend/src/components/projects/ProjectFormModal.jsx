@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, FolderGit2, Code, Database, Server, Globe, Folder, Box, Layers, Cpu, Cloud, Shield, ChevronDown, ChevronRight, Plus, GitBranch, Trash2 } from 'lucide-react'
 import Modal from '../common/Modal'
-import { createProject, updateProject, addRepoToProject, createInternalRepo } from '../../api/projects'
+import { createProject, updateProject } from '../../api/projects'
+import { useSSHKeys } from '../../hooks/useSSHKeys'
 import '../common/Modal.css'
 import './Projects.css'
 
@@ -134,7 +135,10 @@ function InlineRepoForm({ onAdd }) {
   const [repoName, setRepoName] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
   const [defaultBranch, setDefaultBranch] = useState('main')
+  const [sshKeyId, setSshKeyId] = useState('')
   const [formError, setFormError] = useState(null)
+
+  const { keys, loading: keysLoading } = useSSHKeys()
 
   const handleAdd = () => {
     if (!repoName.trim()) {
@@ -151,11 +155,13 @@ function InlineRepoForm({ onAdd }) {
       name: repoName.trim(),
       url: mode === 'link' ? repoUrl.trim() : null,
       default_branch: defaultBranch.trim() || 'main',
+      ssh_key_id: mode === 'link' && sshKeyId ? sshKeyId : null,
     })
 
     setRepoName('')
     setRepoUrl('')
     setDefaultBranch('main')
+    setSshKeyId('')
     setFormError(null)
   }
 
@@ -225,6 +231,22 @@ function InlineRepoForm({ onAdd }) {
           onKeyDown={handleKeyDown}
           placeholder="Default branch (main)"
         />
+
+        {mode === 'link' && (
+          <select
+            className="form-input"
+            value={sshKeyId}
+            onChange={(e) => setSshKeyId(e.target.value)}
+          >
+            <option value="">SSH Key: None (no authentication)</option>
+            {keysLoading && <option disabled>Loading keys...</option>}
+            {keys.map((key) => (
+              <option key={key.key_id} value={key.key_id}>
+                {key.key_id}{key.description ? ` - ${key.description}` : ''}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {formError && (
@@ -333,23 +355,30 @@ function ProjectFormModal({ isOpen, onClose, onSuccess, project = null }) {
       if (isEditing) {
         await updateProject(project.project_id, data)
       } else {
-        const created = await createProject(data)
-        const projectId = created.project_id
+        // Send repos atomically with project creation
+        const createData = {
+          ...data,
+          repos: pendingRepos.map((repo) => ({
+            mode: repo.mode,
+            name: repo.name,
+            url: repo.url,
+            default_branch: repo.default_branch,
+            ssh_key_id: repo.ssh_key_id,
+          })),
+        }
 
-        // Add pending repos sequentially
-        for (const repo of pendingRepos) {
-          if (repo.mode === 'create') {
-            await createInternalRepo(projectId, {
-              name: repo.name,
-              default_branch: repo.default_branch,
-            })
-          } else {
-            await addRepoToProject(projectId, {
-              name: repo.name,
-              url: repo.url,
-              default_branch: repo.default_branch,
-            })
-          }
+        const created = await createProject(createData)
+
+        // Surface clone errors from repos that failed
+        const repoErrors = (created.repos || [])
+          .filter((r) => r.metadata?.clone_error)
+          .map((r) => `${r.name}: ${r.metadata.clone_error}`)
+
+        if (repoErrors.length > 0) {
+          setError(`Project created, but some repos had clone errors:\n${repoErrors.join('\n')}`)
+          setSaving(false)
+          onSuccess()
+          return
         }
       }
 
