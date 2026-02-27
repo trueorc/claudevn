@@ -3816,16 +3816,16 @@ class TestEffortAndMaxTurnsMapping:
     """Tests for _get_effort_for_complexity and _get_max_turns_for_complexity (#60)."""
 
     def test_simple_effort(self):
-        assert ClaudeCodeSpawner._get_effort_for_complexity("simple") == "medium"
+        assert ClaudeCodeSpawner._get_effort_for_complexity("simple") == "low"
 
     def test_standard_effort(self):
-        assert ClaudeCodeSpawner._get_effort_for_complexity("standard") == "high"
+        assert ClaudeCodeSpawner._get_effort_for_complexity("standard") == "medium"
 
     def test_complex_effort(self):
-        assert ClaudeCodeSpawner._get_effort_for_complexity("complex") == "max"
+        assert ClaudeCodeSpawner._get_effort_for_complexity("complex") == "high"
 
-    def test_unknown_effort_defaults_to_high(self):
-        assert ClaudeCodeSpawner._get_effort_for_complexity("unknown") == "high"
+    def test_unknown_effort_defaults_to_medium(self):
+        assert ClaudeCodeSpawner._get_effort_for_complexity("unknown") == "medium"
 
     def test_simple_max_turns(self):
         assert ClaudeCodeSpawner._get_max_turns_for_complexity("simple") == 30

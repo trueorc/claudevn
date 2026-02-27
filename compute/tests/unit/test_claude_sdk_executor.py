@@ -364,15 +364,15 @@ class TestEffortParameter:
         assert "effort" not in call_kwargs
 
     @pytest.mark.asyncio
-    async def test_effort_max_for_complex_tasks(self, tmp_path):
-        """Verify max effort can be passed through."""
+    async def test_effort_high_for_complex_tasks(self, tmp_path):
+        """Verify high effort can be passed through."""
         result_msg = ResultMessage(
             subtype="success",
             duration_ms=100,
             duration_api_ms=80,
             is_error=False,
             num_turns=1,
-            session_id="session-max",
+            session_id="session-high",
             total_cost_usd=0.01,
         )
 
@@ -388,11 +388,11 @@ class TestEffortParameter:
                 prompt="test",
                 cwd=tmp_path,
                 mcp_servers={},
-                effort="max",
+                effort="high",
             )
 
         call_kwargs = mock_opts.call_args[1]
-        assert call_kwargs["effort"] == "max"
+        assert call_kwargs["effort"] == "high"
 
 
 class TestSystemPromptParameter:
