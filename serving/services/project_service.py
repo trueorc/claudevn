@@ -183,6 +183,7 @@ class ProjectService:
                             name=pending_repo.name,
                             url=pending_repo.url,
                             default_branch=pending_repo.default_branch,
+                            ssh_key_id=pending_repo.ssh_key_id,
                         ),
                     )
                 else:

@@ -8,6 +8,19 @@ vi.mock('../../api/projects', () => ({
   updateProject: vi.fn(),
 }))
 
+// Mock useSSHKeys hook
+vi.mock('../../hooks/useSSHKeys', () => ({
+  useSSHKeys: () => ({
+    keys: [
+      { key_id: 'key_abc123', description: 'GitHub deploy key' },
+      { key_id: 'key_def456', description: 'GitLab key' },
+    ],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
+}))
+
 import { createProject, updateProject } from '../../api/projects'
 
 describe('ProjectFormModal', () => {
@@ -244,6 +257,7 @@ describe('ProjectFormModal', () => {
             name: 'my-repo',
             url: null,
             default_branch: 'main',
+            ssh_key_id: null,
           },
         ],
       })
@@ -283,6 +297,51 @@ describe('ProjectFormModal', () => {
             name: 'ext-repo',
             url: 'https://github.com/test/repo.git',
             default_branch: 'main',
+            ssh_key_id: null,
+          },
+        ],
+      })
+    })
+  })
+
+  it('includes ssh_key_id when SSH key is selected for linked repo', async () => {
+    render(<ProjectFormModal {...defaultProps} />)
+
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Test Project' },
+    })
+
+    fireEvent.click(screen.getByText('Repositories'))
+    fireEvent.click(screen.getByText('Link External'))
+
+    fireEvent.change(screen.getByPlaceholderText('Repository name'), {
+      target: { value: 'private-repo' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/org/repo.git'), {
+      target: { value: 'git@github.com:org/private.git' },
+    })
+
+    // Select an SSH key
+    const sshSelect = screen.getByDisplayValue('SSH Key: None (no authentication)')
+    fireEvent.change(sshSelect, { target: { value: 'key_abc123' } })
+
+    fireEvent.click(screen.getByText('Add to list'))
+    fireEvent.click(screen.getByText('Create Project'))
+
+    await waitFor(() => {
+      expect(createProject).toHaveBeenCalledWith({
+        name: 'Test Project',
+        description: '',
+        icon: null,
+        icon_color: null,
+        labels: [],
+        repos: [
+          {
+            mode: 'link',
+            name: 'private-repo',
+            url: 'git@github.com:org/private.git',
+            default_branch: 'main',
+            ssh_key_id: 'key_abc123',
           },
         ],
       })

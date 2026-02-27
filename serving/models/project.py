@@ -115,6 +115,7 @@ class PendingRepoRequest(BaseModel):
     name: str = Field(..., description="Repository name")
     url: Optional[str] = Field(None, description="External URL (required for 'link' mode)")
     default_branch: str = Field(default="main", description="Default branch name")
+    ssh_key_id: Optional[str] = Field(None, description="SSH key for private repo authentication")
 
 
 class ProjectCreateRequest(BaseModel):

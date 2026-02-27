@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, FolderGit2, Code, Database, Server, Globe, Folder, Box, Layers, Cpu, Cloud, Shield, ChevronDown, ChevronRight, Plus, GitBranch, Trash2 } from 'lucide-react'
 import Modal from '../common/Modal'
 import { createProject, updateProject } from '../../api/projects'
+import { useSSHKeys } from '../../hooks/useSSHKeys'
 import '../common/Modal.css'
 import './Projects.css'
 
@@ -134,7 +135,10 @@ function InlineRepoForm({ onAdd }) {
   const [repoName, setRepoName] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
   const [defaultBranch, setDefaultBranch] = useState('main')
+  const [sshKeyId, setSshKeyId] = useState('')
   const [formError, setFormError] = useState(null)
+
+  const { keys, loading: keysLoading } = useSSHKeys()
 
   const handleAdd = () => {
     if (!repoName.trim()) {
@@ -151,11 +155,13 @@ function InlineRepoForm({ onAdd }) {
       name: repoName.trim(),
       url: mode === 'link' ? repoUrl.trim() : null,
       default_branch: defaultBranch.trim() || 'main',
+      ssh_key_id: mode === 'link' && sshKeyId ? sshKeyId : null,
     })
 
     setRepoName('')
     setRepoUrl('')
     setDefaultBranch('main')
+    setSshKeyId('')
     setFormError(null)
   }
 
@@ -225,6 +231,22 @@ function InlineRepoForm({ onAdd }) {
           onKeyDown={handleKeyDown}
           placeholder="Default branch (main)"
         />
+
+        {mode === 'link' && (
+          <select
+            className="form-input"
+            value={sshKeyId}
+            onChange={(e) => setSshKeyId(e.target.value)}
+          >
+            <option value="">SSH Key: None (no authentication)</option>
+            {keysLoading && <option disabled>Loading keys...</option>}
+            {keys.map((key) => (
+              <option key={key.key_id} value={key.key_id}>
+                {key.key_id}{key.description ? ` - ${key.description}` : ''}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {formError && (
@@ -341,6 +363,7 @@ function ProjectFormModal({ isOpen, onClose, onSuccess, project = null }) {
             name: repo.name,
             url: repo.url,
             default_branch: repo.default_branch,
+            ssh_key_id: repo.ssh_key_id,
           })),
         }
 

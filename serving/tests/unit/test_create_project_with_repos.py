@@ -156,6 +156,31 @@ class TestCreateProjectWithLinkedRepo:
         mock_sync.clone_repo.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_ssh_key_id_forwarded_to_add_repo(self, project_service):
+        """ssh_key_id from PendingRepoRequest should be forwarded to RepoAddRequest."""
+        mock_sync = _mock_sync_service(success=True)
+        mock_rm = _mock_repo_manager()
+
+        request = ProjectCreateRequest(
+            name="My Project",
+            repos=[
+                PendingRepoRequest(
+                    mode="link",
+                    name="private-repo",
+                    url="git@github.com:org/private.git",
+                    ssh_key_id="key_abc123",
+                ),
+            ],
+        )
+
+        with patch(PATCH_GET_SYNC, return_value=mock_sync), \
+             patch(PATCH_GET_RM, return_value=mock_rm):
+            project = await project_service.create_project(request)
+
+        assert len(project.repos) == 1
+        assert project.repos[0].ssh_key_id == "key_abc123"
+
+    @pytest.mark.asyncio
     async def test_clone_error_recorded_in_metadata(self, project_service):
         """Clone failure should be recorded in repo metadata, not raise."""
         mock_sync = _mock_sync_service(
@@ -338,6 +363,7 @@ class TestPendingRepoRequestModel:
         assert req.mode == "create"
         assert req.url is None
         assert req.default_branch == "main"
+        assert req.ssh_key_id is None
 
     def test_link_mode(self):
         """Link mode with URL should work."""
@@ -350,6 +376,16 @@ class TestPendingRepoRequestModel:
         assert req.mode == "link"
         assert req.url == "https://github.com/org/repo.git"
         assert req.default_branch == "develop"
+
+    def test_link_mode_with_ssh_key(self):
+        """Link mode should accept ssh_key_id."""
+        req = PendingRepoRequest(
+            mode="link",
+            name="private-repo",
+            url="git@github.com:org/private.git",
+            ssh_key_id="key_abc123",
+        )
+        assert req.ssh_key_id == "key_abc123"
 
     def test_project_create_request_with_repos(self):
         """ProjectCreateRequest should accept repos field."""
