@@ -46,7 +46,7 @@ describe('ConversationTimeline', () => {
     expect(screen.getByText('Interpreting directive...')).toBeDefined()
   })
 
-  it('renders goal created message with title and priority', () => {
+  it('renders goal created message as brief confirmation without duplicating title', () => {
     const messages = [
       makeMsg(MSG_TYPES.GOAL_CREATED, 'Created: Test goal', {
         goal: { title: 'Test goal', priority: 'P1' },
@@ -54,9 +54,10 @@ describe('ConversationTimeline', () => {
     ]
     render(<ConversationTimeline {...defaultProps} messages={messages} />)
 
-    expect(screen.getByText('Test goal')).toBeDefined()
-    expect(screen.getByText('P1')).toBeDefined()
     expect(screen.getByText('New Work Created')).toBeDefined()
+    // Title and priority should NOT be rendered (they're shown in the goal header)
+    expect(screen.queryByText('Test goal')).toBeNull()
+    expect(screen.queryByText('P1')).toBeNull()
   })
 
   it('renders goal processing message with stage label and stepper', () => {
@@ -386,7 +387,7 @@ describe('ConversationTimeline', () => {
     render(<ConversationTimeline {...defaultProps} messages={messages} />)
 
     expect(screen.getByText('Build feature')).toBeDefined()
-    expect(screen.getByText('Feature')).toBeDefined()
+    expect(screen.getByText('New Work Created')).toBeDefined()
     expect(screen.getByText('Work Items Created')).toBeDefined()
   })
 })

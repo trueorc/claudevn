@@ -49,10 +49,6 @@ function GoalCreatedMessage({ msg }) {
           <Sparkles size={14} className="conv-icon-goal" />
           <span className="conv-msg-label">New Work Created</span>
         </div>
-        <p className="conv-msg-text">{msg.goal?.title || msg.content}</p>
-        {msg.goal?.priority && (
-          <span className="conv-tag conv-tag-priority">{msg.goal.priority}</span>
-        )}
       </div>
     </div>
   )
