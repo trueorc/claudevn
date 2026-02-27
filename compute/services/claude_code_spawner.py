@@ -862,10 +862,10 @@ fi
             complexity: One of 'simple', 'standard', 'complex'
 
         Returns:
-            SDK effort value: 'medium', 'high', or 'max'
+            SDK effort value: 'low', 'medium', or 'high'
         """
-        return {"simple": "medium", "standard": "high", "complex": "max"}.get(
-            complexity, "high"
+        return {"simple": "low", "standard": "medium", "complex": "high"}.get(
+            complexity, "medium"
         )
 
     @staticmethod

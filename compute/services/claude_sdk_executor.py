@@ -135,7 +135,7 @@ async def execute_task(
         model: Claude model identifier (e.g. 'claude-opus-4-20250514').
             If None, uses the SDK/CLI default model.
         effort: Controls response depth — 'low'/'medium' for simple tasks,
-            'high'/'max' for complex ones. If None, uses SDK default.
+            'high' for complex ones. If None, uses SDK default.
 
     Returns:
         ExecutionResult with output, status, and metadata
@@ -148,6 +148,12 @@ async def execute_task(
             error="Demo mode enabled - real compute execution is disabled",
         )
 
+    stderr_lines: List[str] = []
+
+    def _capture_stderr(line: str) -> None:
+        stderr_lines.append(line)
+        logger.warning(f"[sdk-stderr] {line}")
+
     options_kwargs: Dict[str, Any] = {
         "cwd": str(cwd),
         "system_prompt": system_prompt,
@@ -157,6 +163,7 @@ async def execute_task(
         "env": env_vars or {},
         "max_turns": max_turns,
         "allowed_tools": allowed_tools or [],
+        "stderr": _capture_stderr,
     }
     if model:
         options_kwargs["model"] = model
@@ -213,11 +220,14 @@ async def execute_task(
         )
 
     except Exception as e:
-        logger.error(f"SDK execution failed: {e}")
+        stderr_output = "\n".join(stderr_lines)
+        error_msg = stderr_output if stderr_output else str(e)
+        exc_exit_code = getattr(e, "exit_code", None) or -1
+        logger.error(f"SDK execution failed (exit_code={exc_exit_code}): {error_msg}")
         return ExecutionResult(
             success=False,
-            exit_code=-1,
+            exit_code=exc_exit_code,
             output="\n".join(output_parts),
-            error=str(e),
+            error=error_msg,
             tool_calls=tool_calls,
         )
