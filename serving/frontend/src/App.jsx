@@ -14,6 +14,7 @@ import GoalsPage from './pages/GoalsPage'
 import ProfilePage from './pages/ProfilePage'
 import SSHKeysPage from './pages/SSHKeysPage'
 import AuthSetupPage from './pages/AuthSetupPage'
+import TimingPage from './pages/TimingPage'
 import { useAuth } from './hooks/useAuth'
 
 function AuthenticatedApp({ expired, expiringAt, onReauth }) {
@@ -37,6 +38,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             <Route path="/backlog" element={<BacklogPage />} />
             <Route path="/marketplace" element={<SkillsPage />} />
             <Route path="/network" element={<NetworkHealthPage />} />
+            <Route path="/timing" element={<TimingPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
             {/* Redirects from old routes */}
