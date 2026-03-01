@@ -43,8 +43,8 @@ from services.sse_connection_manager import (
 
 logger = logging.getLogger(__name__)
 
-# SSE keepalive interval in seconds
-SSE_KEEPALIVE_INTERVAL = 30
+# SSE keepalive interval in seconds (configurable via env, default 15s for NAT survival)
+SSE_KEEPALIVE_INTERVAL = int(os.getenv("SSE_KEEPALIVE_INTERVAL", "15"))
 # SSE event check interval in seconds (how often to check for queued events)
 SSE_EVENT_CHECK_INTERVAL = 0.5
 

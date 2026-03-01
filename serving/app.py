@@ -734,7 +734,7 @@ async def lifespan(app: FastAPI):
     # =========================================================================
     sse_manager = None
     try:
-        keepalive_interval = int(os.getenv('SSE_KEEPALIVE_INTERVAL', '30'))
+        keepalive_interval = int(os.getenv('SSE_KEEPALIVE_INTERVAL', '15'))
         sse_manager = SSEConnectionManager(keepalive_interval=keepalive_interval)
         await sse_manager.start()
         set_sse_connection_manager(sse_manager)
