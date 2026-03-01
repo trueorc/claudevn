@@ -689,6 +689,226 @@
 }
 
 /* ==========================================
+   Directive View - Collapsible Sections
+   ========================================== */
+
+.directive-view {
+  margin-bottom: var(--space-lg);
+}
+
+.directive-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-sm);
+}
+
+.directive-toggle-all {
+  padding: 4px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.directive-toggle-all:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.directive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.directive-section {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.directive-section--progress {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.directive-section--blocked {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.03);
+}
+
+.directive-section--ready {
+  border-left-color: #22c55e;
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.directive-section--done {
+  border-left-color: #6b7280;
+}
+
+.directive-section--backlog {
+  border-left-color: var(--border);
+}
+
+.directive-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  transition: background var(--transition-fast);
+}
+
+.directive-header:hover {
+  background: var(--bg-hover);
+}
+
+.directive-chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.directive-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  min-width: 0;
+}
+
+.directive-issue-count {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  padding: 1px 8px;
+  background: var(--bg-hover);
+  border-radius: 10px;
+}
+
+.directive-status-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.directive-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.directive-dot--blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.directive-dot--progress {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.directive-dot--ready {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.directive-dot--backlog {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.directive-dot--done {
+  background: rgba(107, 114, 128, 0.15);
+  color: #6b7280;
+}
+
+/* Issue chips grid */
+.directive-issues {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+}
+
+.directive-issues-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.directive-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.2;
+  max-width: 200px;
+  cursor: default;
+}
+
+.directive-chip-number {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.directive-chip-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.directive-chip--done {
+  background: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
+}
+
+.directive-chip--progress {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.directive-chip--ready {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.directive-chip--blocked {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.directive-chip--backlog {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+
+/* ==========================================
    Responsive
    ========================================== */
 

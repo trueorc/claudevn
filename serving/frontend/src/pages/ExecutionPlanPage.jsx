@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FolderOpen, List, GitBranch, Network } from 'lucide-react'
+import { FolderOpen, List, Layers, Network } from 'lucide-react'
 import SummaryBar from '../components/plan/SummaryBar'
 import ProfileSwitcher from '../components/plan/ProfileSwitcher'
 import ActiveWorkView from '../components/plan/ActiveWorkView'
@@ -91,9 +91,9 @@ function ExecutionPlanPage() {
               <button
                 className={`plan-view-btn ${viewMode === 'graph' ? 'plan-view-btn--active' : ''}`}
                 onClick={() => setViewMode('graph')}
-                title="Goal Graph View"
+                title="Directives View"
               >
-                <GitBranch size={16} />
+                <Layers size={16} />
               </button>
               <button
                 className={`plan-view-btn ${viewMode === 'deps' ? 'plan-view-btn--active' : ''}`}
