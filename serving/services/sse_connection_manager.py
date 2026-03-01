@@ -429,13 +429,20 @@ class SSEConnectionManager:
             connection.status = "busy"
             connection.current_task_id = task_id
 
+        # Transform internal URLs in context to externally reachable addresses
+        from git.url_utils import externalize_url
+        transformed_context = dict(context)
+        for key in ("repository", "repo_url", "clone_url"):
+            if key in transformed_context and transformed_context[key]:
+                transformed_context[key] = externalize_url(transformed_context[key])
+
         data = {
             "task_id": task_id,
             "title": title,
             "description": description,
             "branch_name": branch_name,
             "skills": skills,
-            "context": context,
+            "context": transformed_context,
             "mcp_config": mcp_config,
             "work_type": work_type,
         }

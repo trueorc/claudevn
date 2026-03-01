@@ -1,7 +1,9 @@
 """URL conversion utilities for HTTPS ↔ SSH git remote URLs."""
 
+import os
 import re
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 # Matches HTTPS git URLs: https://github.com/org/repo.git
 _HTTPS_PATTERN = re.compile(
@@ -54,6 +56,45 @@ def is_ssh_url(url: str) -> bool:
 def is_https_url(url: str) -> bool:
     """Check if a URL is an HTTPS git URL."""
     return _HTTPS_PATTERN.match(url) is not None
+
+
+# Internal Docker hostnames that should be rewritten for external access
+_INTERNAL_HOSTNAMES = {"serving", "localhost", "127.0.0.1", "::1"}
+
+
+def externalize_url(url: str) -> str:
+    """Replace internal Docker hostnames with SERVING_PUBLIC_URL.
+
+    If the URL's hostname is an internal Docker service name (e.g., 'serving')
+    and SERVING_PUBLIC_URL is set to an external address, rewrite the URL to be
+    reachable by remote compute nodes.
+
+    Returns the URL unchanged if no transformation is needed.
+    """
+    if not url:
+        return url
+
+    public_url = os.getenv("SERVING_PUBLIC_URL", "")
+    if not public_url:
+        return url
+
+    parsed = urlparse(url)
+    if parsed.hostname not in _INTERNAL_HOSTNAMES:
+        return url  # Already external
+
+    public_parsed = urlparse(public_url)
+    if public_parsed.hostname in _INTERNAL_HOSTNAMES:
+        return url  # Public URL is also internal, no transform possible
+
+    # Replace scheme + netloc with public URL's scheme + netloc
+    return urlunparse((
+        public_parsed.scheme,
+        public_parsed.netloc,
+        parsed.path,
+        parsed.params,
+        parsed.query,
+        parsed.fragment,
+    ))
 
 
 def ensure_ssh_url(url: str) -> str:
