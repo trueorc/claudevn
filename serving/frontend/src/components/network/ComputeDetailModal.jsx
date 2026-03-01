@@ -24,6 +24,8 @@ function ComputeDetailModal({ isOpen, onClose, instanceId, onDeregister }) {
   const { projects } = useProjectContext()
 
   const isDraining = instance?.status === 'draining'
+  const isOffline = instance?.status === 'offline'
+  const canDeregister = isDraining || isOffline
 
   const fetchDrainStatus = useCallback(async () => {
     if (!instanceId || !isDraining) return
@@ -305,6 +307,8 @@ function ComputeDetailModal({ isOpen, onClose, instanceId, onDeregister }) {
               <button
                 onClick={() => setShowConfirm(true)}
                 className="btn btn-danger"
+                disabled={!canDeregister}
+                title={canDeregister ? 'Remove this instance from the registry' : 'Drain the instance first before deregistering'}
               >
                 Deregister Instance
               </button>
