@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, GitBranch, Shuffle, Move, AlertTriangle, CheckCircle, UserPlus } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch, Shuffle, Move, AlertTriangle, CheckCircle, UserPlus, Layers } from 'lucide-react'
+import '../common/BucketBadges.css'
 import './Plan.css'
 
 const traceTypeIcons = {
@@ -35,27 +36,79 @@ function formatTimeAgo(isoString) {
   return `${diffDays}d ago`
 }
 
-function WhyThisOrder({ traces = [], traceCount = 0 }) {
-  const [expanded, setExpanded] = useState(false)
+function WhyThisOrder({ buckets = [], traces = [], traceCount = 0 }) {
+  const [tracesExpanded, setTracesExpanded] = useState(false)
+  const hasBuckets = buckets.length > 0
+  const hasTraces = traces.length > 0
 
-  if (traces.length === 0) return null
+  if (!hasBuckets && !hasTraces) return null
+
+  const sortedBuckets = hasBuckets
+    ? buckets.slice().sort((a, b) => a.rank - b.rank)
+    : []
 
   return (
     <div className="plan-why-section">
-      <button
-        className="plan-why-header"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        <span className="plan-why-title">Why this order</span>
-        <span className="plan-why-count">{traceCount} decision{traceCount !== 1 ? 's' : ''}</span>
-      </button>
-      {expanded && (
-        <div className="plan-why-timeline">
-          {traces.map(trace => (
-            <TraceCard key={trace.trace_id} trace={trace} />
-          ))}
+      <div className="plan-ordering-header">
+        <Layers size={16} />
+        <span className="plan-ordering-title">Execution Order</span>
+      </div>
+
+      {hasBuckets ? (
+        <div className="plan-ordering-content">
+          <p className="plan-ordering-explanation">
+            Items are ordered by bucket rank (highest priority bucket first), then by intra-bucket priority.
+          </p>
+          <div className="plan-bucket-sequence">
+            {sortedBuckets.map(bucket => {
+              const name = bucket.definition?.name || bucket.bucket_id
+              const description = bucket.definition?.description || ''
+              const itemCount = bucket.items?.length || 0
+              return (
+                <div key={bucket.bucket_id} className="plan-bucket-row">
+                  <span className={`plan-bucket-rank bucket-badge-rank-${Math.min(bucket.rank, 3)}`}>
+                    #{bucket.rank}
+                  </span>
+                  <span className="plan-bucket-name" title={description}>
+                    {name}
+                  </span>
+                  {description && (
+                    <span className="plan-bucket-desc">{description}</span>
+                  )}
+                  <span className="plan-bucket-count">
+                    {itemCount} item{itemCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         </div>
+      ) : (
+        <div className="plan-ordering-content">
+          <p className="plan-ordering-explanation">
+            No bucket tree defined. Items are ordered by priority.
+          </p>
+        </div>
+      )}
+
+      {hasTraces && (
+        <>
+          <button
+            className="plan-why-header"
+            onClick={() => setTracesExpanded(!tracesExpanded)}
+          >
+            {tracesExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <span className="plan-why-title">Recent Decisions</span>
+            <span className="plan-why-count">{traceCount} decision{traceCount !== 1 ? 's' : ''}</span>
+          </button>
+          {tracesExpanded && (
+            <div className="plan-why-timeline">
+              {traces.map(trace => (
+                <TraceCard key={trace.trace_id} trace={trace} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

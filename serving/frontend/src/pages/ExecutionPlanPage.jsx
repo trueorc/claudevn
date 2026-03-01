@@ -28,7 +28,7 @@ function ExecutionPlanPage() {
     refresh
   } = usePlanSummary(activeProjectId)
 
-  const { itemBucketMap } = useBucketTree(activeProjectId)
+  const { itemBucketMap, buckets: bucketList } = useBucketTree(activeProjectId)
 
   const {
     statusMap: charStatusMap,
@@ -133,6 +133,7 @@ function ExecutionPlanPage() {
       )}
 
       <WhyThisOrder
+        buckets={bucketList}
         traces={data?.recent_traces || []}
         traceCount={data?.trace_count || 0}
       />
