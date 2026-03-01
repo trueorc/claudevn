@@ -151,13 +151,16 @@ services:
     restart: unless-stopped
 
   # Compute Instance 1 - Code Writer specialist
+  # NOTE: No host port mapping. In the SSE architecture, Serving never makes
+  # inbound connections to Compute. Compute connects outbound to Serving via SSE.
+  # The internal port is used only for container healthchecks (docker network).
+  # To access the Compute health API for debugging, use:
+  #   docker exec claudevn-compute-1 curl http://localhost:8010/api/v1/health
   compute-1:
     build:
       context: .
       dockerfile: compute/Dockerfile
     container_name: claudevn-compute-1
-    ports:
-      - "8010:8010"
     environment:
       - COMPUTE_HOST=0.0.0.0
       - COMPUTE_PORT=8010
@@ -196,14 +199,13 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  #Compute Instance 2 - Debugger specialist (TEMPORARILY DISABLED)
+  # Compute Instance 2 - Debugger specialist (TEMPORARILY DISABLED)
+  # NOTE: No host port mapping — see compute-1 comment above.
   compute-2:
     build:
       context: .
       dockerfile: compute/Dockerfile
     container_name: claudevn-compute-2
-    ports:
-      - "8011:8011"
     environment:
       - COMPUTE_HOST=0.0.0.0
       - COMPUTE_PORT=8011
@@ -241,13 +243,12 @@ services:
     restart: unless-stopped
 
   # Compute Instance 3 - Documentation specialist (TEMPORARILY DISABLED)
+  # NOTE: No host port mapping — see compute-1 comment above.
   # compute-3:
   #   build:
   #     context: .
   #     dockerfile: compute/Dockerfile
   #   container_name: claudevn-compute-3
-  #   ports:
-  #     - "8012:8012"
   #   environment:
   #     - COMPUTE_HOST=0.0.0.0
   #     - COMPUTE_PORT=8012
