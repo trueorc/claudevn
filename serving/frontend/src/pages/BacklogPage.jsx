@@ -186,8 +186,9 @@ function BacklogPage() {
     return f
   }, [searchParams, activeProjectId])
 
-  // Area filter is client-side since the API doesn't support it directly
+  // Area and bucket filters are client-side since the API doesn't support them directly
   const areaFilter = searchParams.get('area') || ''
+  const bucketFilter = searchParams.get('bucket') || ''
 
   const { items, stats, loading, error: loadError } = useIssues({ filters, key: refreshKey })
   const { statusMap: charStatuses } = useCharacterizationStatuses(activeProjectId)
@@ -210,18 +211,21 @@ function BacklogPage() {
   const toast = useToast()
 
   // Update URL params when filters change
-  const updateUrlParams = useCallback((newFilters, newArea) => {
+  const updateUrlParams = useCallback((newFilters, newArea, newBucket) => {
     const params = new URLSearchParams()
     if (newFilters.status) params.set('status', newFilters.status)
     if (newFilters.priority) params.set('priority', newFilters.priority)
     if (newFilters.goal_id) params.set('goal_id', newFilters.goal_id)
     if (newArea) params.set('area', newArea)
+    if (newBucket) params.set('bucket', newBucket)
     setSearchParams(params, { replace: true })
   }, [setSearchParams])
 
   const handleFilterChange = (key, value) => {
     if (key === 'area') {
-      updateUrlParams(filters, value)
+      updateUrlParams(filters, value, bucketFilter)
+    } else if (key === 'bucket') {
+      updateUrlParams(filters, areaFilter, value)
     } else {
       const newFilters = { ...filters }
       if (value) {
@@ -229,7 +233,7 @@ function BacklogPage() {
       } else {
         delete newFilters[key]
       }
-      updateUrlParams(newFilters, areaFilter)
+      updateUrlParams(newFilters, areaFilter, bucketFilter)
     }
   }
 
@@ -237,7 +241,7 @@ function BacklogPage() {
     setSearchParams({}, { replace: true })
   }
 
-  const hasActiveFilters = filters.status || filters.priority || filters.goal_id || areaFilter
+  const hasActiveFilters = filters.status || filters.priority || filters.goal_id || areaFilter || bucketFilter
 
   // Filter and sort items
   const processedItems = useMemo(() => {
@@ -246,6 +250,15 @@ function BacklogPage() {
     // Apply area filter client-side
     if (areaFilter) {
       result = result.filter(item => item.area === areaFilter)
+    }
+
+    // Apply bucket filter client-side
+    if (bucketFilter) {
+      result = result.filter(item => {
+        const bucketEntries = itemBucketMap[item.issue_id]
+        if (!bucketEntries) return false
+        return bucketEntries.some(b => b.bucket_id === bucketFilter)
+      })
     }
 
     // Sort items
@@ -269,7 +282,7 @@ function BacklogPage() {
     })
 
     return result
-  }, [items, areaFilter, sortBy])
+  }, [items, areaFilter, bucketFilter, itemBucketMap, sortBy])
 
   // Group items (supports two-level grouping)
   const groupedItems = useMemo(() => {
@@ -496,6 +509,27 @@ function BacklogPage() {
                 ))}
               </select>
             </div>
+
+            {bucketList.length > 0 && (
+              <div className="filter-group">
+                <label className="filter-label">Bucket</label>
+                <select
+                  className="filter-select"
+                  value={bucketFilter}
+                  onChange={e => handleFilterChange('bucket', e.target.value)}
+                >
+                  <option value="">All Buckets</option>
+                  {bucketList
+                    .slice()
+                    .sort((a, b) => a.rank - b.rank)
+                    .map(bucket => (
+                      <option key={bucket.bucket_id} value={bucket.bucket_id}>
+                        {bucket.definition?.name || bucket.bucket_id}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
 
             {hasActiveFilters && (
               <button onClick={clearFilters} className="btn btn-link">
