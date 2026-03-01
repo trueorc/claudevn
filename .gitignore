@@ -69,6 +69,7 @@ $RECYCLE.BIN/
 .env.local
 .env.*.local
 *.env
+.env.compute
 
 # Logs
 *.log

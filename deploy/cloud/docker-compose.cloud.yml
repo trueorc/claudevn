@@ -34,7 +34,7 @@ services:
     environment:
       - DOMAIN=${DOMAIN:?Set DOMAIN in .env.cloud (e.g., claudevn.example.com)}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/cloud/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
