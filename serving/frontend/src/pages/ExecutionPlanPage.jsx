@@ -7,6 +7,7 @@ import DependencyGraphView from '../components/plan/DependencyGraphView'
 import IssueDependencyGraphView from '../components/plan/IssueDependencyGraphView'
 import CharacterizationBanner from '../components/plan/CharacterizationBanner'
 import WhyThisOrder from '../components/plan/WhyThisOrder'
+import ItemTracesPanel from '../components/plan/ItemTracesPanel'
 import IssueDetailModal from '../components/workmap/IssueDetailModal'
 import EmptyState from '../components/common/EmptyState'
 import usePlanSummary from '../hooks/usePlanSummary'
@@ -19,6 +20,7 @@ function ExecutionPlanPage() {
   const { activeProject } = useProjectContext()
   const activeProjectId = activeProject?.project_id || null
   const [selectedIssue, setSelectedIssue] = useState(null)
+  const [tracesItem, setTracesItem] = useState(null)
   const [viewMode, setViewMode] = useState('list')
 
   const {
@@ -37,6 +39,10 @@ function ExecutionPlanPage() {
 
   const handleItemClick = (item) => {
     setSelectedIssue(item)
+  }
+
+  const handleItemTracesClick = (item) => {
+    setTracesItem(item)
   }
 
   const handleDetailSuccess = () => {
@@ -116,6 +122,7 @@ function ExecutionPlanPage() {
           data={data}
           loading={loading}
           onItemClick={handleItemClick}
+          onItemTracesClick={handleItemTracesClick}
           itemBucketMap={itemBucketMap}
         />
       )}
@@ -137,6 +144,14 @@ function ExecutionPlanPage() {
         traces={data?.recent_traces || []}
         traceCount={data?.trace_count || 0}
       />
+
+      {tracesItem && (
+        <ItemTracesPanel
+          projectId={activeProjectId}
+          item={tracesItem}
+          onClose={() => setTracesItem(null)}
+        />
+      )}
 
       <IssueDetailModal
         isOpen={Boolean(selectedIssue)}

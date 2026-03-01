@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ChevronDown, ChevronRight, GitBranch, Shuffle, Move, AlertTriangle, CheckCircle, UserPlus, Layers } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { ChevronDown, ChevronRight, GitBranch, Shuffle, Move, AlertTriangle, CheckCircle, UserPlus, Layers, Link2 } from 'lucide-react'
 import '../common/BucketBadges.css'
 import './Plan.css'
 
@@ -21,6 +21,13 @@ const traceTypeLabels = {
   worker_assignment: 'Assignment',
 }
 
+// Ordering-relevant trace types (shown prominently)
+const ORDERING_TYPES = new Set([
+  'profile_shift',
+  'bucket_reorganization',
+  'task_movement',
+])
+
 function formatTimeAgo(isoString) {
   if (!isoString) return ''
   const date = new Date(isoString)
@@ -36,12 +43,29 @@ function formatTimeAgo(isoString) {
   return `${diffDays}d ago`
 }
 
-function WhyThisOrder({ buckets = [], traces = [], traceCount = 0 }) {
-  const [tracesExpanded, setTracesExpanded] = useState(false)
+function WhyThisOrder({ buckets = [], traces = [], traceCount = 0, onTraceChainClick }) {
+  const [orderingExpanded, setOrderingExpanded] = useState(true)
+  const [otherExpanded, setOtherExpanded] = useState(false)
   const hasBuckets = buckets.length > 0
-  const hasTraces = traces.length > 0
 
-  if (!hasBuckets && !hasTraces) return null
+  // Split traces into ordering-relevant and other
+  const { orderingTraces, otherTraces } = useMemo(() => {
+    const ordering = []
+    const other = []
+    for (const trace of traces) {
+      if (ORDERING_TYPES.has(trace.decision_type)) {
+        ordering.push(trace)
+      } else {
+        other.push(trace)
+      }
+    }
+    return { orderingTraces: ordering, otherTraces: other }
+  }, [traces])
+
+  const hasOrderingTraces = orderingTraces.length > 0
+  const hasOtherTraces = otherTraces.length > 0
+
+  if (!hasBuckets && !hasOrderingTraces && !hasOtherTraces) return null
 
   const sortedBuckets = hasBuckets
     ? buckets.slice().sort((a, b) => a.rank - b.rank)
@@ -91,19 +115,47 @@ function WhyThisOrder({ buckets = [], traces = [], traceCount = 0 }) {
         </div>
       )}
 
-      {hasTraces && (
+      {hasOrderingTraces && (
         <>
           <button
             className="plan-why-header"
-            onClick={() => setTracesExpanded(!tracesExpanded)}
+            onClick={() => setOrderingExpanded(!orderingExpanded)}
           >
-            {tracesExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-            <span className="plan-why-title">Recent Decisions</span>
-            <span className="plan-why-count">{traceCount} decision{traceCount !== 1 ? 's' : ''}</span>
+            {orderingExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <span className="plan-why-title">Ordering Decisions</span>
+            <span className="plan-why-count">
+              {orderingTraces.length} decision{orderingTraces.length !== 1 ? 's' : ''}
+            </span>
           </button>
-          {tracesExpanded && (
+          {orderingExpanded && (
             <div className="plan-why-timeline">
-              {traces.map(trace => (
+              {orderingTraces.map(trace => (
+                <TraceCard
+                  key={trace.trace_id}
+                  trace={trace}
+                  onChainClick={onTraceChainClick}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {hasOtherTraces && (
+        <>
+          <button
+            className="plan-why-header plan-why-header--secondary"
+            onClick={() => setOtherExpanded(!otherExpanded)}
+          >
+            {otherExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <span className="plan-why-title">Other Activity</span>
+            <span className="plan-why-count">
+              {otherTraces.length}
+            </span>
+          </button>
+          {otherExpanded && (
+            <div className="plan-why-timeline">
+              {otherTraces.map(trace => (
                 <TraceCard key={trace.trace_id} trace={trace} />
               ))}
             </div>
@@ -114,10 +166,11 @@ function WhyThisOrder({ buckets = [], traces = [], traceCount = 0 }) {
   )
 }
 
-function TraceCard({ trace }) {
-  const { decision_type, decision_summary, timestamp, trigger } = trace
+function TraceCard({ trace, onChainClick }) {
+  const { decision_type, decision_summary, timestamp, trigger, key_factors, related_trace_ids } = trace
   const Icon = traceTypeIcons[decision_type] || Move
   const typeLabel = traceTypeLabels[decision_type] || decision_type
+  const hasChain = related_trace_ids && related_trace_ids.length > 0
 
   return (
     <div className="plan-trace-card">
@@ -126,10 +179,32 @@ function TraceCard({ trace }) {
         <div className="plan-trace-type">
           <Icon size={14} />
           <span>{typeLabel}</span>
+          {hasChain && onChainClick && (
+            <button
+              className="plan-trace-chain-link"
+              onClick={(e) => {
+                e.stopPropagation()
+                onChainClick(trace.trace_id)
+              }}
+              title="View related decisions"
+            >
+              <Link2 size={12} />
+            </button>
+          )}
         </div>
         <p className="plan-trace-summary">{decision_summary}</p>
-        {trigger && (
+        {key_factors && key_factors.length > 0 && (
+          <ul className="plan-trace-factors">
+            {key_factors.map((factor, i) => (
+              <li key={i}>{factor}</li>
+            ))}
+          </ul>
+        )}
+        {trigger && typeof trigger === 'string' && (
           <p className="plan-trace-trigger">{trigger}</p>
+        )}
+        {trigger && typeof trigger === 'object' && trigger.description && (
+          <p className="plan-trace-trigger">{trigger.description}</p>
         )}
       </div>
     </div>

@@ -9,6 +9,8 @@ function makeTrace(overrides = {}) {
     decision_summary: 'Moved task to front of queue',
     timestamp: new Date().toISOString(),
     trigger: null,
+    key_factors: null,
+    related_trace_ids: null,
     ...overrides,
   }
 }
@@ -92,71 +94,6 @@ describe('WhyThisOrder', () => {
     expect(screen.getByText('my-bucket')).toBeDefined()
   })
 
-  it('renders traces section as "Recent Decisions" collapsed by default', () => {
-    const traces = [makeTrace()]
-    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
-
-    expect(screen.getByText('Recent Decisions')).toBeDefined()
-    expect(screen.queryByText('Moved task to front of queue')).toBeNull()
-  })
-
-  it('expands traces on header click', () => {
-    const traces = [makeTrace({ decision_summary: 'Reordered queue' })]
-    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
-
-    fireEvent.click(screen.getByText('Recent Decisions'))
-    expect(screen.getByText('Reordered queue')).toBeDefined()
-  })
-
-  it('collapses traces on second click', () => {
-    const traces = [makeTrace({ decision_summary: 'Reordered' })]
-    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
-
-    const header = screen.getByText('Recent Decisions')
-    fireEvent.click(header)
-    expect(screen.getByText('Reordered')).toBeDefined()
-
-    fireEvent.click(header)
-    expect(screen.queryByText('Reordered')).toBeNull()
-  })
-
-  it('shows trace count with singular "decision"', () => {
-    render(<WhyThisOrder buckets={[makeBucket()]} traces={[makeTrace()]} traceCount={1} />)
-    expect(screen.getByText('1 decision')).toBeDefined()
-  })
-
-  it('shows trace count with plural "decisions"', () => {
-    render(<WhyThisOrder buckets={[makeBucket()]} traces={[makeTrace(), makeTrace()]} traceCount={5} />)
-    expect(screen.getByText('5 decisions')).toBeDefined()
-  })
-
-  it('renders decision type labels correctly', () => {
-    const traces = [
-      makeTrace({ decision_type: 'profile_shift', decision_summary: 'Profile changed' }),
-    ]
-    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Recent Decisions'))
-    expect(screen.getByText('Profile Shift')).toBeDefined()
-  })
-
-  it('shows trigger text when present', () => {
-    const traces = [makeTrace({ trigger: 'User requested priority change' })]
-    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Recent Decisions'))
-    expect(screen.getByText('User requested priority change')).toBeDefined()
-  })
-
-  it('renders multiple traces', () => {
-    const traces = [
-      makeTrace({ decision_summary: 'First decision' }),
-      makeTrace({ decision_summary: 'Second decision' }),
-    ]
-    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={2} />)
-    fireEvent.click(screen.getByText('Recent Decisions'))
-    expect(screen.getByText('First decision')).toBeDefined()
-    expect(screen.getByText('Second decision')).toBeDefined()
-  })
-
   it('applies rank-based CSS classes to bucket rank badges', () => {
     const buckets = [
       makeBucket({ rank: 1, definition: { name: 'B1', description: '' } }),
@@ -167,5 +104,111 @@ describe('WhyThisOrder', () => {
     const rank3 = screen.getByText('#3')
     expect(rank1.className).toContain('bucket-badge-rank-1')
     expect(rank3.className).toContain('bucket-badge-rank-3')
+  })
+
+  // --- Trace filtering: ordering vs other activity ---
+
+  it('classifies task_movement as ordering trace and shows expanded', () => {
+    const traces = [makeTrace({ decision_type: 'task_movement', decision_summary: 'Moved item A' })]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Ordering Decisions')).toBeDefined()
+    // Ordering traces are expanded by default
+    expect(screen.getByText('Moved item A')).toBeDefined()
+  })
+
+  it('classifies profile_shift as ordering trace', () => {
+    const traces = [makeTrace({ decision_type: 'profile_shift', decision_summary: 'Profile changed' })]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Ordering Decisions')).toBeDefined()
+    expect(screen.getByText('Profile Shift')).toBeDefined()
+  })
+
+  it('classifies bucket_reorganization as ordering trace', () => {
+    const traces = [makeTrace({ decision_type: 'bucket_reorganization', decision_summary: 'Reorg happened' })]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Ordering Decisions')).toBeDefined()
+    expect(screen.getByText('Reorganization')).toBeDefined()
+  })
+
+  it('classifies worker_assignment as other activity and shows collapsed', () => {
+    const traces = [makeTrace({ decision_type: 'worker_assignment', decision_summary: 'Assigned worker' })]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Other Activity')).toBeDefined()
+    // Other activity is collapsed by default
+    expect(screen.queryByText('Assigned worker')).toBeNull()
+  })
+
+  it('expands other activity on click', () => {
+    const traces = [makeTrace({ decision_type: 'worker_assignment', decision_summary: 'Assigned worker X' })]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
+    fireEvent.click(screen.getByText('Other Activity'))
+    expect(screen.getByText('Assigned worker X')).toBeDefined()
+  })
+
+  it('splits traces into ordering and other sections', () => {
+    const traces = [
+      makeTrace({ decision_type: 'task_movement', decision_summary: 'Moved item' }),
+      makeTrace({ decision_type: 'worker_assignment', decision_summary: 'Assigned worker' }),
+    ]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={2} />)
+    expect(screen.getByText('Ordering Decisions')).toBeDefined()
+    expect(screen.getByText('Other Activity')).toBeDefined()
+    // Ordering visible, other hidden
+    expect(screen.getByText('Moved item')).toBeDefined()
+    expect(screen.queryByText('Assigned worker')).toBeNull()
+  })
+
+  it('collapses ordering decisions on click', () => {
+    const traces = [makeTrace({ decision_type: 'task_movement', decision_summary: 'Moved item Z' })]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Moved item Z')).toBeDefined()
+    fireEvent.click(screen.getByText('Ordering Decisions'))
+    expect(screen.queryByText('Moved item Z')).toBeNull()
+  })
+
+  // --- Key factors and triggers ---
+
+  it('renders key_factors as list items', () => {
+    const traces = [makeTrace({
+      decision_type: 'task_movement',
+      key_factors: ['Higher priority', 'Fewer dependencies'],
+    })]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Higher priority')).toBeDefined()
+    expect(screen.getByText('Fewer dependencies')).toBeDefined()
+  })
+
+  it('shows string trigger text', () => {
+    const traces = [makeTrace({
+      decision_type: 'bucket_reorganization',
+      trigger: 'User requested priority change',
+    })]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('User requested priority change')).toBeDefined()
+  })
+
+  it('shows object trigger description', () => {
+    const traces = [makeTrace({
+      decision_type: 'bucket_reorganization',
+      trigger: { description: 'Profile weight changed' },
+    })]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    expect(screen.getByText('Profile weight changed')).toBeDefined()
+  })
+
+  it('shows decision count in ordering header', () => {
+    const traces = [
+      makeTrace({ decision_type: 'task_movement' }),
+      makeTrace({ decision_type: 'task_movement' }),
+      makeTrace({ decision_type: 'task_movement' }),
+    ]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={3} />)
+    expect(screen.getByText(/3 decisions/)).toBeDefined()
+  })
+
+  it('shows singular decision count', () => {
+    const traces = [makeTrace({ decision_type: 'bucket_reorganization' })]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
+    expect(screen.getByText(/1 decision/)).toBeDefined()
   })
 })
