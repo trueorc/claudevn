@@ -1,4 +1,4 @@
-import { Play, Clock, AlertCircle, Layers, XCircle, CheckCircle2 } from 'lucide-react'
+import { Play, Clock, AlertCircle, Layers, XCircle, CheckCircle2, History } from 'lucide-react'
 import Badge from '../common/Badge'
 import BucketBadges from '../common/BucketBadges'
 import Spinner from '../common/Spinner'
@@ -27,7 +27,7 @@ function formatDuration(startIso, endIso) {
   return `${days}d ${hrs % 24}h`
 }
 
-function ActiveWorkView({ data, loading, onItemClick, itemBucketMap = {} }) {
+function ActiveWorkView({ data, loading, onItemClick, onItemTracesClick, itemBucketMap = {} }) {
   if (loading && !data) {
     return (
       <div className="plan-active-work">
@@ -59,6 +59,7 @@ function ActiveWorkView({ data, loading, onItemClick, itemBucketMap = {} }) {
           items={running_items}
           emptyMessage="No items running"
           onItemClick={onItemClick}
+          onItemTracesClick={onItemTracesClick}
           itemBucketMap={itemBucketMap}
           showTiming
         />
@@ -69,6 +70,7 @@ function ActiveWorkView({ data, loading, onItemClick, itemBucketMap = {} }) {
           items={queued_items}
           emptyMessage="No items queued"
           onItemClick={onItemClick}
+          onItemTracesClick={onItemTracesClick}
           itemBucketMap={itemBucketMap}
         />
         <WorkColumn
@@ -78,6 +80,7 @@ function ActiveWorkView({ data, loading, onItemClick, itemBucketMap = {} }) {
           items={backlog_items}
           emptyMessage="No backlog items"
           onItemClick={onItemClick}
+          onItemTracesClick={onItemTracesClick}
           itemBucketMap={itemBucketMap}
           showBlockers
         />
@@ -121,7 +124,7 @@ function ActiveWorkView({ data, loading, onItemClick, itemBucketMap = {} }) {
   )
 }
 
-function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemClick, itemBucketMap = {}, showBlockers, showTiming }) {
+function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemClick, onItemTracesClick, itemBucketMap = {}, showBlockers, showTiming }) {
   return (
     <div className="plan-column">
       <div className="plan-column-header">
@@ -140,6 +143,7 @@ function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemC
               key={item.issue_id}
               item={item}
               onClick={() => onItemClick?.(item)}
+              onTracesClick={onItemTracesClick ? () => onItemTracesClick(item) : undefined}
               bucketEntries={itemBucketMap[item.issue_id]}
               showBlockers={showBlockers}
               showTiming={showTiming}
@@ -151,7 +155,7 @@ function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemC
   )
 }
 
-function WorkItem({ item, onClick, bucketEntries, showBlockers, showTiming }) {
+function WorkItem({ item, onClick, onTracesClick, bucketEntries, showBlockers, showTiming }) {
   const { title, priority, assigned_to, depends_on, started_at, completed_at } = item
   const displayId = item.number ? `#${item.number}` : item.issue_id?.slice(0, 8)
   const duration = showTiming ? formatDuration(started_at, completed_at) : null
@@ -161,6 +165,15 @@ function WorkItem({ item, onClick, bucketEntries, showBlockers, showTiming }) {
       <div className="plan-work-item-header">
         <span className="plan-work-item-id">{displayId}</span>
         <span className="plan-work-item-title">{title}</span>
+        {onTracesClick && (
+          <button
+            className="plan-work-item-traces-btn"
+            onClick={(e) => { e.stopPropagation(); onTracesClick() }}
+            title="View ordering history"
+          >
+            <History size={12} />
+          </button>
+        )}
       </div>
       <div className="plan-work-item-meta">
         {priority && (

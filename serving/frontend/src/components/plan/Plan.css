@@ -495,6 +495,153 @@
   margin: 2px 0 0 0;
 }
 
+.plan-trace-factors {
+  margin: 4px 0 0 0;
+  padding-left: var(--space-md);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.plan-trace-factors li {
+  margin-bottom: 1px;
+}
+
+.plan-trace-chain-link,
+.plan-trace-chain-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: var(--primary, #6366f1);
+  cursor: pointer;
+  padding: 1px 4px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.plan-trace-chain-link:hover {
+  background: var(--bg-hover);
+}
+
+.plan-trace-chain-indicator {
+  cursor: default;
+  color: var(--text-muted);
+}
+
+.plan-why-header--secondary {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Work item traces button */
+.plan-work-item-traces-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.plan-work-item:hover .plan-work-item-traces-btn {
+  opacity: 1;
+}
+
+.plan-work-item-traces-btn:hover {
+  background: var(--bg-hover);
+  color: var(--primary, #6366f1);
+}
+
+/* ==========================================
+   Item Traces Panel (Per-Item Drill-Down)
+   ========================================== */
+
+.plan-item-traces-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-md);
+  overflow: hidden;
+}
+
+.plan-item-traces-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-item-traces-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.plan-item-traces-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.plan-item-traces-close:hover {
+  background: var(--bg-hover);
+}
+
+.plan-item-traces-subtitle {
+  padding: 0 var(--space-md) var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.plan-item-traces-content {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.plan-item-traces-loading,
+.plan-item-traces-error,
+.plan-item-traces-empty {
+  padding: var(--space-lg);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.plan-item-traces-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+
+.plan-item-traces-error {
+  color: var(--error);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
 /* ==========================================
    Characterization Banner
    ========================================== */
