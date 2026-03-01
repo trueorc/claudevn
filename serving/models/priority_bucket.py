@@ -379,30 +379,55 @@ class BucketTree(BaseModel):
 
         Takes ready items from the highest-priority bucket first,
         then the next bucket, and so on. Within each bucket, items
-        are ordered by intra-bucket priority.
+        are ordered by intra-bucket priority. Deduplicates items that
+        appear in multiple buckets (assigned from highest-priority bucket).
         """
         queue: List[BucketItem] = []
+        seen_item_ids: set = set()
         for bucket in self.get_ranked_buckets():
             bucket.sort_items()
-            queue.extend(bucket.ready_items)
+            for item in bucket.ready_items:
+                if item.item_id not in seen_item_ids:
+                    queue.append(item)
+                    seen_item_ids.add(item.item_id)
         return queue
 
     def find_item(self, item_id: str) -> Optional[tuple]:
-        """Find which bucket contains a given item.
+        """Find the highest-ranked bucket containing a given item.
 
         Returns:
-            Tuple of (PriorityBucket, BucketItem) or None if not found
+            Tuple of (PriorityBucket, BucketItem) or None if not found.
+            When an item exists in multiple buckets, returns from the
+            highest-ranked (lowest rank number) bucket.
         """
-        for bucket in self.buckets:
+        results = self.find_item_buckets(item_id)
+        return results[0] if results else None
+
+    def find_item_buckets(self, item_id: str) -> List[tuple]:
+        """Find all buckets containing a given item.
+
+        Supports multi-bucket membership where an item can appear in
+        multiple buckets simultaneously.
+
+        Returns:
+            List of (PriorityBucket, BucketItem) tuples sorted by bucket rank,
+            or empty list if not found.
+        """
+        results = []
+        for bucket in self.get_ranked_buckets():
             for item in bucket.items:
                 if item.item_id == item_id:
-                    return (bucket, item)
-        return None
+                    results.append((bucket, item))
+        return results
 
     @property
     def total_items(self) -> int:
-        """Total number of items across all buckets."""
-        return sum(b.item_count for b in self.buckets)
+        """Total number of unique items across all buckets."""
+        seen = set()
+        for bucket in self.buckets:
+            for item in bucket.items:
+                seen.add(item.item_id)
+        return len(seen)
 
     @property
     def total_ready(self) -> int:
