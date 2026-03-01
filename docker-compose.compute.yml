@@ -25,13 +25,16 @@
 
 services:
   # Remote Compute Instance
+  # NOTE: No host port mapping. In the SSE architecture, Serving never makes
+  # inbound connections to Compute. Compute connects outbound to Serving via SSE.
+  # The internal port is used only for container healthchecks (docker network).
+  # To access the Compute health API for debugging, use:
+  #   docker exec claudevn-compute-remote curl http://localhost:${COMPUTE_PORT:-8010}/api/v1/health
   compute:
     build:
       context: .
       dockerfile: compute/Dockerfile
     container_name: claudevn-compute-remote
-    ports:
-      - "${COMPUTE_PORT:-8010}:${COMPUTE_PORT:-8010}"
     env_file:
       - .env.compute
     environment:
