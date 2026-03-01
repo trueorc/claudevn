@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional, AsyncGenerator
 
@@ -48,6 +49,43 @@ SSE_KEEPALIVE_INTERVAL = 30
 SSE_EVENT_CHECK_INTERVAL = 0.5
 
 router = APIRouter(prefix="/compute", tags=["compute"])
+
+
+def _verify_registration_token(authorization: Optional[str]) -> None:
+    """Verify the Bearer token against the COMPUTE_REGISTRATION_TOKEN env var.
+
+    If COMPUTE_REGISTRATION_TOKEN is not set, authentication is not enforced
+    (local dev mode). When set, the Authorization header must provide a matching
+    Bearer token. MCP_AUTH_BYPASS=true disables enforcement for integration tests.
+
+    Raises:
+        HTTPException 401 if token is missing or invalid when enforcement is active.
+    """
+    token = os.getenv("COMPUTE_REGISTRATION_TOKEN")
+    if not token:
+        return  # Not configured — local dev mode, no enforcement
+
+    if os.getenv("MCP_AUTH_BYPASS", "").lower() == "true":
+        return  # Test bypass
+
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "MISSING_AUTH", "message": "Authorization header required for registration"},
+        )
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_AUTH", "message": "Bearer token required"},
+        )
+
+    provided = authorization[7:]
+    if provided != token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_TOKEN", "message": "Invalid registration token"},
+        )
 
 
 # =============================================================================
@@ -276,6 +314,9 @@ async def connect_sse(
     Returns:
         SSE stream (text/event-stream)
     """
+    # Enforce registration token authentication
+    _verify_registration_token(authorization)
+
     compute_id = x_compute_id
 
     # Check if already registered
