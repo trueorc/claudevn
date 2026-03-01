@@ -10,6 +10,7 @@ import Spinner from '../components/common/Spinner'
 import EmptyState from '../components/common/EmptyState'
 import useIssues from '../hooks/useIssues'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
+import useBucketTree from '../hooks/useBucketTree'
 import { useToast } from '../hooks/useToast'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { deleteIssue } from '../api/workmap'
@@ -75,7 +76,8 @@ const groupByOptions = [
   { value: 'priority', label: 'By Priority' },
   { value: 'area', label: 'By Area' },
   { value: 'type', label: 'By Type' },
-  { value: 'goal', label: 'By Goal' }
+  { value: 'goal', label: 'By Goal' },
+  { value: 'bucket', label: 'By Bucket' }
 ]
 
 const secondaryGroupByOptions = [
@@ -84,11 +86,12 @@ const secondaryGroupByOptions = [
   { value: 'priority', label: 'By Priority' },
   { value: 'area', label: 'By Area' },
   { value: 'type', label: 'By Type' },
-  { value: 'goal', label: 'By Goal' }
+  { value: 'goal', label: 'By Goal' },
+  { value: 'bucket', label: 'By Bucket' }
 ]
 
 // Helper to get grouping key(s) for an issue
-const getGroupKey = (item, groupType) => {
+const getGroupKey = (item, groupType, context = {}) => {
   let key
   switch (groupType) {
     case 'status':
@@ -106,6 +109,13 @@ const getGroupKey = (item, groupType) => {
     case 'goal':
       key = item.goal_id || 'No Goal'
       break
+    case 'bucket': {
+      const bucketEntries = context.itemBucketMap?.[item.issue_id]
+      if (bucketEntries && bucketEntries.length > 0) {
+        return bucketEntries.map(b => b.name)
+      }
+      return ['Unassigned']
+    }
     default:
       key = 'All'
   }
@@ -113,12 +123,19 @@ const getGroupKey = (item, groupType) => {
 }
 
 // Helper to sort group keys based on group type
-const sortGroupKeys = (keys, groupType) => {
+const sortGroupKeys = (keys, groupType, context = {}) => {
   const sortedKeys = [...keys]
   if (groupType === 'status') {
     sortedKeys.sort((a, b) => statusOrder.indexOf(a) - statusOrder.indexOf(b))
   } else if (groupType === 'priority') {
     sortedKeys.sort((a, b) => priorityOrder.indexOf(a) - priorityOrder.indexOf(b))
+  } else if (groupType === 'bucket') {
+    const bucketRankMap = context.bucketRankMap || {}
+    sortedKeys.sort((a, b) => {
+      if (a === 'Unassigned') return 1
+      if (b === 'Unassigned') return -1
+      return (bucketRankMap[a] || 999) - (bucketRankMap[b] || 999)
+    })
   } else {
     sortedKeys.sort((a, b) => {
       if (a === 'No Goal' || a === 'Unknown' || a === 'Other') return 1
@@ -174,6 +191,22 @@ function BacklogPage() {
 
   const { items, stats, loading, error: loadError } = useIssues({ filters, key: refreshKey })
   const { statusMap: charStatuses } = useCharacterizationStatuses(activeProjectId)
+  const { itemBucketMap, buckets: bucketList } = useBucketTree(activeProjectId)
+
+  // Build bucket rank map for sorting bucket groups by rank order
+  const bucketRankMap = useMemo(() => {
+    const map = {}
+    for (const bucket of bucketList) {
+      const name = bucket.definition?.name || bucket.bucket_id
+      map[name] = bucket.rank
+    }
+    return map
+  }, [bucketList])
+
+  const groupContext = useMemo(() => ({
+    itemBucketMap,
+    bucketRankMap
+  }), [itemBucketMap, bucketRankMap])
   const toast = useToast()
 
   // Update URL params when filters change
@@ -247,7 +280,7 @@ function BacklogPage() {
     const groups = {}
 
     processedItems.forEach(item => {
-      const primaryKeys = getGroupKey(item, groupBy)
+      const primaryKeys = getGroupKey(item, groupBy, groupContext)
       primaryKeys.forEach(primaryKey => {
         if (!groups[primaryKey]) {
           groups[primaryKey] = { items: [], subgroups: null }
@@ -260,7 +293,7 @@ function BacklogPage() {
       Object.keys(groups).forEach(primaryKey => {
         const subgroups = {}
         groups[primaryKey].items.forEach(item => {
-          const secondaryKeys = getGroupKey(item, secondaryGroupBy)
+          const secondaryKeys = getGroupKey(item, secondaryGroupBy, groupContext)
           secondaryKeys.forEach(secondaryKey => {
             if (!subgroups[secondaryKey]) {
               subgroups[secondaryKey] = []
@@ -269,7 +302,7 @@ function BacklogPage() {
           })
         })
 
-        const sortedSecondaryKeys = sortGroupKeys(Object.keys(subgroups), secondaryGroupBy)
+        const sortedSecondaryKeys = sortGroupKeys(Object.keys(subgroups), secondaryGroupBy, groupContext)
         const sortedSubgroups = {}
         sortedSecondaryKeys.forEach(key => {
           sortedSubgroups[key] = subgroups[key]
@@ -278,13 +311,13 @@ function BacklogPage() {
       })
     }
 
-    const sortedPrimaryKeys = sortGroupKeys(Object.keys(groups), groupBy)
+    const sortedPrimaryKeys = sortGroupKeys(Object.keys(groups), groupBy, groupContext)
     const sortedGroups = {}
     sortedPrimaryKeys.forEach(key => {
       sortedGroups[key] = groups[key]
     })
     return sortedGroups
-  }, [processedItems, groupBy, secondaryGroupBy])
+  }, [processedItems, groupBy, secondaryGroupBy, groupContext])
 
   const toggleGroupCollapse = useCallback((groupKey) => {
     setCollapsedGroups(prev => ({
@@ -539,7 +572,18 @@ function BacklogPage() {
                   >
                     <div className="group-header-left">
                       {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                      {groupBy === 'bucket' && bucketRankMap[groupName] && (
+                        <span className="bucket-rank-badge">#{bucketRankMap[groupName]}</span>
+                      )}
                       <h3 className="group-title">{groupName}</h3>
+                      {groupBy === 'bucket' && (() => {
+                        const bucket = bucketList.find(b => (b.definition?.name || b.bucket_id) === groupName)
+                        return bucket?.definition?.description ? (
+                          <span className="bucket-description" title={bucket.definition.description}>
+                            {bucket.definition.description}
+                          </span>
+                        ) : null
+                      })()}
                     </div>
                     <span className="group-count">{totalItems}</span>
                   </div>
