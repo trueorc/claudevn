@@ -83,7 +83,8 @@ class SSEEventClient:
         capabilities: list[str],
         resources: dict[str, Any],
         reconnect_delay: int = 5,
-        max_reconnect_delay: int = 60
+        max_reconnect_delay: int = 60,
+        tls_verify: bool = True,
     ):
         """Initialize the SSE event client.
 
@@ -95,6 +96,7 @@ class SSEEventClient:
             resources: Resource specifications
             reconnect_delay: Initial delay between reconnection attempts
             max_reconnect_delay: Maximum delay between reconnection attempts
+            tls_verify: Whether to verify TLS certificates
         """
         self.serving_url = serving_url.rstrip('/')
         self.compute_id = compute_id
@@ -103,12 +105,14 @@ class SSEEventClient:
         self.resources = resources
         self.reconnect_delay = reconnect_delay
         self.max_reconnect_delay = max_reconnect_delay
+        self.tls_verify = tls_verify
 
         self._handlers: dict[str, list[EventHandler]] = {}
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._connected = False
         self._last_event_time: Optional[datetime] = None
+        self._has_connected_before = False
 
         # Shutdown handling
         self._shutdown_requested = False
@@ -514,7 +518,7 @@ class SSEEventClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, verify=self.tls_verify) as client:
                 response = await client.post(url, json=payload, headers=headers)
 
                 if response.status_code == 201:
@@ -662,6 +666,11 @@ class SSEEventClient:
     async def _connect_and_listen(self) -> None:
         """Connect to SSE endpoint and listen for events."""
         url = f"{self.serving_url}/api/v1/compute/connect"
+        # On reconnect, use force=true to close stale server-side connection
+        if self._has_connected_before:
+            url += "?force=true"
+        self._has_connected_before = True
+
         headers = {
             "X-Compute-ID": self.compute_id,
             "X-Capabilities": ",".join(self.capabilities),
@@ -674,7 +683,7 @@ class SSEEventClient:
 
         logger.info(f"Connecting to SSE endpoint: {url}")
 
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=None, verify=self.tls_verify) as client:
             async with client.stream("GET", url, headers=headers) as response:
                 if response.status_code != 200:
                     raise Exception(f"SSE connection failed: {response.status_code}")
@@ -777,7 +786,8 @@ async def initialize_sse_event_client(
     capabilities: list[str],
     resources: dict[str, Any],
     reconnect_delay: int = 5,
-    max_reconnect_delay: int = 60
+    max_reconnect_delay: int = 60,
+    tls_verify: bool = True,
 ) -> SSEEventClient:
     """Initialize and start the global SSE event client.
 
@@ -789,6 +799,7 @@ async def initialize_sse_event_client(
         resources: Resource specifications
         reconnect_delay: Initial delay between reconnection attempts (default: 5)
         max_reconnect_delay: Maximum delay between reconnection attempts (default: 60)
+        tls_verify: Whether to verify TLS certificates (default: True)
 
     Returns:
         The initialized SSE event client
@@ -800,7 +811,8 @@ async def initialize_sse_event_client(
         capabilities=capabilities,
         resources=resources,
         reconnect_delay=reconnect_delay,
-        max_reconnect_delay=max_reconnect_delay
+        max_reconnect_delay=max_reconnect_delay,
+        tls_verify=tls_verify,
     )
     set_sse_event_client(client)
     await client.start()

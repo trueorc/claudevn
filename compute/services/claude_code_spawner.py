@@ -173,6 +173,7 @@ class ClaudeCodeSpawner:
         event_base_delay: float = 1.0,
         max_instances: int = 1,
         serving_repo_url: Optional[str] = None,
+        tls_verify: bool = True,
         # Deprecated: kept for backwards compatibility, no longer used
         claude_cli_path: Optional[str] = None,
         ssh_key_path: Optional[str] = None,
@@ -214,6 +215,7 @@ class ClaudeCodeSpawner:
         self.event_base_delay = event_base_delay
         self.max_instances = max_instances
         self.serving_repo_url = serving_repo_url
+        self.tls_verify = tls_verify
 
         # Track running instances and their async execution tasks
         self._instances: Dict[str, Dict[str, Any]] = {}
@@ -1393,7 +1395,7 @@ sys.exit(1)
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=self.tls_verify) as client:
                 response = await client.post(url, json=submit_data, headers=headers, timeout=30.0)
                 if response.status_code == 200:
                     resp_data = response.json()
@@ -1466,7 +1468,7 @@ sys.exit(1)
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=self.tls_verify) as client:
                 response = await client.post(url, json=submit_data, headers=headers, timeout=30.0)
                 if response.status_code == 200:
                     logger.info(f"Submitted characterization result for {characterization_id}")
@@ -1871,7 +1873,7 @@ sys.exit(1)
 
         for attempt in range(self.event_max_retries):
             try:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(verify=self.tls_verify) as client:
                     response = await client.post(url, json=event, headers=headers, timeout=10.0)
 
                     if response.status_code == 200:
@@ -1965,6 +1967,7 @@ def initialize_claude_code_spawner(
     event_base_delay: float = 1.0,
     max_instances: int = 1,
     serving_repo_url: Optional[str] = None,
+    tls_verify: bool = True,
 ) -> ClaudeCodeSpawner:
     """Initialize the global Claude Code spawner.
 
@@ -1979,6 +1982,7 @@ def initialize_claude_code_spawner(
         max_instances: Maximum concurrent Claude Code instances (default: 1)
         serving_repo_url: Git URL of the serving repo — cloned once to
             ~/.claudevn/repos/serving/ and pulled on every task start.
+        tls_verify: Whether to verify TLS certificates (default: True)
 
     Returns:
         The initialized spawner
@@ -1993,6 +1997,7 @@ def initialize_claude_code_spawner(
         event_base_delay=event_base_delay,
         max_instances=max_instances,
         serving_repo_url=serving_repo_url,
+        tls_verify=tls_verify,
     )
     set_claude_code_spawner(spawner)
     return spawner

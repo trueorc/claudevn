@@ -4,10 +4,15 @@ This is the v1.0 architecture where compute is lightweight infrastructure
 that spawns Claude Code CLI instances for work execution.
 """
 
+import logging
 import os
 import socket
 from typing import Optional
+from urllib.parse import urlparse
+
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
 
 
 class ComputeConfig(BaseModel):
@@ -60,13 +65,16 @@ class ComputeConfig(BaseModel):
         description="Auth mode: serving (fetch from serving), local (mount), or external (own)"
     )
     serving_auth_url: str = Field(
-        default="http://serving:8002/api/v1/auth",
-        description="URL of Serving's auth API for credential fetching"
+        default="",
+        description="URL of Serving's auth API for credential fetching (derived from serving_url if not set)"
     )
 
     # SSE client settings
     sse_reconnect_delay: int = Field(default=5, description="SSE initial reconnect delay in seconds")
     sse_max_reconnect_delay: int = Field(default=60, description="SSE maximum reconnect delay in seconds")
+
+    # TLS verification (set to false for self-signed certs in local testing)
+    tls_verify: bool = Field(default=True, description="Verify TLS certificates for HTTPS connections")
 
     # Logging
     log_level: str = Field(default="INFO", description="Log level")
@@ -104,7 +112,12 @@ def load_config() -> ComputeConfig:
         credential_check_interval=int(os.getenv("CLAUDEVN_CREDENTIAL_CHECK_INTERVAL", "3600")),
         credential_expiry_warning_days=int(os.getenv("CLAUDEVN_CREDENTIAL_EXPIRY_WARNING_DAYS", "7")),
         auth_mode=os.getenv("COMPUTE_AUTH_MODE", "serving"),
-        serving_auth_url=os.getenv("CLAUDEVN_SERVING_AUTH_URL", "http://serving:8002/api/v1/auth"),
+        # Derive auth URL from serving_url when not explicitly set
+        serving_auth_url=os.getenv(
+            "CLAUDEVN_SERVING_AUTH_URL",
+            f"{os.getenv('CLAUDEVN_SERVING_URL', os.getenv('SERVING_URL', 'http://localhost:8002')).rstrip('/')}/api/v1/auth",
+        ),
+        tls_verify=os.getenv("TLS_VERIFY", "true").lower() in ("true", "1", "yes"),
         sse_reconnect_delay=int(os.getenv("CLAUDEVN_SSE_RECONNECT_DELAY", "5")),
         sse_max_reconnect_delay=int(os.getenv("CLAUDEVN_SSE_MAX_RECONNECT_DELAY", "60")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
@@ -121,7 +134,50 @@ def load_config() -> ComputeConfig:
         hostname = socket.gethostname()
         config.instance_name = f"Compute on {hostname}"
 
+    # Warn if serving_url uses plain HTTP on a non-local address
+    _warn_insecure_url(config.serving_url, "CLAUDEVN_SERVING_URL")
+    _warn_insecure_url(config.serving_auth_url, "CLAUDEVN_SERVING_AUTH_URL")
+
+    # Validate hostname consistency between serving_url and serving_auth_url
+    _validate_auth_url_consistency(config.serving_url, config.serving_auth_url)
+
     return config
+
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "serving"}
+
+
+def _warn_insecure_url(url: str, var_name: str) -> None:
+    """Emit a warning if the URL uses plain HTTP to a non-local host."""
+    parsed = urlparse(url)
+    if parsed.scheme == "http" and parsed.hostname not in _LOCAL_HOSTS:
+        logger.warning(
+            "SECURITY: %s uses plain HTTP (%s). "
+            "API keys and credentials will be sent in cleartext. "
+            "Use HTTPS for internet-facing deployments — see deploy/cloud/ for Caddy TLS setup.",
+            var_name,
+            url,
+        )
+
+
+def _validate_auth_url_consistency(serving_url: str, auth_url: str) -> None:
+    """Warn if serving_auth_url points to a different host than serving_url.
+
+    This catches misconfigurations where serving_url is overridden for remote
+    access but serving_auth_url still points to a Docker-internal hostname.
+    """
+    serving_host = urlparse(serving_url).hostname
+    auth_host = urlparse(auth_url).hostname
+
+    if serving_host and auth_host and serving_host != auth_host:
+        logger.error(
+            "CLAUDEVN_SERVING_AUTH_URL host (%s) differs from CLAUDEVN_SERVING_URL host (%s). "
+            "Auth URL should usually be derived from SERVING_URL. "
+            "Credential fetching will likely fail for remote compute nodes. "
+            "Either set CLAUDEVN_SERVING_AUTH_URL explicitly or leave it unset to auto-derive.",
+            auth_host,
+            serving_host,
+        )
 
 
 def get_version() -> str:

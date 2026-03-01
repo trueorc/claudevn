@@ -186,6 +186,12 @@ Compute instances execute work using Claude Code CLI. Configuration is loaded vi
 | `CLAUDEVN_SSE_RECONNECT_DELAY` | `5` | int | Initial SSE reconnect delay in seconds |
 | `CLAUDEVN_SSE_MAX_RECONNECT_DELAY` | `60` | int | Maximum SSE reconnect delay in seconds |
 
+### TLS
+
+| Variable | Default | Type | Description |
+|----------|---------|------|-------------|
+| `TLS_VERIFY` | `true` | bool | Verify TLS certificates when connecting to Serving over HTTPS. Set to `false` only for local development with self-signed certificates (e.g., Caddy on a `.local` domain). Affects entrypoint `curl` calls and all Python `httpx` clients (SSE, credential monitor, spawner). |
+
 ### Logging
 
 | Variable | Default | Type | Description |
@@ -257,6 +263,41 @@ The Marketplace manages skill definitions and composition. Configuration is load
 | `REDIS_PORT` | `6379` | int | Redis port |
 | `REDIS_DB` | `0` | int | Redis database number |
 | `REDIS_KEY_PREFIX` | `claudevn:` | string | Redis key prefix |
+
+---
+
+## Compute Drain and Deregistration
+
+Compute instances support a graceful drain lifecycle for safe removal or maintenance.
+
+### Status Transitions
+
+```
+ONLINE → DRAINING → OFFLINE → (deregistered)
+                        │
+                        └──→ ONLINE  (when projects re-assigned with active SSE)
+```
+
+### Drain Behavior
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `AUTO_DEREGISTER` | `false` | When set on Serving, automatically deregister instances that fail health checks |
+| `auto_deregister` (drain param) | `false` | Per-drain option: auto-remove instance when drain completes |
+
+**Drain** stops new work assignment while allowing in-flight work to complete. The health
+monitor periodically checks draining instances and transitions them to OFFLINE once all
+work completes. If `auto_deregister` was requested, the instance is removed from the
+registry instead.
+
+**Deregister** removes the instance from the registry and revokes its MCP API key. In the
+UI, the deregister button is only enabled when the instance is in DRAINING or OFFLINE status.
+
+**Recovery**: Assigning projects to an OFFLINE instance with an active SSE connection
+transitions it back to ONLINE, allowing it to receive work again.
+
+See the [Remote Compute Guide](guides/remote-compute.md#drain-and-deregister) for
+operational procedures and API examples.
 
 ---
 
@@ -633,6 +674,16 @@ Should return available skills.
 - Verify `SSH_GIT_PORT=2222` is exposed
 - Check SSH keys generated: `ls -la /app/data/ssh_keys/`
 - Test SSH: `ssh -p 2222 git@localhost`
+
+**TLS/Certificate errors** (remote compute):
+- `CERTIFICATE_VERIFY_FAILED`: Set `TLS_VERIFY=false` in `.env.compute` (local dev only)
+- `tlsv1 alert internal error`: Using IP address instead of hostname. Caddy issues certs per domain — use the domain name in `CLAUDEVN_SERVING_URL`
+- Container can't resolve hostname: Add `extra_hosts` in `docker-compose.compute.yml`
+
+**Drain issues**:
+- Instance stuck in DRAINING: Check for in-flight work via `GET /api/v1/compute/<id>/drain`
+- Auto-deregister not working: Verify `auto_deregister: true` was passed in the drain request
+- OFFLINE after drain, won't come back: Assign projects to the instance via the UI — it transitions back to ONLINE if SSE is connected
 
 ---
 

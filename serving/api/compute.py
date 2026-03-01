@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional, AsyncGenerator
 
@@ -42,12 +43,49 @@ from services.sse_connection_manager import (
 
 logger = logging.getLogger(__name__)
 
-# SSE keepalive interval in seconds
-SSE_KEEPALIVE_INTERVAL = 30
+# SSE keepalive interval in seconds (configurable via env, default 15s for NAT survival)
+SSE_KEEPALIVE_INTERVAL = int(os.getenv("SSE_KEEPALIVE_INTERVAL", "15"))
 # SSE event check interval in seconds (how often to check for queued events)
 SSE_EVENT_CHECK_INTERVAL = 0.5
 
 router = APIRouter(prefix="/compute", tags=["compute"])
+
+
+def _verify_registration_token(authorization: Optional[str]) -> None:
+    """Verify the Bearer token against the COMPUTE_REGISTRATION_TOKEN env var.
+
+    If COMPUTE_REGISTRATION_TOKEN is not set, authentication is not enforced
+    (local dev mode). When set, the Authorization header must provide a matching
+    Bearer token. MCP_AUTH_BYPASS=true disables enforcement for integration tests.
+
+    Raises:
+        HTTPException 401 if token is missing or invalid when enforcement is active.
+    """
+    token = os.getenv("COMPUTE_REGISTRATION_TOKEN")
+    if not token:
+        return  # Not configured — local dev mode, no enforcement
+
+    if os.getenv("MCP_AUTH_BYPASS", "").lower() == "true":
+        return  # Test bypass
+
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "MISSING_AUTH", "message": "Authorization header required for registration"},
+        )
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_AUTH", "message": "Bearer token required"},
+        )
+
+    provided = authorization[7:]
+    if provided != token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_TOKEN", "message": "Invalid registration token"},
+        )
 
 
 # =============================================================================
@@ -143,6 +181,9 @@ async def _sse_event_generator(
         # Also unregister from SSE connection manager
         if sse_manager:
             await sse_manager.unregister_connection(compute_id)
+        # Revoke MCP API keys so deregistered compute cannot make further calls
+        from mcp.auth import revoke_compute_key
+        await revoke_compute_key(compute_id)
 
         # Emit compute_deregistered event for instant UI update
         from services.observability_event_bus import get_event_bus
@@ -242,6 +283,7 @@ def _parse_tools_available(tools_header: Optional[str]) -> list[str]:
 @router.get("/connect")
 async def connect_sse(
     request: Request,
+    force: bool = Query(False, description="Force-close existing SSE connection for this compute_id before reconnecting"),
     x_compute_id: str = Header(..., alias="X-Compute-ID", description="Unique compute instance ID"),
     x_capabilities: Optional[str] = Header(None, alias="X-Capabilities", description="Comma-separated capabilities"),
     x_resources: Optional[str] = Header(None, alias="X-Resources", description="Resources as key=value pairs"),
@@ -276,19 +318,30 @@ async def connect_sse(
     Returns:
         SSE stream (text/event-stream)
     """
+    # Enforce registration token authentication
+    _verify_registration_token(authorization)
+
     compute_id = x_compute_id
 
     # Check if already registered
     existing = await registry.get_instance(compute_id)
     if existing:
         if registry.has_sse_connection(compute_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Compute {compute_id} is already connected"
-            )
-        # Instance exists but no SSE connection - could be pre-registered via POST /register
-        # Don't remove it; just update connection state below
-        logger.info(f"Compute {compute_id} already in registry, will update with SSE connection")
+            if force:
+                # Force-close the stale server-side connection so this one can proceed
+                logger.info(f"Force-closing existing SSE connection for {compute_id}")
+                sse_manager = get_sse_connection_manager()
+                await sse_manager.unregister_connection(compute_id)
+                await registry.remove_instance(compute_id)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Compute {compute_id} is already connected"
+                )
+        else:
+            # Instance exists but no SSE connection - could be pre-registered via POST /register
+            # Don't remove it; just update connection state below
+            logger.info(f"Compute {compute_id} already in registry, will update with SSE connection")
 
     # Parse capabilities, resources, labels, and tools_available from headers
     capabilities = _parse_capabilities(x_capabilities)
@@ -1504,9 +1557,9 @@ async def get_drain_status(
         from models.work_map import WorkStatus
 
         work_map = get_work_map_service()
-        all_work = await work_map.list_work()
+        work_response = await work_map.list_work()
         in_flight_work_ids = [
-            w.work_id for w in all_work
+            w.work_id for w in work_response.items
             if w.assigned_to == instance_id
             and w.status in [WorkStatus.ASSIGNED, WorkStatus.IN_PROGRESS, WorkStatus.BLOCKED]
         ]
@@ -1520,6 +1573,12 @@ async def get_drain_status(
     if drain_complete and auto_deregister:
         logger.info(f"Drain complete for {instance_id}, auto-deregistering")
         await registry.remove_instance(instance_id)
+    elif drain_complete:
+        logger.info(f"Drain complete for {instance_id}, transitioning to OFFLINE")
+        instance.status = InstanceStatus.OFFLINE
+        instance.drain_started_at = None
+        instance.metadata.pop("auto_deregister_on_drain", None)
+        await registry._save_to_storage(instance)
 
     return DrainStatusResponse(
         instance_id=instance_id,
@@ -1859,6 +1918,10 @@ async def deregister_instance(
     # Disconnect SSE connection first to prevent work assignment to this instance
     sse_manager = get_sse_connection_manager()
     await sse_manager.unregister_connection(instance_id)
+
+    # Revoke MCP API keys so deregistered compute cannot make further calls
+    from mcp.auth import revoke_compute_key
+    await revoke_compute_key(instance_id)
 
     removed = await registry.remove_instance(instance_id)
 

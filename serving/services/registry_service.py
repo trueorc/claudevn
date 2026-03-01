@@ -413,6 +413,16 @@ class ComputeRegistry:
         # Update project tags
         instance.project_ids = project_ids
 
+        # If instance was OFFLINE (e.g. post-drain) and has an active SSE
+        # connection, transition back to ONLINE when projects are assigned
+        if (
+            instance.status == InstanceStatus.OFFLINE
+            and project_ids
+            and instance.metadata.get("sse_connected")
+        ):
+            instance.status = InstanceStatus.ONLINE
+            logger.info(f"Instance {instance_id} transitioned OFFLINE -> ONLINE (projects assigned with active SSE)")
+
         # Re-index
         self._update_project_index(instance)
 
@@ -900,9 +910,13 @@ class ComputeRegistry:
         }
         
         for instance_id, instance in self._instances.items():
+            # Skip instances that are draining — drain completion is handled separately
+            if instance.status == InstanceStatus.DRAINING:
+                continue
+
             age = (now - instance.last_heartbeat).total_seconds()
             old_status = instance.status
-            
+
             if age > max_heartbeat_age:
                 # Mark as offline
                 instance.failed_health_checks += 1

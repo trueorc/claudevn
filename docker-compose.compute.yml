@@ -22,59 +22,54 @@
 # Scaling:
 #   To run multiple compute instances, edit .env.compute and duplicate this file
 #   with unique CLAUDEVN_COMPUTE_ID, COMPUTE_PORT, and container_name values.
+#
+# Note on env_file vs environment:
+#   env_file injects vars into the container runtime only - NOT into compose ${} interpolation.
+#   This file avoids ${VAR} references that depend on .env.compute values. All such vars
+#   are passed through automatically by the env_file directive. Only hardcoded defaults
+#   appear in the environment block.
 
 services:
   # Remote Compute Instance
+  # NOTE: No host port mapping. In the SSE architecture, Serving never makes
+  # inbound connections to Compute. Compute connects outbound to Serving via SSE.
+  # The internal port is used only for container healthchecks (docker network).
+  # To access the Compute health API for debugging, use:
+  #   docker exec claudevn-compute-remote curl http://localhost:8010/api/v1/health
   compute:
     build:
       context: .
       dockerfile: compute/Dockerfile
     container_name: claudevn-compute-remote
-    ports:
-      - "${COMPUTE_PORT:-8010}:${COMPUTE_PORT:-8010}"
     env_file:
       - .env.compute
     environment:
-      # Server binding
+      # Hardcoded server binding defaults (not user-configurable via .env.compute)
       - COMPUTE_HOST=0.0.0.0
-      - COMPUTE_PORT=${COMPUTE_PORT:-8010}
-
-      # Instance identity
-      - COMPUTE_INSTANCE_ID=${CLAUDEVN_COMPUTE_ID:-compute-remote-001}
-      - COMPUTE_INSTANCE_NAME=${CLAUDEVN_COMPUTE_NAME:-Remote-Compute}
-
-      # Storage and logging
       - COMPUTE_STORAGE_PATH=/app/data/compute
       - COMPUTE_LOG_FILE=/app/logs/compute.log
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
-      # Serving registration
+      # Always-on flags
       - COMPUTE_REGISTER_ON_STARTUP=true
-      - SERVING_URL=${CLAUDEVN_SERVING_URL}
-      - COMPUTE_HEARTBEAT_INTERVAL=${COMPUTE_HEARTBEAT_INTERVAL:-30}
-
-      # MCP configuration
       - MCP_ENABLED=true
-      - CLAUDEVN_SERVING_URL=${CLAUDEVN_SERVING_URL}
 
-      # Skill/capability tags for work assignment
-      - COMPUTE_SKILLS=${CLAUDEVN_SKILLS:-code-writer}
-      - COMPUTE_CAPABILITIES=${CLAUDEVN_CAPABILITIES:-coding,testing,documentation}
+      # All other vars (COMPUTE_PORT, COMPUTE_INSTANCE_ID, COMPUTE_INSTANCE_NAME,
+      # SERVING_URL, CLAUDEVN_SERVING_URL, CLAUDEVN_SERVING_AUTH_URL,
+      # COMPUTE_HEARTBEAT_INTERVAL, COMPUTE_SKILLS, COMPUTE_CAPABILITIES,
+      # CLAUDEVN_RESOURCES_CPU, CLAUDEVN_RESOURCES_MEMORY, COMPUTE_AUTH_MODE,
+      # LOG_LEVEL) are injected directly from .env.compute via env_file above.
 
-      # Resource limits advertised to Serving
-      - CLAUDEVN_RESOURCES_CPU=${CLAUDEVN_RESOURCES_CPU:-4}
-      - CLAUDEVN_RESOURCES_MEMORY=${CLAUDEVN_RESOURCES_MEMORY:-16gb}
-
-      # Authentication mode: serving (fetch from serving), external (own credentials)
-      - COMPUTE_AUTH_MODE=${COMPUTE_AUTH_MODE:-serving}
-      - CLAUDEVN_SERVING_AUTH_URL=${CLAUDEVN_SERVING_AUTH_URL:-${CLAUDEVN_SERVING_URL}/api/v1/auth}
+    # For local testing with Caddy TLS on a .local domain, the container
+    # needs to resolve the domain to the host. In production, DNS handles this.
+    extra_hosts:
+      - "claudevn.local:host-gateway"
 
     volumes:
       - compute_data:/app/data
       - compute_logs:/app/logs
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${COMPUTE_PORT:-8010}/api/v1/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8010/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5

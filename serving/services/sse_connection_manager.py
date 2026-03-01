@@ -56,7 +56,7 @@ class SSEConnectionManager:
 
     def __init__(
         self,
-        keepalive_interval: int = 30,
+        keepalive_interval: int = 15,
         registry: Optional["ComputeRegistry"] = None
     ):
         """Initialize the connection manager.
@@ -429,13 +429,20 @@ class SSEConnectionManager:
             connection.status = "busy"
             connection.current_task_id = task_id
 
+        # Transform internal URLs in context to externally reachable addresses
+        from git.url_utils import externalize_url
+        transformed_context = dict(context)
+        for key in ("repository", "repo_url", "clone_url"):
+            if key in transformed_context and transformed_context[key]:
+                transformed_context[key] = externalize_url(transformed_context[key])
+
         data = {
             "task_id": task_id,
             "title": title,
             "description": description,
             "branch_name": branch_name,
             "skills": skills,
-            "context": context,
+            "context": transformed_context,
             "mcp_config": mcp_config,
             "work_type": work_type,
         }
@@ -499,12 +506,23 @@ class SSEConnectionManager:
         return await self.send_event(compute_id, "shutdown", data)
 
     async def _keepalive_loop(self) -> None:
-        """Send periodic keepalive events to all connections."""
+        """Send periodic keepalive events and reconcile registry state."""
         while True:
             try:
                 await asyncio.sleep(self._keepalive_interval)
                 timestamp = datetime.now(timezone.utc).isoformat()
                 await self.broadcast_event("keepalive", {"timestamp": timestamp})
+
+                # Reconcile: refresh heartbeat for all SSE-connected instances
+                # so the health monitor doesn't mark them as degraded/offline
+                if self._registry:
+                    for compute_id in list(self._connections.keys()):
+                        try:
+                            await self._registry.update_heartbeat(
+                                compute_id, metadata={"sse_keepalive": True}
+                            )
+                        except Exception as e:
+                            logger.debug(f"Failed to refresh heartbeat for {compute_id}: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
