@@ -953,3 +953,152 @@ class TestReorganizationIntegration:
             queue_ids = [q.item_id for q in queue]
             # test-1 or bug-1 should be near the top
             assert "test-1" in queue_ids or "bug-1" in queue_ids
+
+
+# =============================================================================
+# Task Movement Trace Tests
+# =============================================================================
+
+
+class TestTaskMovementTraces:
+    """Tests for per-item TASK_MOVEMENT decision trace recording."""
+
+    @pytest.mark.asyncio
+    async def test_records_task_movement_trace_per_moved_item(
+        self, service, items, characterizations, dep_graph,
+    ):
+        """A TASK_MOVEMENT trace is recorded for each item that changes bucket."""
+        # Build a tree where item-1 is in bucket-a
+        old_tree = make_bucket_tree(
+            buckets=[
+                make_bucket("bucket-a", rank=1, name="Alpha", items=[
+                    make_bucket_item("item-1"),
+                ]),
+                make_bucket("bucket-b", rank=2, name="Beta"),
+            ],
+        )
+        # Profile that will cause item-1 to move to bucket-b
+        new_profile = make_profile(
+            profile_id="profile-shifted",
+            work_type_weights={
+                "test": WeightedValue(weight=0.9),
+                "feature": WeightedValue(weight=0.3),
+            },
+        )
+
+        # Track all traces saved
+        saved_traces = []
+        original_save = service._save_decision_trace
+
+        async def capture_trace(trace):
+            saved_traces.append(trace)
+
+        service._save_decision_trace = capture_trace
+
+        result = await service.reorganize(
+            project_id="proj-1",
+            trigger_type=ReorganizationTriggerType.PROFILE_SHIFT,
+            trigger_source_id="goal-1",
+            current_tree=old_tree,
+            updated_profile=new_profile,
+            items=items,
+            characterizations=characterizations,
+            dependency_graph=dep_graph,
+        )
+
+        # Separate reorg vs movement traces
+        reorg_traces = [t for t in saved_traces if t.decision_type.value == "bucket_reorganization"]
+        movement_traces = [t for t in saved_traces if t.decision_type.value == "task_movement"]
+
+        # Should have exactly 1 reorganization trace
+        assert len(reorg_traces) == 1
+
+        # Movement traces should match number of moved items
+        assert len(movement_traces) == len(result.items_moved_detail)
+
+        # Each movement trace should reference the reorg trace
+        for mt in movement_traces:
+            assert reorg_traces[0].trace_id in mt.related_trace_ids
+
+    @pytest.mark.asyncio
+    async def test_movement_trace_has_meaningful_summary(
+        self, service, items, characterizations, dep_graph,
+    ):
+        """Task movement traces include source/destination bucket names and ranks."""
+        old_tree = make_bucket_tree(
+            buckets=[
+                make_bucket("bucket-a", rank=1, name="Critical", items=[
+                    make_bucket_item("item-1"),
+                    make_bucket_item("item-2"),
+                ]),
+                make_bucket("bucket-b", rank=2, name="Normal"),
+            ],
+        )
+        new_profile = make_profile(
+            profile_id="profile-new",
+            work_type_weights={"test": WeightedValue(weight=0.9)},
+        )
+
+        saved_traces = []
+
+        async def capture_trace(trace):
+            saved_traces.append(trace)
+
+        service._save_decision_trace = capture_trace
+
+        await service.reorganize(
+            project_id="proj-1",
+            trigger_type=ReorganizationTriggerType.NEW_ITEMS_ADDED,
+            trigger_source_id="decomp-1",
+            current_tree=old_tree,
+            updated_profile=new_profile,
+            items=items,
+            characterizations=characterizations,
+            dependency_graph=dep_graph,
+        )
+
+        movement_traces = [t for t in saved_traces if t.decision_type.value == "task_movement"]
+        for mt in movement_traces:
+            # Summary should mention bucket names
+            assert "rank" in mt.decision_summary.lower()
+            # Impact should have exactly the moved item
+            assert len(mt.impact.affected_item_ids) == 1
+            # Key factors should include source and destination info
+            assert len(mt.key_factors) >= 2
+
+    @pytest.mark.asyncio
+    async def test_no_movement_traces_when_no_items_move(
+        self, service, items, characterizations, dep_graph,
+    ):
+        """No TASK_MOVEMENT traces recorded when no items change buckets."""
+        # Both trees have same structure - no movements expected
+        old_tree = make_bucket_tree(
+            buckets=[
+                make_bucket("bucket-default", rank=1, name="Default", is_default=True),
+            ],
+        )
+        new_profile = make_profile(
+            profile_id="profile-same",
+            work_type_weights={"feature": WeightedValue(weight=0.8)},
+        )
+
+        saved_traces = []
+
+        async def capture_trace(trace):
+            saved_traces.append(trace)
+
+        service._save_decision_trace = capture_trace
+
+        await service.reorganize(
+            project_id="proj-1",
+            trigger_type=ReorganizationTriggerType.PROFILE_SHIFT,
+            trigger_source_id="goal-1",
+            current_tree=old_tree,
+            updated_profile=new_profile,
+            items=items,
+            characterizations=characterizations,
+            dependency_graph=dep_graph,
+        )
+
+        movement_traces = [t for t in saved_traces if t.decision_type.value == "task_movement"]
+        assert len(movement_traces) == 0
