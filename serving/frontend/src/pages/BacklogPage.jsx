@@ -649,6 +649,7 @@ function BacklogPage() {
                                     issue={issue}
                                     viewMode={viewMode}
                                     characterization={charStatuses[issue.issue_id]}
+                                    bucketEntries={itemBucketMap[issue.issue_id]}
                                     onClick={() => handleIssueClick(issue)}
                                   />
                                 ))}
@@ -666,6 +667,7 @@ function BacklogPage() {
                           issue={issue}
                           viewMode={viewMode}
                           characterization={charStatuses[issue.issue_id]}
+                          bucketEntries={itemBucketMap[issue.issue_id]}
                           onClick={() => handleIssueClick(issue)}
                         />
                       ))}
@@ -761,8 +763,34 @@ const formatIssueId = (issueId) => {
   return hash.slice(0, 8)
 }
 
+// Bucket rank color mapping (rank 1 = most prominent)
+const bucketRankColors = ['primary', 'info', 'default']
+
+function BucketBadges({ entries }) {
+  if (!entries || entries.length === 0) return null
+  const visible = entries.slice(0, 2).sort((a, b) => a.rank - b.rank)
+  const overflow = entries.length - 2
+
+  return (
+    <div className="bucket-badges">
+      {visible.map(b => (
+        <span
+          key={b.bucket_id}
+          className={`bucket-badge bucket-badge-rank-${Math.min(b.rank, 3)}`}
+          title={b.description || b.name}
+        >
+          {b.name}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="bucket-badge-more">+{overflow}</span>
+      )}
+    </div>
+  )
+}
+
 // Backlog item component for list/grid view - displays Issue objects
-function BacklogItem({ issue, viewMode, characterization, onClick }) {
+function BacklogItem({ issue, viewMode, characterization, bucketEntries, onClick }) {
   const {
     issue_id,
     title,
@@ -807,6 +835,7 @@ function BacklogItem({ issue, viewMode, characterization, onClick }) {
             <p className="item-description">{description}</p>
           )}
           {charStatus === 'completed' && <OntologyTagsDisplay tags={charTags} />}
+          <BucketBadges entries={bucketEntries} />
         </div>
         <div className="item-meta">
           <Badge variant={priorityColors[priority] || 'default'} size="sm">
@@ -866,6 +895,7 @@ function BacklogItem({ issue, viewMode, characterization, onClick }) {
         <p className="item-description">{description}</p>
       )}
       {charStatus === 'completed' && <OntologyTagsDisplay tags={charTags} />}
+      <BucketBadges entries={bucketEntries} />
       <div className="card-meta">
         <Badge variant={priorityColors[priority] || 'default'}>
           {priority}
