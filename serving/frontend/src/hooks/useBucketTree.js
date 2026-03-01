@@ -40,8 +40,9 @@ function useBucketTree(projectId, options = {}) {
   }, [load, pollInterval])
 
   // Build a map from item_id to bucket name(s) for quick lookup
-  const itemBucketMap = bucketTree?.buckets
-    ? bucketTree.buckets.reduce((map, bucket) => {
+  const tree = bucketTree?.tree
+  const itemBucketMap = tree?.buckets
+    ? tree.buckets.reduce((map, bucket) => {
         const name = bucket.definition?.name || bucket.bucket_id
         for (const item of bucket.items || []) {
           if (!map[item.item_id]) {
@@ -60,7 +61,7 @@ function useBucketTree(projectId, options = {}) {
 
   return {
     bucketTree,
-    buckets: bucketTree?.buckets || [],
+    buckets: tree?.buckets || [],
     itemBucketMap,
     loading,
     error,

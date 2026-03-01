@@ -8,40 +8,50 @@ vi.mock('../api/workmap', () => ({
 
 import { getBucketTree } from '../api/workmap'
 
-const mockBucketTree = {
-  tree_id: 'tree_1',
+// Mock matches the real API response shape: { project_id, tree: {...}, summary }
+const mockApiResponse = {
   project_id: 'proj_1',
-  buckets: [
-    {
-      bucket_id: 'bucket_1',
-      rank: 1,
-      definition: {
-        name: 'Critical Fixes',
-        description: 'Urgent production issues',
+  tree: {
+    tree_id: 'tree_1',
+    project_id: 'proj_1',
+    buckets: [
+      {
+        bucket_id: 'bucket_1',
+        rank: 1,
+        definition: {
+          name: 'Critical Fixes',
+          description: 'Urgent production issues',
+        },
+        items: [
+          { item_id: 'issue_aaa', readiness: 'ready', priority_score: 0.9 },
+          { item_id: 'issue_bbb', readiness: 'blocked', priority_score: 0.5 },
+        ],
       },
-      items: [
-        { item_id: 'issue_aaa', readiness: 'ready', priority_score: 0.9 },
-        { item_id: 'issue_bbb', readiness: 'blocked', priority_score: 0.5 },
-      ],
-    },
-    {
-      bucket_id: 'bucket_2',
-      rank: 2,
-      definition: {
-        name: 'Feature Work',
-        description: 'New features',
+      {
+        bucket_id: 'bucket_2',
+        rank: 2,
+        definition: {
+          name: 'Feature Work',
+          description: 'New features',
+        },
+        items: [
+          { item_id: 'issue_ccc', readiness: 'ready', priority_score: 0.7 },
+        ],
       },
-      items: [
-        { item_id: 'issue_ccc', readiness: 'ready', priority_score: 0.7 },
-      ],
-    },
-  ],
+    ],
+  },
+  summary: {
+    total_buckets: 2,
+    total_items: 3,
+    total_ready: 2,
+    version: 1,
+  },
 }
 
 describe('useBucketTree', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getBucketTree.mockResolvedValue(mockBucketTree)
+    getBucketTree.mockResolvedValue(mockApiResponse)
   })
 
   it('returns empty state when no projectId', async () => {
@@ -61,7 +71,7 @@ describe('useBucketTree', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     expect(getBucketTree).toHaveBeenCalledWith('proj_1')
-    expect(result.current.bucketTree).toEqual(mockBucketTree)
+    expect(result.current.bucketTree).toEqual(mockApiResponse)
     expect(result.current.buckets).toHaveLength(2)
   })
 

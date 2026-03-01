@@ -434,6 +434,17 @@ class BucketTree(BaseModel):
         """Total number of ready items across all buckets."""
         return sum(len(b.ready_items) for b in self.buckets)
 
+    def remap_item_ids(self, id_mapping: Dict[str, str]) -> None:
+        """Replace temp item IDs with real persisted IDs.
+
+        Args:
+            id_mapping: Map of temp_id -> real_id
+        """
+        for bucket in self.buckets:
+            for item in bucket.items:
+                if item.item_id in id_mapping:
+                    item.item_id = id_mapping[item.item_id]
+
     @property
     def default_bucket(self) -> Optional[PriorityBucket]:
         """Get the default catch-all bucket, if any."""
