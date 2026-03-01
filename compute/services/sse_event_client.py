@@ -109,6 +109,7 @@ class SSEEventClient:
         self._task: Optional[asyncio.Task] = None
         self._connected = False
         self._last_event_time: Optional[datetime] = None
+        self._has_connected_before = False
 
         # Shutdown handling
         self._shutdown_requested = False
@@ -662,6 +663,11 @@ class SSEEventClient:
     async def _connect_and_listen(self) -> None:
         """Connect to SSE endpoint and listen for events."""
         url = f"{self.serving_url}/api/v1/compute/connect"
+        # On reconnect, use force=true to close stale server-side connection
+        if self._has_connected_before:
+            url += "?force=true"
+        self._has_connected_before = True
+
         headers = {
             "X-Compute-ID": self.compute_id,
             "X-Capabilities": ",".join(self.capabilities),

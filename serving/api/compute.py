@@ -283,6 +283,7 @@ def _parse_tools_available(tools_header: Optional[str]) -> list[str]:
 @router.get("/connect")
 async def connect_sse(
     request: Request,
+    force: bool = Query(False, description="Force-close existing SSE connection for this compute_id before reconnecting"),
     x_compute_id: str = Header(..., alias="X-Compute-ID", description="Unique compute instance ID"),
     x_capabilities: Optional[str] = Header(None, alias="X-Capabilities", description="Comma-separated capabilities"),
     x_resources: Optional[str] = Header(None, alias="X-Resources", description="Resources as key=value pairs"),
@@ -326,13 +327,21 @@ async def connect_sse(
     existing = await registry.get_instance(compute_id)
     if existing:
         if registry.has_sse_connection(compute_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Compute {compute_id} is already connected"
-            )
-        # Instance exists but no SSE connection - could be pre-registered via POST /register
-        # Don't remove it; just update connection state below
-        logger.info(f"Compute {compute_id} already in registry, will update with SSE connection")
+            if force:
+                # Force-close the stale server-side connection so this one can proceed
+                logger.info(f"Force-closing existing SSE connection for {compute_id}")
+                sse_manager = get_sse_connection_manager()
+                await sse_manager.unregister_connection(compute_id)
+                await registry.remove_instance(compute_id)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Compute {compute_id} is already connected"
+                )
+        else:
+            # Instance exists but no SSE connection - could be pre-registered via POST /register
+            # Don't remove it; just update connection state below
+            logger.info(f"Compute {compute_id} already in registry, will update with SSE connection")
 
     # Parse capabilities, resources, labels, and tools_available from headers
     capabilities = _parse_capabilities(x_capabilities)
