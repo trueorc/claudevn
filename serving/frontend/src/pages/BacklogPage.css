@@ -882,3 +882,72 @@
   color: var(--text-tertiary);
   font-weight: 500;
 }
+
+/* Bucket distribution stats */
+.bucket-distribution {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.bucket-distribution-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  padding-top: 4px;
+}
+
+.bucket-distribution-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bucket-dist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  font-size: 12px;
+}
+
+.bucket-dist-rank {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.bucket-dist-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.bucket-dist-counts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bucket-dist-total {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bucket-dist-ready {
+  font-size: 10px;
+  color: var(--success, #22c55e);
+}
+
+.bucket-dist-blocked {
+  font-size: 10px;
+  color: var(--warning, #f59e0b);
+}
