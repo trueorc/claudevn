@@ -22,6 +22,30 @@ function getStatusClass(status) {
   }
 }
 
+function getDirectiveStatus(issues) {
+  if (issues.length === 0) return 'backlog'
+
+  let hasProgress = false
+  let hasBlocked = false
+  let hasReady = false
+  let allDone = true
+
+  for (const issue of issues) {
+    const s = issue.status?.toLowerCase()
+    if (s === 'in_progress' || s === 'in_review') hasProgress = true
+    else if (s === 'blocked') hasBlocked = true
+    else if (s === 'ready') hasReady = true
+
+    if (s !== 'done' && s !== 'completed') allDone = false
+  }
+
+  if (hasProgress) return 'progress'
+  if (hasBlocked) return 'blocked'
+  if (hasReady) return 'ready'
+  if (allDone) return 'done'
+  return 'backlog'
+}
+
 function getStatusSortOrder(status) {
   switch (status?.toLowerCase()) {
     case 'blocked': return 0
@@ -36,6 +60,8 @@ function getStatusSortOrder(status) {
 }
 
 function DirectiveSection({ directive, issues, expanded, onToggle }) {
+  const aggregateStatus = useMemo(() => getDirectiveStatus(issues), [issues])
+
   const statusCounts = useMemo(() => {
     const counts = { done: 0, progress: 0, ready: 0, blocked: 0, backlog: 0 }
     for (const issue of issues) {
@@ -54,7 +80,7 @@ function DirectiveSection({ directive, issues, expanded, onToggle }) {
   }, [issues])
 
   return (
-    <div className="directive-section">
+    <div className={`directive-section directive-section--${aggregateStatus}`}>
       <button className="directive-header" onClick={onToggle}>
         <span className="directive-chevron">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

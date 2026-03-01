@@ -498,8 +498,32 @@
 .directive-section {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
+}
+
+.directive-section--progress {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.directive-section--blocked {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.03);
+}
+
+.directive-section--ready {
+  border-left-color: #22c55e;
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.directive-section--done {
+  border-left-color: #6b7280;
+}
+
+.directive-section--backlog {
+  border-left-color: var(--border);
 }
 
 .directive-header {
