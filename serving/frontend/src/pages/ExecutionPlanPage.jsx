@@ -10,6 +10,7 @@ import WhyThisOrder from '../components/plan/WhyThisOrder'
 import IssueDetailModal from '../components/workmap/IssueDetailModal'
 import EmptyState from '../components/common/EmptyState'
 import usePlanSummary from '../hooks/usePlanSummary'
+import useBucketTree from '../hooks/useBucketTree'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
 import { useProjectContext } from '../contexts/ProjectContext'
 import './ExecutionPlanPage.css'
@@ -26,6 +27,8 @@ function ExecutionPlanPage() {
     error,
     refresh
   } = usePlanSummary(activeProjectId)
+
+  const { itemBucketMap } = useBucketTree(activeProjectId)
 
   const {
     statusMap: charStatusMap,
@@ -113,6 +116,7 @@ function ExecutionPlanPage() {
           data={data}
           loading={loading}
           onItemClick={handleItemClick}
+          itemBucketMap={itemBucketMap}
         />
       )}
       {viewMode === 'graph' && (

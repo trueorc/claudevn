@@ -8,6 +8,12 @@ vi.mock('../common/Badge', () => ({
   StatusBadge: ({ status }) => <span>{status}</span>,
 }))
 
+vi.mock('../common/BucketBadges', () => ({
+  default: ({ entries }) => entries && entries.length > 0
+    ? <div data-testid="bucket-badges">{entries.map(e => e.name).join(', ')}</div>
+    : null,
+}))
+
 vi.mock('../common/Spinner', () => ({
   default: () => <div data-testid="spinner">Loading...</div>,
 }))
@@ -35,12 +41,23 @@ describe('ActiveWorkView', () => {
     expect(screen.getByTestId('spinner')).toBeDefined()
   })
 
-  it('renders three columns', () => {
+  it('renders always-visible columns', () => {
     const data = { running_items: [], queued_items: [], blocked_items: [] }
     render(<ActiveWorkView data={data} loading={false} />)
 
     expect(screen.getByText('Running')).toBeDefined()
     expect(screen.getByText('Up Next')).toBeDefined()
+    expect(screen.getByText('Backlog')).toBeDefined()
+  })
+
+  it('shows Blocked column only when blocked items exist', () => {
+    const data = {
+      running_items: [],
+      queued_items: [],
+      blocked_items: [makeItem({ title: 'Blocked task', depends_on: ['dep-1'] })],
+    }
+    render(<ActiveWorkView data={data} loading={false} />)
+
     expect(screen.getByText('Blocked')).toBeDefined()
   })
 
@@ -50,7 +67,7 @@ describe('ActiveWorkView', () => {
 
     expect(screen.getByText('No items running')).toBeDefined()
     expect(screen.getByText('No items queued')).toBeDefined()
-    expect(screen.getByText('No blocked items')).toBeDefined()
+    expect(screen.getByText('No backlog items')).toBeDefined()
   })
 
   it('renders running items', () => {
@@ -156,6 +173,29 @@ describe('ActiveWorkView', () => {
 
     expect(screen.getByText('2')).toBeDefined()
     expect(screen.getByText('1')).toBeDefined()
+  })
+
+  it('renders bucket badges when itemBucketMap has entries', () => {
+    const item = makeItem({ issue_id: 'issue-1', title: 'Bucketed item' })
+    const data = { running_items: [item], queued_items: [], blocked_items: [] }
+    const itemBucketMap = {
+      'issue-1': [
+        { name: 'Critical', description: 'Critical fixes', rank: 1, bucket_id: 'b1' },
+      ],
+    }
+    render(<ActiveWorkView data={data} loading={false} itemBucketMap={itemBucketMap} />)
+
+    expect(screen.getByTestId('bucket-badges')).toBeDefined()
+    expect(screen.getByText('Critical')).toBeDefined()
+  })
+
+  it('does not render bucket badges when itemBucketMap has no entry for item', () => {
+    const item = makeItem({ issue_id: 'issue-2', title: 'No bucket item' })
+    const data = { running_items: [item], queued_items: [], blocked_items: [] }
+    const itemBucketMap = {}
+    render(<ActiveWorkView data={data} loading={false} itemBucketMap={itemBucketMap} />)
+
+    expect(screen.queryByTestId('bucket-badges')).toBeNull()
   })
 
   it('uses correct badge variant for priorities', () => {
