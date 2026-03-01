@@ -221,7 +221,7 @@ function GoalCard({ goal, isSelected, onClick, commentCount, onDelete, onArchive
         </div>
       </div>
       <div className="goal-card-text">
-        {truncateAtWordBoundary(fullText, 80)}
+        {goal.summary || truncateAtWordBoundary(fullText, 80)}
       </div>
       <div className="goal-card-footer">
         <div className="goal-card-footer-left">
@@ -278,7 +278,8 @@ function GoalHistoryPanel({
       result = result.filter(
         (goal) =>
           goal.title?.toLowerCase().includes(query) ||
-          goal.description?.toLowerCase().includes(query)
+          goal.description?.toLowerCase().includes(query) ||
+          goal.summary?.toLowerCase().includes(query)
       )
     }
 
