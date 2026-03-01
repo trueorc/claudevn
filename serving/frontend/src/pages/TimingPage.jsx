@@ -24,6 +24,16 @@ const PHASE_COLORS = {
   total_wall_time: '#64748b'
 }
 
+const PHASE_BG_COLORS = {
+  workspace_setup: 'rgba(59, 130, 246, 0.1)',
+  repo_clone: 'rgba(139, 92, 246, 0.1)',
+  sdk_launch: 'rgba(245, 158, 11, 0.1)',
+  mcp_tool_call: 'rgba(16, 185, 129, 0.1)',
+  api_inference: 'rgba(239, 68, 68, 0.1)',
+  git_push: 'rgba(99, 102, 241, 0.1)',
+  total_wall_time: 'rgba(100, 116, 139, 0.1)'
+}
+
 function formatDuration(ms) {
   if (ms == null) return '-'
   if (ms < 1000) return `${Math.round(ms)}ms`
@@ -37,10 +47,24 @@ function formatTimestamp(ts) {
   return d.toLocaleTimeString()
 }
 
+function PhasePill({ phase }) {
+  const color = PHASE_COLORS[phase] || '#94a3b8'
+  const bgColor = PHASE_BG_COLORS[phase] || 'rgba(148, 163, 184, 0.1)'
+
+  return (
+    <span className="phase-pill" style={{ backgroundColor: bgColor, color }}>
+      <span className="phase-dot" style={{ backgroundColor: color }} />
+      {PHASE_LABELS[phase] || phase}
+    </span>
+  )
+}
+
 function AggregateStatsTable({ aggregates }) {
   if (!aggregates.length) {
     return <p className="timing-empty">No aggregate data yet</p>
   }
+
+  const maxAvg = Math.max(...aggregates.map(s => s.avg_ms))
 
   return (
     <div className="timing-table-container">
@@ -60,13 +84,21 @@ function AggregateStatsTable({ aggregates }) {
         <tbody>
           {aggregates.map(stat => (
             <tr key={stat.phase}>
-              <td>
-                <span className="phase-badge" style={{ borderLeftColor: PHASE_COLORS[stat.phase] || '#94a3b8' }}>
-                  {PHASE_LABELS[stat.phase] || stat.phase}
-                </span>
-              </td>
+              <td><PhasePill phase={stat.phase} /></td>
               <td className="timing-num">{stat.count}</td>
-              <td className="timing-num">{formatDuration(stat.avg_ms)}</td>
+              <td className="timing-num">
+                <div className="stat-bar-container">
+                  <span>{formatDuration(stat.avg_ms)}</span>
+                  <span
+                    className="stat-bar"
+                    style={{
+                      width: `${Math.max((stat.avg_ms / maxAvg) * 60, 3)}px`,
+                      backgroundColor: PHASE_COLORS[stat.phase] || '#94a3b8',
+                      opacity: 0.5
+                    }}
+                  />
+                </div>
+              </td>
               <td className="timing-num">{formatDuration(stat.p50_ms)}</td>
               <td className="timing-num">{formatDuration(stat.p95_ms)}</td>
               <td className="timing-num">{formatDuration(stat.p99_ms)}</td>
@@ -80,31 +112,63 @@ function AggregateStatsTable({ aggregates }) {
   )
 }
 
+function WaterfallLegend({ entries }) {
+  const phases = [...new Set(entries.map(e => e.phase))]
+
+  return (
+    <div className="waterfall-legend">
+      {phases.map(phase => (
+        <span key={phase} className="waterfall-legend-item">
+          <span className="waterfall-legend-swatch" style={{ backgroundColor: PHASE_COLORS[phase] || '#94a3b8' }} />
+          {PHASE_LABELS[phase] || phase}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function WaterfallBar({ entries, maxDuration }) {
   if (!entries.length || !maxDuration) return null
 
-  // Find the earliest start time among all entries
   const starts = entries.map(e => new Date(e.start).getTime())
   const minStart = Math.min(...starts)
 
+  const timeMarkers = [0, maxDuration * 0.25, maxDuration * 0.5, maxDuration * 0.75, maxDuration]
+
   return (
     <div className="waterfall-chart">
+      <WaterfallLegend entries={entries} />
+
+      <div className="waterfall-time-axis">
+        <span />
+        <div className="waterfall-time-labels">
+          {timeMarkers.map((ms, idx) => (
+            <span key={idx}>{formatDuration(ms)}</span>
+          ))}
+        </div>
+        <span />
+      </div>
+
       {entries.map((entry, idx) => {
         const start = new Date(entry.start).getTime()
         const duration = entry.duration_ms || 0
         const offset = ((start - minStart) / maxDuration) * 100
         const width = (duration / maxDuration) * 100
+        const color = PHASE_COLORS[entry.phase] || '#94a3b8'
 
         return (
           <div key={idx} className="waterfall-row">
-            <span className="waterfall-label">{PHASE_LABELS[entry.phase] || entry.phase}</span>
+            <span className="waterfall-label">
+              <span className="waterfall-label-dot" style={{ backgroundColor: color }} />
+              {PHASE_LABELS[entry.phase] || entry.phase}
+            </span>
             <div className="waterfall-track">
               <div
                 className="waterfall-bar"
                 style={{
                   left: `${Math.min(offset, 98)}%`,
                   width: `${Math.max(width, 0.5)}%`,
-                  backgroundColor: PHASE_COLORS[entry.phase] || '#94a3b8'
+                  backgroundColor: color
                 }}
                 title={`${PHASE_LABELS[entry.phase] || entry.phase}: ${formatDuration(duration)}`}
               />
@@ -117,13 +181,33 @@ function WaterfallBar({ entries, maxDuration }) {
   )
 }
 
+function IssueLink({ issueId, issueTitle }) {
+  if (!issueId) return null
+
+  // Extract issue number from issue ID (e.g., "issue-42" -> 42)
+  const match = issueId.match(/(\d+)$/)
+  const displayId = match ? `#${match[1]}` : issueId
+
+  return (
+    <>
+      <span className="work-item-issue-link" title={issueTitle || issueId}>
+        {displayId}
+      </span>
+      {issueTitle && (
+        <span className="work-item-issue-title" title={issueTitle}>
+          {issueTitle}
+        </span>
+      )}
+    </>
+  )
+}
+
 function WorkItemRow({ item }) {
   const [expanded, setExpanded] = useState(false)
 
   const completedEntries = item.entries.filter(e => e.duration_ms != null)
   const totalDuration = completedEntries.reduce((sum, e) => sum + (e.duration_ms || 0), 0)
 
-  // Max duration for waterfall scaling (use total_wall_time if available, else sum)
   const wallTime = completedEntries.find(e => e.phase === 'total_wall_time')
   const maxDuration = wallTime?.duration_ms || totalDuration || 1
 
@@ -133,8 +217,13 @@ function WorkItemRow({ item }) {
         <span className="work-item-expand">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
-        <span className="work-item-id">{item.work_id}</span>
-        <span className="work-item-instance">{item.instance_id}</span>
+        <div className="work-item-primary">
+          <div className="work-item-primary-row">
+            <span className="work-item-id">{item.work_id}</span>
+            <IssueLink issueId={item.issue_id} issueTitle={item.issue_title} />
+          </div>
+          <span className="work-item-instance">{item.instance_id}</span>
+        </div>
         <span className="work-item-phases">{completedEntries.length} phases</span>
         <span className="work-item-total">{formatDuration(totalDuration)}</span>
         <span className="work-item-time">{formatTimestamp(item.created_at)}</span>
@@ -145,7 +234,11 @@ function WorkItemRow({ item }) {
           <div className="work-item-entries">
             {item.entries.map((entry, idx) => (
               <div key={idx} className="entry-row">
-                <span className="entry-phase" style={{ borderLeftColor: PHASE_COLORS[entry.phase] || '#94a3b8' }}>
+                <span className="entry-phase">
+                  <span
+                    className="entry-phase-dot"
+                    style={{ backgroundColor: PHASE_COLORS[entry.phase] || '#94a3b8' }}
+                  />
                   {PHASE_LABELS[entry.phase] || entry.phase}
                 </span>
                 <span className="entry-start">{formatTimestamp(entry.start)}</span>

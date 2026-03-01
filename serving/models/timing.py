@@ -35,6 +35,8 @@ class WorkItemTiming(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc),
         description="When timing collection started"
     )
+    issue_id: Optional[str] = Field(None, description="Associated issue identifier")
+    issue_title: Optional[str] = Field(None, description="Associated issue title")
 
 
 class AggregateStats(BaseModel):

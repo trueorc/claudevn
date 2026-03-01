@@ -216,6 +216,68 @@ class TestDashboard:
         assert result.total_work_items == 1
 
 
+class TestIssueContext:
+    """Test issue context fields on WorkItemTiming."""
+
+    @pytest.mark.asyncio
+    async def test_work_item_timing_has_issue_fields(self, service):
+        """WorkItemTiming should have optional issue_id and issue_title."""
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        await service.record_phase(
+            "work-1", "compute-1", TimingPhase.SDK_LAUNCH,
+            base, base + timedelta(seconds=2)
+        )
+
+        timing = await service.get_work_item_timing("work-1", "compute-1")
+        assert timing.issue_id is None
+        assert timing.issue_title is None
+
+    @pytest.mark.asyncio
+    async def test_dashboard_without_work_map_service(self, service):
+        """Dashboard should work when work map service is not available."""
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        await service.record_phase(
+            "work-1", "compute-1", TimingPhase.SDK_LAUNCH,
+            base, base + timedelta(seconds=2)
+        )
+
+        result = await service.get_dashboard()
+        assert len(result.work_items) == 1
+        # issue_id should be None when work map service isn't available
+        assert result.work_items[0].issue_id is None
+
+    @pytest.mark.asyncio
+    async def test_dashboard_enriches_issue_context(self, service, monkeypatch):
+        """Dashboard should enrich work items with issue context from work map."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        await service.record_phase(
+            "work-1", "compute-1", TimingPhase.SDK_LAUNCH,
+            base, base + timedelta(seconds=2)
+        )
+
+        # Mock work map service
+        mock_work = MagicMock()
+        mock_work.issue_id = "issue-42"
+        mock_work.title = "Fix auth bug"
+
+        mock_wm_service = MagicMock()
+        mock_wm_service.get_work = AsyncMock(return_value=mock_work)
+
+        import services.timing_service as ts_module
+        monkeypatch.setattr(
+            "services.work_map_service.get_work_map_service",
+            lambda: mock_wm_service
+        )
+
+        result = await service.get_dashboard()
+        assert result.work_items[0].issue_id == "issue-42"
+        assert result.work_items[0].issue_title == "Fix auth bug"
+
+
 class TestMemoryEviction:
     """Test in-memory storage limits."""
 

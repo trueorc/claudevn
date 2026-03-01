@@ -247,6 +247,9 @@ class TimingService:
     async def get_dashboard(self, limit: int = 20) -> TimingDashboardResponse:
         """Get dashboard data combining recent timings and aggregates.
 
+        Enriches work items with issue context from the work map service
+        when available.
+
         Args:
             limit: Number of recent work items to show
 
@@ -255,6 +258,9 @@ class TimingService:
         """
         work_items = await self.get_recent_timings(limit)
         aggregates = await self.get_aggregate_stats(100)
+
+        # Enrich work items with issue context
+        await self._enrich_issue_context(work_items)
 
         # Count total work items
         if self._redis:
@@ -267,6 +273,32 @@ class TimingService:
             aggregates=aggregates,
             total_work_items=total,
         )
+
+    async def _enrich_issue_context(
+        self, work_items: List[WorkItemTiming]
+    ) -> None:
+        """Enrich work items with issue context from the work map service.
+
+        Looks up each work_id in the work map service to find the associated
+        issue ID and title. Modifies work items in place.
+        """
+        try:
+            from services.work_map_service import get_work_map_service
+            wm_service = get_work_map_service()
+        except (RuntimeError, ImportError):
+            logger.debug("Work map service not available for issue enrichment")
+            return
+
+        for item in work_items:
+            if item.issue_id:
+                continue  # Already has issue context
+            try:
+                work = await wm_service.get_work(item.work_id)
+                if work and work.issue_id:
+                    item.issue_id = work.issue_id
+                    item.issue_title = work.title
+            except Exception:
+                logger.debug(f"Could not look up issue for work_id={item.work_id}")
 
     # =========================================================================
     # Private helpers

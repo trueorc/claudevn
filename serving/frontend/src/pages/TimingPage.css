@@ -55,10 +55,36 @@
   font-size: 0.82rem;
 }
 
-.phase-badge {
-  border-left: 3px solid;
-  padding-left: 0.5rem;
-  font-weight: 500;
+/* Phase Pill - bold color treatment */
+.phase-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.phase-pill .phase-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Stat bar in aggregate table */
+.stat-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stat-bar {
+  height: 6px;
+  border-radius: 3px;
+  min-width: 2px;
 }
 
 /* Work Items List */
@@ -78,7 +104,7 @@
 
 .work-item-header {
   display: grid;
-  grid-template-columns: 20px 1fr 1fr auto auto auto;
+  grid-template-columns: 20px 1fr auto auto auto;
   align-items: center;
   gap: 0.75rem;
   padding: 0.6rem 0.75rem;
@@ -96,6 +122,19 @@
   align-items: center;
 }
 
+.work-item-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  overflow: hidden;
+}
+
+.work-item-primary-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .work-item-id {
   font-weight: 600;
   font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
@@ -105,10 +144,34 @@
   white-space: nowrap;
 }
 
-.work-item-instance {
-  color: var(--color-text-secondary, #64748b);
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+.work-item-issue-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--color-primary, #3b82f6);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.work-item-issue-link:hover {
+  text-decoration: underline;
+  color: var(--color-primary-hover, #2563eb);
+}
+
+.work-item-issue-title {
   font-size: 0.8rem;
+  color: var(--color-text-secondary, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-item-instance {
+  color: var(--color-text-tertiary, #94a3b8);
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+  font-size: 0.75rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -146,49 +209,101 @@
   margin-bottom: 0.75rem;
 }
 
+/* Waterfall legend */
+.waterfall-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border-light, #f1f5f9);
+}
+
+.waterfall-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.waterfall-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Waterfall time axis */
+.waterfall-time-axis {
+  display: grid;
+  grid-template-columns: 140px 1fr 60px;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.waterfall-time-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--color-text-tertiary, #94a3b8);
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+}
+
 .waterfall-row {
   display: grid;
-  grid-template-columns: 120px 1fr 60px;
+  grid-template-columns: 140px 1fr 60px;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.2rem 0;
+  padding: 0.25rem 0;
 }
 
 .waterfall-label {
-  font-size: 0.78rem;
-  color: var(--color-text-secondary, #64748b);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 500;
   text-align: right;
   white-space: nowrap;
+  justify-content: flex-end;
+}
+
+.waterfall-label-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .waterfall-track {
   position: relative;
-  height: 16px;
+  height: 20px;
   background: var(--color-bg, #fff);
   border-radius: 3px;
   overflow: hidden;
+  border: 1px solid var(--color-border-light, #f1f5f9);
 }
 
 .waterfall-bar {
   position: absolute;
-  top: 1px;
-  height: 14px;
-  border-radius: 2px;
-  min-width: 2px;
-  opacity: 0.85;
+  top: 2px;
+  height: 16px;
+  border-radius: 3px;
+  min-width: 3px;
   transition: opacity 0.15s;
 }
 
 .waterfall-bar:hover {
-  opacity: 1;
+  opacity: 0.8;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
 .waterfall-duration {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
   text-align: right;
-  color: var(--color-text-secondary, #64748b);
 }
 
 /* Entry Rows */
@@ -200,7 +315,7 @@
 
 .entry-row {
   display: grid;
-  grid-template-columns: 140px 80px 70px 1fr;
+  grid-template-columns: 160px 80px 70px 1fr;
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem 0;
@@ -208,10 +323,18 @@
 }
 
 .entry-phase {
-  border-left: 3px solid;
-  padding-left: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-weight: 500;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
+}
+
+.entry-phase-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .entry-start {
