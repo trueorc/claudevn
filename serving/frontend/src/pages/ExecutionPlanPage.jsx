@@ -7,9 +7,11 @@ import DependencyGraphView from '../components/plan/DependencyGraphView'
 import IssueDependencyGraphView from '../components/plan/IssueDependencyGraphView'
 import CharacterizationBanner from '../components/plan/CharacterizationBanner'
 import WhyThisOrder from '../components/plan/WhyThisOrder'
+import ItemTracesPanel from '../components/plan/ItemTracesPanel'
 import IssueDetailModal from '../components/workmap/IssueDetailModal'
 import EmptyState from '../components/common/EmptyState'
 import usePlanSummary from '../hooks/usePlanSummary'
+import useBucketTree from '../hooks/useBucketTree'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
 import { useProjectContext } from '../contexts/ProjectContext'
 import './ExecutionPlanPage.css'
@@ -18,6 +20,7 @@ function ExecutionPlanPage() {
   const { activeProject } = useProjectContext()
   const activeProjectId = activeProject?.project_id || null
   const [selectedIssue, setSelectedIssue] = useState(null)
+  const [tracesItem, setTracesItem] = useState(null)
   const [viewMode, setViewMode] = useState('list')
 
   const {
@@ -27,6 +30,8 @@ function ExecutionPlanPage() {
     refresh
   } = usePlanSummary(activeProjectId)
 
+  const { itemBucketMap, buckets: bucketList } = useBucketTree(activeProjectId)
+
   const {
     statusMap: charStatusMap,
     loading: charLoading,
@@ -34,6 +39,10 @@ function ExecutionPlanPage() {
 
   const handleItemClick = (item) => {
     setSelectedIssue(item)
+  }
+
+  const handleItemTracesClick = (item) => {
+    setTracesItem(item)
   }
 
   const handleDetailSuccess = () => {
@@ -113,6 +122,8 @@ function ExecutionPlanPage() {
           data={data}
           loading={loading}
           onItemClick={handleItemClick}
+          onItemTracesClick={handleItemTracesClick}
+          itemBucketMap={itemBucketMap}
         />
       )}
       {viewMode === 'graph' && (
@@ -129,9 +140,18 @@ function ExecutionPlanPage() {
       )}
 
       <WhyThisOrder
+        buckets={bucketList}
         traces={data?.recent_traces || []}
         traceCount={data?.trace_count || 0}
       />
+
+      {tracesItem && (
+        <ItemTracesPanel
+          projectId={activeProjectId}
+          item={tracesItem}
+          onClose={() => setTracesItem(null)}
+        />
+      )}
 
       <IssueDetailModal
         isOpen={Boolean(selectedIssue)}

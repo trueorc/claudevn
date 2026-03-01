@@ -9,9 +9,17 @@ Reference: docs/work_management_framework.md — Section 7.3
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from models.decision_trace import (
+    DecisionContext,
+    DecisionImpact,
+    DecisionPointType,
+    DecisionTrace,
+    DecisionTrigger,
+)
 from models.priority_bucket import BucketTree, ItemReadiness, ReorganizationTriggerType
 
 logger = logging.getLogger(__name__)
@@ -237,6 +245,9 @@ async def create_initial_bucket_tree(
 
         await store.save(tree)
 
+        # Record decision trace for initial bucket tree creation
+        await _record_initial_tree_trace(project_id, tree, profile)
+
         logger.info(
             f"Created initial bucket tree for project {project_id}: "
             f"{len(tree.buckets)} buckets, {tree.total_items} items, "
@@ -247,6 +258,64 @@ async def create_initial_bucket_tree(
     except Exception as e:
         logger.error(f"Error creating initial bucket tree for project {project_id}: {e}")
         return False
+
+
+async def _record_initial_tree_trace(
+    project_id: str,
+    tree: BucketTree,
+    profile,
+) -> None:
+    """Record a BUCKET_REORGANIZATION trace for initial tree creation."""
+    try:
+        from services.decision_trace_service import get_decision_trace_service
+        service = get_decision_trace_service()
+    except RuntimeError:
+        logger.debug("Decision trace service not initialized, skipping initial tree trace")
+        return
+
+    all_item_ids = []
+    bucket_ids = []
+    key_factors = [
+        f"Initial bucket tree created with {len(tree.buckets)} buckets",
+        f"{tree.total_items} items placed, {tree.total_ready} ready",
+    ]
+    for bucket in tree.buckets:
+        bucket_ids.append(bucket.bucket_id)
+        for item in bucket.items:
+            all_item_ids.append(item.item_id)
+
+    trace = DecisionTrace(
+        trace_id=f"trace-{DecisionPointType.BUCKET_REORGANIZATION.value}-{uuid.uuid4().hex[:12]}",
+        project_id=project_id,
+        decision_type=DecisionPointType.BUCKET_REORGANIZATION,
+        trigger=DecisionTrigger(
+            trigger_type="initial_creation",
+            source_id=profile.profile_id if profile else "",
+            source_type="planner_profile",
+            description="Initial bucket tree created from planner profile",
+        ),
+        context=DecisionContext(
+            profile_id=profile.profile_id if profile else None,
+            bucket_tree_version=0,
+            active_goal_ids=list(getattr(profile, "active_goal_ids", [])),
+        ),
+        decision_summary=(
+            f"Initial bucket tree created with {len(tree.buckets)} buckets "
+            f"and {tree.total_items} items from profile {profile.profile_id if profile else 'unknown'}."
+        ),
+        key_factors=key_factors[:3],
+        impact=DecisionImpact(
+            affected_item_ids=all_item_ids,
+            affected_bucket_ids=bucket_ids,
+            tree_version_before=0,
+            tree_version_after=tree.version,
+        ),
+    )
+
+    try:
+        await service.record_trace(trace)
+    except Exception as e:
+        logger.error(f"Error recording initial bucket tree trace: {e}")
 
 
 # =============================================================================

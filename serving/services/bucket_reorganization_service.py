@@ -343,9 +343,21 @@ class BucketReorganizationService:
             ),
         )
 
-        # Step 8: Persist
+        # Step 8: Persist reorganization trace
         await self._save_event_to_redis(project_id, event)
         await self._save_decision_trace(trace)
+
+        # Step 9: Record per-item TASK_MOVEMENT traces for item-level queries
+        if movements:
+            await self._record_task_movement_traces(
+                project_id=project_id,
+                movements=movements,
+                old_tree=current_tree,
+                new_tree=new_tree,
+                trigger_type=trigger_type,
+                trigger_source_id=trigger_source_id,
+                reorg_trace_id=trace.trace_id,
+            )
 
         result = ReorganizationResult(
             tree=new_tree,
@@ -595,6 +607,71 @@ class BucketReorganizationService:
                 await self._redis._redis.ltrim(key, 0, 99)
             except Exception as e:
                 logger.error(f"Error saving reorganization trace to Redis: {e}")
+
+    async def _record_task_movement_traces(
+        self,
+        project_id: str,
+        movements: List[ItemMovement],
+        old_tree: BucketTree,
+        new_tree: BucketTree,
+        trigger_type: ReorganizationTriggerType,
+        trigger_source_id: str,
+        reorg_trace_id: str,
+    ) -> None:
+        """Record individual TASK_MOVEMENT traces for each moved item.
+
+        These traces are indexed by item_id, enabling per-item
+        'why is this here?' queries.
+        """
+        # Build bucket name/rank lookups from both trees
+        bucket_info = {}
+        for bucket in old_tree.buckets + new_tree.buckets:
+            if bucket.bucket_id not in bucket_info:
+                bucket_info[bucket.bucket_id] = {
+                    "name": bucket.definition.name if bucket.definition else bucket.bucket_id,
+                    "rank": bucket.rank,
+                }
+
+        for movement in movements:
+            from_info = bucket_info.get(movement.from_bucket_id, {})
+            to_info = bucket_info.get(movement.to_bucket_id, {})
+            from_name = from_info.get("name", movement.from_bucket_id)
+            to_name = to_info.get("name", movement.to_bucket_id)
+            from_rank = from_info.get("rank", "?")
+            to_rank = to_info.get("rank", "?")
+
+            trace = DecisionTrace(
+                trace_id=f"trace-{DecisionPointType.TASK_MOVEMENT.value}-{uuid.uuid4().hex[:12]}",
+                project_id=project_id,
+                decision_type=DecisionPointType.TASK_MOVEMENT,
+                trigger=DecisionTrigger(
+                    trigger_type=trigger_type.value,
+                    source_id=trigger_source_id,
+                    source_type="reorganization_trigger",
+                    description=self._describe_trigger(trigger_type, trigger_source_id),
+                ),
+                context=DecisionContext(
+                    profile_id=new_tree.profile_id,
+                    bucket_tree_version=new_tree.version,
+                ),
+                decision_summary=(
+                    f"Moved item from '{from_name}' (rank {from_rank}) "
+                    f"to '{to_name}' (rank {to_rank})"
+                ),
+                key_factors=[
+                    f"Source bucket: {from_name} (rank {from_rank})",
+                    f"Destination bucket: {to_name} (rank {to_rank})",
+                    f"Triggered by {trigger_type.value}",
+                ],
+                impact=DecisionImpact(
+                    affected_item_ids=[movement.item_id],
+                    affected_bucket_ids=[movement.from_bucket_id, movement.to_bucket_id],
+                    tree_version_after=new_tree.version,
+                ),
+                related_trace_ids=[reorg_trace_id],
+            )
+
+            await self._save_decision_trace(trace)
 
     # =========================================================================
     # Query Methods
