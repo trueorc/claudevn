@@ -1,6 +1,8 @@
 import { Play, Clock, AlertCircle, Layers, XCircle, CheckCircle2 } from 'lucide-react'
 import Badge from '../common/Badge'
+import BucketBadges from '../common/BucketBadges'
 import Spinner from '../common/Spinner'
+import '../common/BucketBadges.css'
 import './Plan.css'
 
 const priorityColors = {
@@ -25,7 +27,7 @@ function formatDuration(startIso, endIso) {
   return `${days}d ${hrs % 24}h`
 }
 
-function ActiveWorkView({ data, loading, onItemClick }) {
+function ActiveWorkView({ data, loading, onItemClick, itemBucketMap = {} }) {
   if (loading && !data) {
     return (
       <div className="plan-active-work">
@@ -57,6 +59,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
           items={running_items}
           emptyMessage="No items running"
           onItemClick={onItemClick}
+          itemBucketMap={itemBucketMap}
           showTiming
         />
         <WorkColumn
@@ -66,6 +69,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
           items={queued_items}
           emptyMessage="No items queued"
           onItemClick={onItemClick}
+          itemBucketMap={itemBucketMap}
         />
         <WorkColumn
           title="Backlog"
@@ -74,6 +78,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
           items={backlog_items}
           emptyMessage="No backlog items"
           onItemClick={onItemClick}
+          itemBucketMap={itemBucketMap}
           showBlockers
         />
         {blocked_items.length > 0 && (
@@ -84,6 +89,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
             items={blocked_items}
             emptyMessage="No blocked items"
             onItemClick={onItemClick}
+            itemBucketMap={itemBucketMap}
             showBlockers
           />
         )}
@@ -95,6 +101,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
             items={failed_items}
             emptyMessage=""
             onItemClick={onItemClick}
+            itemBucketMap={itemBucketMap}
           />
         )}
         {done_items.length > 0 && (
@@ -105,6 +112,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
             items={done_items}
             emptyMessage=""
             onItemClick={onItemClick}
+            itemBucketMap={itemBucketMap}
             showTiming
           />
         )}
@@ -113,7 +121,7 @@ function ActiveWorkView({ data, loading, onItemClick }) {
   )
 }
 
-function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemClick, showBlockers, showTiming }) {
+function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemClick, itemBucketMap = {}, showBlockers, showTiming }) {
   return (
     <div className="plan-column">
       <div className="plan-column-header">
@@ -132,6 +140,7 @@ function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemC
               key={item.issue_id}
               item={item}
               onClick={() => onItemClick?.(item)}
+              bucketEntries={itemBucketMap[item.issue_id]}
               showBlockers={showBlockers}
               showTiming={showTiming}
             />
@@ -142,7 +151,7 @@ function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemC
   )
 }
 
-function WorkItem({ item, onClick, showBlockers, showTiming }) {
+function WorkItem({ item, onClick, bucketEntries, showBlockers, showTiming }) {
   const { title, priority, assigned_to, depends_on, started_at, completed_at } = item
   const displayId = item.number ? `#${item.number}` : item.issue_id?.slice(0, 8)
   const duration = showTiming ? formatDuration(started_at, completed_at) : null
@@ -159,6 +168,7 @@ function WorkItem({ item, onClick, showBlockers, showTiming }) {
             {priority}
           </Badge>
         )}
+        <BucketBadges entries={bucketEntries} />
         {assigned_to && (
           <span className="plan-work-item-assignee" title={assigned_to}>
             {assigned_to.slice(0, 12)}
