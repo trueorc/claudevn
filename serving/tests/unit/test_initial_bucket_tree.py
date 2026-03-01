@@ -396,3 +396,88 @@ class TestCreateInitialBucketTree:
 
         call_kwargs = planner.create_bucket_tree.call_args[1]
         assert call_kwargs["characterizations"] == char_map
+
+    @pytest.mark.asyncio
+    async def test_records_decision_trace_on_creation(
+        self, store, issues, dependency_graph
+    ):
+        """A BUCKET_REORGANIZATION decision trace is recorded on initial creation."""
+        profile = make_profile()
+        mock_tree = make_tree()
+
+        mock_trace_service = MagicMock()
+        mock_trace_service.record_trace = AsyncMock()
+
+        profile_patch, _ = _patch_profile_service(profile)
+        planner_patch, _ = _patch_planner(mock_tree)
+
+        with profile_patch, planner_patch, patch(
+            "services.decision_trace_service.get_decision_trace_service",
+            return_value=mock_trace_service,
+        ):
+            result = await create_initial_bucket_tree(
+                project_id="project-001",
+                decomposed_issues=issues,
+                dependency_graph=dependency_graph,
+            )
+
+        assert result is True
+        mock_trace_service.record_trace.assert_awaited_once()
+        trace = mock_trace_service.record_trace.call_args[0][0]
+        assert trace.decision_type.value == "bucket_reorganization"
+        assert trace.project_id == "project-001"
+        assert "initial_creation" in trace.trigger.trigger_type
+        assert len(trace.key_factors) >= 1
+
+    @pytest.mark.asyncio
+    async def test_trace_records_all_items_in_impact(
+        self, store, issues, dependency_graph
+    ):
+        """Decision trace impact includes all item IDs from the created tree."""
+        profile = make_profile()
+        mock_tree = make_tree()
+
+        mock_trace_service = MagicMock()
+        mock_trace_service.record_trace = AsyncMock()
+
+        profile_patch, _ = _patch_profile_service(profile)
+        planner_patch, _ = _patch_planner(mock_tree)
+
+        with profile_patch, planner_patch, patch(
+            "services.decision_trace_service.get_decision_trace_service",
+            return_value=mock_trace_service,
+        ):
+            await create_initial_bucket_tree(
+                project_id="project-001",
+                decomposed_issues=issues,
+                dependency_graph=dependency_graph,
+            )
+
+        trace = mock_trace_service.record_trace.call_args[0][0]
+        # mock_tree has items from make_tree helper
+        assert trace.impact is not None
+        assert len(trace.impact.affected_bucket_ids) > 0
+
+    @pytest.mark.asyncio
+    async def test_creation_succeeds_even_if_trace_service_unavailable(
+        self, store, issues, dependency_graph
+    ):
+        """Tree creation still succeeds if decision trace service is not initialized."""
+        profile = make_profile()
+        mock_tree = make_tree()
+
+        profile_patch, _ = _patch_profile_service(profile)
+        planner_patch, _ = _patch_planner(mock_tree)
+
+        with profile_patch, planner_patch, patch(
+            "services.decision_trace_service.get_decision_trace_service",
+            side_effect=RuntimeError("not initialized"),
+        ):
+            result = await create_initial_bucket_tree(
+                project_id="project-001",
+                decomposed_issues=issues,
+                dependency_graph=dependency_graph,
+            )
+
+        assert result is True
+        store.save.assert_awaited_once()
