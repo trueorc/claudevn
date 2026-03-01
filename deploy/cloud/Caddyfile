@@ -1,0 +1,30 @@
+# ClaudeVN Cloud Deployment - Caddy Reverse Proxy
+#
+# Caddy auto-provisions and renews Let's Encrypt TLS certificates.
+# Replace {$DOMAIN} with your actual domain via environment variable.
+#
+# Architecture:
+#   Internet -> Caddy (:443, auto-TLS) -> Serving (:8002, plain HTTP internal)
+
+{$DOMAIN} {
+	# Reverse proxy to Serving (internal HTTP)
+	reverse_proxy serving:8002
+
+	# SSE-compatible: Caddy does not buffer by default, so SSE
+	# connections (compute registration, event streams) work out of the box.
+
+	# Logging
+	log {
+		output file /data/caddy/logs/access.log {
+			roll_size 100mb
+			roll_keep 5
+		}
+	}
+
+	# Security headers
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+}
