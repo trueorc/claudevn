@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 from datetime import datetime
 
+from models.compute import InstanceStatus
 from services.registry_service import ComputeRegistry
 from services.marketplace_registry import MarketplaceRegistry
 
@@ -102,9 +103,58 @@ class HealthMonitor:
                 # Continue running despite errors
                 await asyncio.sleep(self.check_interval)
     
+    async def _check_drain_completion(self):
+        """Check draining instances and transition them when in-flight work is done."""
+        try:
+            from services.work_map_service import get_work_map_service
+            from models.work_map import WorkStatus
+            work_map = get_work_map_service()
+            work_response = await work_map.list_work()
+        except RuntimeError:
+            # Work map service not available; skip drain completion checks
+            return
+        except Exception as e:
+            logger.error(f"Error fetching work map for drain completion check: {e}", exc_info=True)
+            return
+
+        draining_instances = [
+            instance for instance in self.compute_registry._instances.values()
+            if instance.status == InstanceStatus.DRAINING
+        ]
+
+        for instance in draining_instances:
+            instance_id = instance.instance_id
+            in_flight = [
+                w for w in work_response.items
+                if w.assigned_to == instance_id
+                and w.status in [WorkStatus.ASSIGNED, WorkStatus.IN_PROGRESS, WorkStatus.BLOCKED]
+            ]
+
+            if in_flight:
+                continue
+
+            auto_deregister = instance.metadata.get("auto_deregister_on_drain", False)
+
+            if auto_deregister:
+                logger.info(
+                    f"Drain complete for {instance_id} (health monitor), auto-deregistering"
+                )
+                await self.compute_registry.remove_instance(instance_id)
+            else:
+                logger.info(
+                    f"Drain complete for {instance_id} (health monitor), transitioning to OFFLINE"
+                )
+                instance.status = InstanceStatus.OFFLINE
+                instance.drain_started_at = None
+                instance.metadata.pop("auto_deregister_on_drain", None)
+                await self.compute_registry._save_to_storage(instance)
+
     async def _check_health(self):
         """Check health of all components."""
         try:
+            # Check draining instances for completion
+            await self._check_drain_completion()
+
             # Check compute instances
             compute_changes = await self.compute_registry.check_health(
                 max_heartbeat_age=self.offline_threshold,

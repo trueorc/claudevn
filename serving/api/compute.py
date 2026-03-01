@@ -1557,9 +1557,9 @@ async def get_drain_status(
         from models.work_map import WorkStatus
 
         work_map = get_work_map_service()
-        all_work = await work_map.list_work()
+        work_response = await work_map.list_work()
         in_flight_work_ids = [
-            w.work_id for w in all_work
+            w.work_id for w in work_response.items
             if w.assigned_to == instance_id
             and w.status in [WorkStatus.ASSIGNED, WorkStatus.IN_PROGRESS, WorkStatus.BLOCKED]
         ]
@@ -1573,6 +1573,12 @@ async def get_drain_status(
     if drain_complete and auto_deregister:
         logger.info(f"Drain complete for {instance_id}, auto-deregistering")
         await registry.remove_instance(instance_id)
+    elif drain_complete:
+        logger.info(f"Drain complete for {instance_id}, transitioning to OFFLINE")
+        instance.status = InstanceStatus.OFFLINE
+        instance.drain_started_at = None
+        instance.metadata.pop("auto_deregister_on_drain", None)
+        await registry._save_to_storage(instance)
 
     return DrainStatusResponse(
         instance_id=instance_id,
