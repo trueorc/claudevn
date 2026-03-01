@@ -4,10 +4,15 @@ This is the v1.0 architecture where compute is lightweight infrastructure
 that spawns Claude Code CLI instances for work execution.
 """
 
+import logging
 import os
 import socket
 from typing import Optional
+from urllib.parse import urlparse
+
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
 
 
 class ComputeConfig(BaseModel):
@@ -121,7 +126,27 @@ def load_config() -> ComputeConfig:
         hostname = socket.gethostname()
         config.instance_name = f"Compute on {hostname}"
 
+    # Warn if serving_url uses plain HTTP on a non-local address
+    _warn_insecure_url(config.serving_url, "CLAUDEVN_SERVING_URL")
+    _warn_insecure_url(config.serving_auth_url, "CLAUDEVN_SERVING_AUTH_URL")
+
     return config
+
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "serving"}
+
+
+def _warn_insecure_url(url: str, var_name: str) -> None:
+    """Emit a warning if the URL uses plain HTTP to a non-local host."""
+    parsed = urlparse(url)
+    if parsed.scheme == "http" and parsed.hostname not in _LOCAL_HOSTS:
+        logger.warning(
+            "SECURITY: %s uses plain HTTP (%s). "
+            "API keys and credentials will be sent in cleartext. "
+            "Use HTTPS for internet-facing deployments — see deploy/cloud/ for Caddy TLS setup.",
+            var_name,
+            url,
+        )
 
 
 def get_version() -> str:

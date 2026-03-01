@@ -1,0 +1,57 @@
+# ClaudeVN Cloud Deployment - TLS via Caddy Reverse Proxy
+#
+# This compose file adds a Caddy reverse proxy in front of Serving for
+# automatic TLS certificate provisioning and renewal via Let's Encrypt.
+#
+# Usage:
+#   1. Set DOMAIN in .env.cloud (e.g., claudevn.example.com)
+#   2. Point DNS A record at your cloud VM's public IP
+#   3. Start:
+#      docker compose -f docker-compose.yml -f deploy/cloud/docker-compose.cloud.yml up -d
+#
+# Architecture:
+#   Internet -> Caddy (:443, auto-TLS) -> Serving (:8002, plain HTTP internal)
+#
+# Caddy handles:
+#   - Automatic Let's Encrypt certificate provisioning (ACME HTTP-01 challenge)
+#   - Certificate renewal (~30 days before expiry)
+#   - HTTP -> HTTPS redirect
+#   - TLS termination
+#
+# Prerequisites:
+#   - Public DNS A record pointing to the VM
+#   - Ports 80 and 443 open on the VM firewall
+#   - DOMAIN environment variable set
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: claudevn-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    environment:
+      - DOMAIN=${DOMAIN:?Set DOMAIN in .env.cloud (e.g., claudevn.example.com)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - claudevn-network
+    depends_on:
+      serving:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Override: Remove direct port exposure for Serving in cloud mode.
+  # Traffic reaches Serving only through Caddy.
+  serving:
+    ports: !override
+      - "127.0.0.1:8002:8002"  # Localhost-only for admin access
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
