@@ -181,6 +181,9 @@ async def _sse_event_generator(
         # Also unregister from SSE connection manager
         if sse_manager:
             await sse_manager.unregister_connection(compute_id)
+        # Revoke MCP API keys so deregistered compute cannot make further calls
+        from mcp.auth import revoke_compute_key
+        await revoke_compute_key(compute_id)
 
         # Emit compute_deregistered event for instant UI update
         from services.observability_event_bus import get_event_bus
@@ -1900,6 +1903,10 @@ async def deregister_instance(
     # Disconnect SSE connection first to prevent work assignment to this instance
     sse_manager = get_sse_connection_manager()
     await sse_manager.unregister_connection(instance_id)
+
+    # Revoke MCP API keys so deregistered compute cannot make further calls
+    from mcp.auth import revoke_compute_key
+    await revoke_compute_key(instance_id)
 
     removed = await registry.remove_instance(instance_id)
 
