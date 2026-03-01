@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -111,6 +112,43 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Internal Docker service hostnames that should not leak to remote compute nodes
+_INTERNAL_HOSTNAMES = {"serving", "localhost", "127.0.0.1", "::1"}
+
+
+def _validate_serving_public_url() -> None:
+    """Warn at startup if SERVING_PUBLIC_URL looks like an internal hostname.
+
+    Remote compute nodes use this URL to clone Git repos and reach MCP endpoints.
+    If it contains a Docker-internal name (e.g. 'serving:8002'), remote nodes
+    will fail to connect.
+    """
+    url = os.getenv("SERVING_PUBLIC_URL", "")
+    if not url:
+        return
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    if hostname in _INTERNAL_HOSTNAMES:
+        # Check if we're inside Docker (/.dockerenv exists or cgroup mentions docker)
+        in_docker = (
+            os.path.exists("/.dockerenv")
+            or os.path.isfile("/proc/1/cgroup")
+            and "docker" in open("/proc/1/cgroup").read()
+        )
+        if in_docker:
+            # Internal hostname is expected inside Docker Compose
+            return
+
+        logger.warning(
+            "SERVING_PUBLIC_URL is set to '%s' which uses internal hostname '%s'. "
+            "Remote compute nodes will not be able to reach this address. "
+            "Set SERVING_PUBLIC_URL to an externally reachable address for cloud deployments.",
+            url,
+            hostname,
+        )
 
 
 @asynccontextmanager
@@ -675,6 +713,7 @@ async def lifespan(app: FastAPI):
     # Claude Code instance lifecycle management (spawn, monitor, terminate).
     # Core to the compute orchestration workflow.
     # =========================================================================
+    _validate_serving_public_url()
     try:
         workspaces_path = os.getenv('WORKSPACES_PATH', f'{storage_path}/workspaces')
         compute_spawner = ComputeSpawner(
