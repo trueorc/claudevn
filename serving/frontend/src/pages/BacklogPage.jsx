@@ -567,6 +567,37 @@ function BacklogPage() {
         </div>
       )}
 
+      {/* Bucket distribution */}
+      {bucketList.length > 0 && (
+        <div className="bucket-distribution">
+          <span className="bucket-distribution-label">Buckets:</span>
+          <div className="bucket-distribution-items">
+            {bucketList
+              .slice()
+              .sort((a, b) => a.rank - b.rank)
+              .map(bucket => {
+                const name = bucket.definition?.name || bucket.bucket_id
+                const totalCount = bucket.items?.length || 0
+                const readyCount = bucket.items?.filter(i => i.readiness === 'ready').length || 0
+                const blockedCount = totalCount - readyCount
+                return (
+                  <span key={bucket.bucket_id} className="bucket-dist-item" title={bucket.definition?.description || ''}>
+                    <span className={`bucket-dist-rank bucket-badge-rank-${Math.min(bucket.rank, 3)}`}>
+                      #{bucket.rank}
+                    </span>
+                    <span className="bucket-dist-name">{name}</span>
+                    <span className="bucket-dist-counts">
+                      <span className="bucket-dist-total">{totalCount}</span>
+                      {readyCount > 0 && <span className="bucket-dist-ready">{readyCount} ready</span>}
+                      {blockedCount > 0 && <span className="bucket-dist-blocked">{blockedCount} blocked</span>}
+                    </span>
+                  </span>
+                )
+              })}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="loading-state">
