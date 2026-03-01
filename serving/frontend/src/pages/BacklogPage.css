@@ -808,3 +808,146 @@
   color: var(--text-secondary);
   border-color: var(--primary);
 }
+
+/* Bucket grouping styles */
+.bucket-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--text-on-primary, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.bucket-description {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  margin-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 400px;
+}
+
+/* Bucket badges on issue cards */
+.bucket-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.bucket-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bucket-badge-rank-1 {
+  background: var(--primary-light, rgba(99, 102, 241, 0.15));
+  color: var(--primary, #6366f1);
+  border: 1px solid var(--primary, #6366f1);
+}
+
+.bucket-badge-rank-2 {
+  background: var(--info-light, rgba(59, 130, 246, 0.1));
+  color: var(--info, #3b82f6);
+  border: 1px solid var(--info-border, rgba(59, 130, 246, 0.3));
+}
+
+.bucket-badge-rank-3 {
+  background: var(--bg-hover, rgba(148, 163, 184, 0.1));
+  color: var(--text-secondary, #94a3b8);
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+}
+
+.bucket-badge-more {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+/* Bucket distribution stats */
+.bucket-distribution {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.bucket-distribution-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  padding-top: 4px;
+}
+
+.bucket-distribution-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bucket-dist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  font-size: 12px;
+}
+
+.bucket-dist-rank {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.bucket-dist-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.bucket-dist-counts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bucket-dist-total {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bucket-dist-ready {
+  font-size: 10px;
+  color: var(--success, #22c55e);
+}
+
+.bucket-dist-blocked {
+  font-size: 10px;
+  color: var(--warning, #f59e0b);
+}

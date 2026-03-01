@@ -10,6 +10,7 @@ import Spinner from '../components/common/Spinner'
 import EmptyState from '../components/common/EmptyState'
 import useIssues from '../hooks/useIssues'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
+import useBucketTree from '../hooks/useBucketTree'
 import { useToast } from '../hooks/useToast'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { deleteIssue } from '../api/workmap'
@@ -75,7 +76,8 @@ const groupByOptions = [
   { value: 'priority', label: 'By Priority' },
   { value: 'area', label: 'By Area' },
   { value: 'type', label: 'By Type' },
-  { value: 'goal', label: 'By Goal' }
+  { value: 'goal', label: 'By Goal' },
+  { value: 'bucket', label: 'By Bucket' }
 ]
 
 const secondaryGroupByOptions = [
@@ -84,11 +86,12 @@ const secondaryGroupByOptions = [
   { value: 'priority', label: 'By Priority' },
   { value: 'area', label: 'By Area' },
   { value: 'type', label: 'By Type' },
-  { value: 'goal', label: 'By Goal' }
+  { value: 'goal', label: 'By Goal' },
+  { value: 'bucket', label: 'By Bucket' }
 ]
 
 // Helper to get grouping key(s) for an issue
-const getGroupKey = (item, groupType) => {
+const getGroupKey = (item, groupType, context = {}) => {
   let key
   switch (groupType) {
     case 'status':
@@ -106,6 +109,13 @@ const getGroupKey = (item, groupType) => {
     case 'goal':
       key = item.goal_id || 'No Goal'
       break
+    case 'bucket': {
+      const bucketEntries = context.itemBucketMap?.[item.issue_id]
+      if (bucketEntries && bucketEntries.length > 0) {
+        return bucketEntries.map(b => b.name)
+      }
+      return ['Unassigned']
+    }
     default:
       key = 'All'
   }
@@ -113,12 +123,19 @@ const getGroupKey = (item, groupType) => {
 }
 
 // Helper to sort group keys based on group type
-const sortGroupKeys = (keys, groupType) => {
+const sortGroupKeys = (keys, groupType, context = {}) => {
   const sortedKeys = [...keys]
   if (groupType === 'status') {
     sortedKeys.sort((a, b) => statusOrder.indexOf(a) - statusOrder.indexOf(b))
   } else if (groupType === 'priority') {
     sortedKeys.sort((a, b) => priorityOrder.indexOf(a) - priorityOrder.indexOf(b))
+  } else if (groupType === 'bucket') {
+    const bucketRankMap = context.bucketRankMap || {}
+    sortedKeys.sort((a, b) => {
+      if (a === 'Unassigned') return 1
+      if (b === 'Unassigned') return -1
+      return (bucketRankMap[a] || 999) - (bucketRankMap[b] || 999)
+    })
   } else {
     sortedKeys.sort((a, b) => {
       if (a === 'No Goal' || a === 'Unknown' || a === 'Other') return 1
@@ -169,26 +186,46 @@ function BacklogPage() {
     return f
   }, [searchParams, activeProjectId])
 
-  // Area filter is client-side since the API doesn't support it directly
+  // Area and bucket filters are client-side since the API doesn't support them directly
   const areaFilter = searchParams.get('area') || ''
+  const bucketFilter = searchParams.get('bucket') || ''
 
   const { items, stats, loading, error: loadError } = useIssues({ filters, key: refreshKey })
   const { statusMap: charStatuses } = useCharacterizationStatuses(activeProjectId)
+  const { itemBucketMap, buckets: bucketList } = useBucketTree(activeProjectId)
+
+  // Build bucket rank map for sorting bucket groups by rank order
+  const bucketRankMap = useMemo(() => {
+    const map = {}
+    for (const bucket of bucketList) {
+      const name = bucket.definition?.name || bucket.bucket_id
+      map[name] = bucket.rank
+    }
+    return map
+  }, [bucketList])
+
+  const groupContext = useMemo(() => ({
+    itemBucketMap,
+    bucketRankMap
+  }), [itemBucketMap, bucketRankMap])
   const toast = useToast()
 
   // Update URL params when filters change
-  const updateUrlParams = useCallback((newFilters, newArea) => {
+  const updateUrlParams = useCallback((newFilters, newArea, newBucket) => {
     const params = new URLSearchParams()
     if (newFilters.status) params.set('status', newFilters.status)
     if (newFilters.priority) params.set('priority', newFilters.priority)
     if (newFilters.goal_id) params.set('goal_id', newFilters.goal_id)
     if (newArea) params.set('area', newArea)
+    if (newBucket) params.set('bucket', newBucket)
     setSearchParams(params, { replace: true })
   }, [setSearchParams])
 
   const handleFilterChange = (key, value) => {
     if (key === 'area') {
-      updateUrlParams(filters, value)
+      updateUrlParams(filters, value, bucketFilter)
+    } else if (key === 'bucket') {
+      updateUrlParams(filters, areaFilter, value)
     } else {
       const newFilters = { ...filters }
       if (value) {
@@ -196,7 +233,7 @@ function BacklogPage() {
       } else {
         delete newFilters[key]
       }
-      updateUrlParams(newFilters, areaFilter)
+      updateUrlParams(newFilters, areaFilter, bucketFilter)
     }
   }
 
@@ -204,7 +241,7 @@ function BacklogPage() {
     setSearchParams({}, { replace: true })
   }
 
-  const hasActiveFilters = filters.status || filters.priority || filters.goal_id || areaFilter
+  const hasActiveFilters = filters.status || filters.priority || filters.goal_id || areaFilter || bucketFilter
 
   // Filter and sort items
   const processedItems = useMemo(() => {
@@ -213,6 +250,15 @@ function BacklogPage() {
     // Apply area filter client-side
     if (areaFilter) {
       result = result.filter(item => item.area === areaFilter)
+    }
+
+    // Apply bucket filter client-side
+    if (bucketFilter) {
+      result = result.filter(item => {
+        const bucketEntries = itemBucketMap[item.issue_id]
+        if (!bucketEntries) return false
+        return bucketEntries.some(b => b.bucket_id === bucketFilter)
+      })
     }
 
     // Sort items
@@ -236,7 +282,7 @@ function BacklogPage() {
     })
 
     return result
-  }, [items, areaFilter, sortBy])
+  }, [items, areaFilter, bucketFilter, itemBucketMap, sortBy])
 
   // Group items (supports two-level grouping)
   const groupedItems = useMemo(() => {
@@ -247,7 +293,7 @@ function BacklogPage() {
     const groups = {}
 
     processedItems.forEach(item => {
-      const primaryKeys = getGroupKey(item, groupBy)
+      const primaryKeys = getGroupKey(item, groupBy, groupContext)
       primaryKeys.forEach(primaryKey => {
         if (!groups[primaryKey]) {
           groups[primaryKey] = { items: [], subgroups: null }
@@ -260,7 +306,7 @@ function BacklogPage() {
       Object.keys(groups).forEach(primaryKey => {
         const subgroups = {}
         groups[primaryKey].items.forEach(item => {
-          const secondaryKeys = getGroupKey(item, secondaryGroupBy)
+          const secondaryKeys = getGroupKey(item, secondaryGroupBy, groupContext)
           secondaryKeys.forEach(secondaryKey => {
             if (!subgroups[secondaryKey]) {
               subgroups[secondaryKey] = []
@@ -269,7 +315,7 @@ function BacklogPage() {
           })
         })
 
-        const sortedSecondaryKeys = sortGroupKeys(Object.keys(subgroups), secondaryGroupBy)
+        const sortedSecondaryKeys = sortGroupKeys(Object.keys(subgroups), secondaryGroupBy, groupContext)
         const sortedSubgroups = {}
         sortedSecondaryKeys.forEach(key => {
           sortedSubgroups[key] = subgroups[key]
@@ -278,13 +324,13 @@ function BacklogPage() {
       })
     }
 
-    const sortedPrimaryKeys = sortGroupKeys(Object.keys(groups), groupBy)
+    const sortedPrimaryKeys = sortGroupKeys(Object.keys(groups), groupBy, groupContext)
     const sortedGroups = {}
     sortedPrimaryKeys.forEach(key => {
       sortedGroups[key] = groups[key]
     })
     return sortedGroups
-  }, [processedItems, groupBy, secondaryGroupBy])
+  }, [processedItems, groupBy, secondaryGroupBy, groupContext])
 
   const toggleGroupCollapse = useCallback((groupKey) => {
     setCollapsedGroups(prev => ({
@@ -464,6 +510,27 @@ function BacklogPage() {
               </select>
             </div>
 
+            {bucketList.length > 0 && (
+              <div className="filter-group">
+                <label className="filter-label">Bucket</label>
+                <select
+                  className="filter-select"
+                  value={bucketFilter}
+                  onChange={e => handleFilterChange('bucket', e.target.value)}
+                >
+                  <option value="">All Buckets</option>
+                  {bucketList
+                    .slice()
+                    .sort((a, b) => a.rank - b.rank)
+                    .map(bucket => (
+                      <option key={bucket.bucket_id} value={bucket.bucket_id}>
+                        {bucket.definition?.name || bucket.bucket_id}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+
             {hasActiveFilters && (
               <button onClick={clearFilters} className="btn btn-link">
                 <X size={14} />
@@ -497,6 +564,37 @@ function BacklogPage() {
             <span className="stat-value stat-done">{stats.by_status?.done || 0}</span>
             <span className="stat-label">Done</span>
           </span>
+        </div>
+      )}
+
+      {/* Bucket distribution */}
+      {bucketList.length > 0 && (
+        <div className="bucket-distribution">
+          <span className="bucket-distribution-label">Buckets:</span>
+          <div className="bucket-distribution-items">
+            {bucketList
+              .slice()
+              .sort((a, b) => a.rank - b.rank)
+              .map(bucket => {
+                const name = bucket.definition?.name || bucket.bucket_id
+                const totalCount = bucket.items?.length || 0
+                const readyCount = bucket.items?.filter(i => i.readiness === 'ready').length || 0
+                const blockedCount = totalCount - readyCount
+                return (
+                  <span key={bucket.bucket_id} className="bucket-dist-item" title={bucket.definition?.description || ''}>
+                    <span className={`bucket-dist-rank bucket-badge-rank-${Math.min(bucket.rank, 3)}`}>
+                      #{bucket.rank}
+                    </span>
+                    <span className="bucket-dist-name">{name}</span>
+                    <span className="bucket-dist-counts">
+                      <span className="bucket-dist-total">{totalCount}</span>
+                      {readyCount > 0 && <span className="bucket-dist-ready">{readyCount} ready</span>}
+                      {blockedCount > 0 && <span className="bucket-dist-blocked">{blockedCount} blocked</span>}
+                    </span>
+                  </span>
+                )
+              })}
+          </div>
         </div>
       )}
 
@@ -539,7 +637,18 @@ function BacklogPage() {
                   >
                     <div className="group-header-left">
                       {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                      {groupBy === 'bucket' && bucketRankMap[groupName] && (
+                        <span className="bucket-rank-badge">#{bucketRankMap[groupName]}</span>
+                      )}
                       <h3 className="group-title">{groupName}</h3>
+                      {groupBy === 'bucket' && (() => {
+                        const bucket = bucketList.find(b => (b.definition?.name || b.bucket_id) === groupName)
+                        return bucket?.definition?.description ? (
+                          <span className="bucket-description" title={bucket.definition.description}>
+                            {bucket.definition.description}
+                          </span>
+                        ) : null
+                      })()}
                     </div>
                     <span className="group-count">{totalItems}</span>
                   </div>
@@ -571,6 +680,7 @@ function BacklogPage() {
                                     issue={issue}
                                     viewMode={viewMode}
                                     characterization={charStatuses[issue.issue_id]}
+                                    bucketEntries={itemBucketMap[issue.issue_id]}
                                     onClick={() => handleIssueClick(issue)}
                                   />
                                 ))}
@@ -588,6 +698,7 @@ function BacklogPage() {
                           issue={issue}
                           viewMode={viewMode}
                           characterization={charStatuses[issue.issue_id]}
+                          bucketEntries={itemBucketMap[issue.issue_id]}
                           onClick={() => handleIssueClick(issue)}
                         />
                       ))}
@@ -683,8 +794,34 @@ const formatIssueId = (issueId) => {
   return hash.slice(0, 8)
 }
 
+// Bucket rank color mapping (rank 1 = most prominent)
+const bucketRankColors = ['primary', 'info', 'default']
+
+function BucketBadges({ entries }) {
+  if (!entries || entries.length === 0) return null
+  const visible = entries.slice(0, 2).sort((a, b) => a.rank - b.rank)
+  const overflow = entries.length - 2
+
+  return (
+    <div className="bucket-badges">
+      {visible.map(b => (
+        <span
+          key={b.bucket_id}
+          className={`bucket-badge bucket-badge-rank-${Math.min(b.rank, 3)}`}
+          title={b.description || b.name}
+        >
+          {b.name}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="bucket-badge-more">+{overflow}</span>
+      )}
+    </div>
+  )
+}
+
 // Backlog item component for list/grid view - displays Issue objects
-function BacklogItem({ issue, viewMode, characterization, onClick }) {
+function BacklogItem({ issue, viewMode, characterization, bucketEntries, onClick }) {
   const {
     issue_id,
     title,
@@ -729,6 +866,7 @@ function BacklogItem({ issue, viewMode, characterization, onClick }) {
             <p className="item-description">{description}</p>
           )}
           {charStatus === 'completed' && <OntologyTagsDisplay tags={charTags} />}
+          <BucketBadges entries={bucketEntries} />
         </div>
         <div className="item-meta">
           <Badge variant={priorityColors[priority] || 'default'} size="sm">
@@ -788,6 +926,7 @@ function BacklogItem({ issue, viewMode, characterization, onClick }) {
         <p className="item-description">{description}</p>
       )}
       {charStatus === 'completed' && <OntologyTagsDisplay tags={charTags} />}
+      <BucketBadges entries={bucketEntries} />
       <div className="card-meta">
         <Badge variant={priorityColors[priority] || 'default'}>
           {priority}

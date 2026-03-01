@@ -614,13 +614,20 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
 
         # Create initial bucket tree for execution plan display
         try:
-            from services.bucket_tree_store import create_initial_bucket_tree
+            from services.bucket_tree_store import create_initial_bucket_tree, get_bucket_tree_store
             await create_initial_bucket_tree(
                 project_id=goal.project_id or "",
                 decomposed_issues=decomposition.issues,
                 dependency_graph=decomposition.dependency_graph,
                 characterization_map=characterization_map,
             )
+            # Remap temp IDs (e.g. "issue-1") to real persisted issue IDs
+            if temp_to_real:
+                bt_store = get_bucket_tree_store()
+                tree = await bt_store.load(goal.project_id or "")
+                if tree:
+                    tree.remap_item_ids(temp_to_real)
+                    await bt_store.save(tree)
         except Exception as bt_err:
             logger.warning(f"Failed to create initial bucket tree for goal {goal_id}: {bt_err}")
 
@@ -1532,12 +1539,19 @@ async def execute_plan(
 
         # Create initial bucket tree for execution plan display
         try:
-            from services.bucket_tree_store import create_initial_bucket_tree
+            from services.bucket_tree_store import create_initial_bucket_tree, get_bucket_tree_store
             await create_initial_bucket_tree(
                 project_id=goal.project_id or "",
                 decomposed_issues=decomposition.issues,
                 dependency_graph=decomposition.dependency_graph,
             )
+            # Remap temp IDs (e.g. "issue-1") to real persisted issue IDs
+            if temp_to_real:
+                bt_store = get_bucket_tree_store()
+                tree = await bt_store.load(goal.project_id or "")
+                if tree:
+                    tree.remap_item_ids(temp_to_real)
+                    await bt_store.save(tree)
         except Exception as bt_err:
             logger.warning(
                 f"Failed to create initial bucket tree for goal {goal_id}: {bt_err}"
