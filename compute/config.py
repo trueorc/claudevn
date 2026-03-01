@@ -65,8 +65,8 @@ class ComputeConfig(BaseModel):
         description="Auth mode: serving (fetch from serving), local (mount), or external (own)"
     )
     serving_auth_url: str = Field(
-        default="http://serving:8002/api/v1/auth",
-        description="URL of Serving's auth API for credential fetching"
+        default="",
+        description="URL of Serving's auth API for credential fetching (derived from serving_url if not set)"
     )
 
     # SSE client settings
@@ -109,7 +109,11 @@ def load_config() -> ComputeConfig:
         credential_check_interval=int(os.getenv("CLAUDEVN_CREDENTIAL_CHECK_INTERVAL", "3600")),
         credential_expiry_warning_days=int(os.getenv("CLAUDEVN_CREDENTIAL_EXPIRY_WARNING_DAYS", "7")),
         auth_mode=os.getenv("COMPUTE_AUTH_MODE", "serving"),
-        serving_auth_url=os.getenv("CLAUDEVN_SERVING_AUTH_URL", "http://serving:8002/api/v1/auth"),
+        # Derive auth URL from serving_url when not explicitly set
+        serving_auth_url=os.getenv(
+            "CLAUDEVN_SERVING_AUTH_URL",
+            f"{os.getenv('CLAUDEVN_SERVING_URL', os.getenv('SERVING_URL', 'http://localhost:8002')).rstrip('/')}/api/v1/auth",
+        ),
         sse_reconnect_delay=int(os.getenv("CLAUDEVN_SSE_RECONNECT_DELAY", "5")),
         sse_max_reconnect_delay=int(os.getenv("CLAUDEVN_SSE_MAX_RECONNECT_DELAY", "60")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
@@ -130,6 +134,9 @@ def load_config() -> ComputeConfig:
     _warn_insecure_url(config.serving_url, "CLAUDEVN_SERVING_URL")
     _warn_insecure_url(config.serving_auth_url, "CLAUDEVN_SERVING_AUTH_URL")
 
+    # Validate hostname consistency between serving_url and serving_auth_url
+    _validate_auth_url_consistency(config.serving_url, config.serving_auth_url)
+
     return config
 
 
@@ -146,6 +153,26 @@ def _warn_insecure_url(url: str, var_name: str) -> None:
             "Use HTTPS for internet-facing deployments — see deploy/cloud/ for Caddy TLS setup.",
             var_name,
             url,
+        )
+
+
+def _validate_auth_url_consistency(serving_url: str, auth_url: str) -> None:
+    """Warn if serving_auth_url points to a different host than serving_url.
+
+    This catches misconfigurations where serving_url is overridden for remote
+    access but serving_auth_url still points to a Docker-internal hostname.
+    """
+    serving_host = urlparse(serving_url).hostname
+    auth_host = urlparse(auth_url).hostname
+
+    if serving_host and auth_host and serving_host != auth_host:
+        logger.error(
+            "CLAUDEVN_SERVING_AUTH_URL host (%s) differs from CLAUDEVN_SERVING_URL host (%s). "
+            "Auth URL should usually be derived from SERVING_URL. "
+            "Credential fetching will likely fail for remote compute nodes. "
+            "Either set CLAUDEVN_SERVING_AUTH_URL explicitly or leave it unset to auto-derive.",
+            auth_host,
+            serving_host,
         )
 
 
