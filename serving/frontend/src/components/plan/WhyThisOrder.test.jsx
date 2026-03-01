@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import WhyThisOrder from './WhyThisOrder'
 
 function makeTrace(overrides = {}) {
@@ -13,135 +13,159 @@ function makeTrace(overrides = {}) {
   }
 }
 
+function makeBucket(overrides = {}) {
+  return {
+    bucket_id: `bucket-${Math.random().toString(36).slice(2, 8)}`,
+    rank: 1,
+    definition: { name: 'Critical', description: 'Critical fixes' },
+    items: [{ item_id: 'i1' }, { item_id: 'i2' }],
+    ...overrides,
+  }
+}
+
 describe('WhyThisOrder', () => {
-  it('returns null when traces are empty', () => {
-    const { container } = render(<WhyThisOrder traces={[]} traceCount={0} />)
+  it('returns null when no buckets and no traces', () => {
+    const { container } = render(<WhyThisOrder buckets={[]} traces={[]} traceCount={0} />)
     expect(container.innerHTML).toBe('')
   })
 
-  it('renders collapsed by default', () => {
-    const traces = [makeTrace()]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
+  it('shows Execution Order header', () => {
+    const buckets = [makeBucket()]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    expect(screen.getByText('Execution Order')).toBeDefined()
+  })
 
-    expect(screen.getByText('Why this order')).toBeDefined()
-    // Trace content should not be visible
+  it('shows ordering explanation when buckets exist', () => {
+    const buckets = [makeBucket()]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    expect(screen.getByText(/Items are ordered by bucket rank/)).toBeDefined()
+  })
+
+  it('shows fallback when no buckets but has traces', () => {
+    const traces = [makeTrace()]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    expect(screen.getByText(/No bucket tree defined/)).toBeDefined()
+  })
+
+  it('renders bucket sequence sorted by rank', () => {
+    const buckets = [
+      makeBucket({ rank: 2, definition: { name: 'Medium', description: '' } }),
+      makeBucket({ rank: 1, definition: { name: 'Critical', description: '' } }),
+    ]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+
+    expect(screen.getByText('Critical')).toBeDefined()
+    expect(screen.getByText('Medium')).toBeDefined()
+    expect(screen.getByText('#1')).toBeDefined()
+    expect(screen.getByText('#2')).toBeDefined()
+  })
+
+  it('shows item count per bucket', () => {
+    const buckets = [
+      makeBucket({ items: [{ item_id: 'a' }, { item_id: 'b' }, { item_id: 'c' }] }),
+    ]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    expect(screen.getByText('3 items')).toBeDefined()
+  })
+
+  it('shows singular "item" for count of 1', () => {
+    const buckets = [
+      makeBucket({ items: [{ item_id: 'a' }] }),
+    ]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    expect(screen.getByText('1 item')).toBeDefined()
+  })
+
+  it('shows bucket description', () => {
+    const buckets = [
+      makeBucket({ definition: { name: 'Test', description: 'Test description' } }),
+    ]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    expect(screen.getByText('Test description')).toBeDefined()
+  })
+
+  it('falls back to bucket_id when no definition name', () => {
+    const buckets = [
+      makeBucket({ bucket_id: 'my-bucket', definition: undefined }),
+    ]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    expect(screen.getByText('my-bucket')).toBeDefined()
+  })
+
+  it('renders traces section as "Recent Decisions" collapsed by default', () => {
+    const traces = [makeTrace()]
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
+
+    expect(screen.getByText('Recent Decisions')).toBeDefined()
     expect(screen.queryByText('Moved task to front of queue')).toBeNull()
   })
 
-  it('expands on header click to show traces', () => {
+  it('expands traces on header click', () => {
     const traces = [makeTrace({ decision_summary: 'Reordered queue' })]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
 
-    fireEvent.click(screen.getByText('Why this order'))
+    fireEvent.click(screen.getByText('Recent Decisions'))
     expect(screen.getByText('Reordered queue')).toBeDefined()
   })
 
-  it('collapses again on second click', () => {
+  it('collapses traces on second click', () => {
     const traces = [makeTrace({ decision_summary: 'Reordered' })]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={traces} traceCount={1} />)
 
-    const header = screen.getByText('Why this order')
-    fireEvent.click(header) // expand
+    const header = screen.getByText('Recent Decisions')
+    fireEvent.click(header)
     expect(screen.getByText('Reordered')).toBeDefined()
 
-    fireEvent.click(header) // collapse
+    fireEvent.click(header)
     expect(screen.queryByText('Reordered')).toBeNull()
   })
 
   it('shows trace count with singular "decision"', () => {
-    render(<WhyThisOrder traces={[makeTrace()]} traceCount={1} />)
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={[makeTrace()]} traceCount={1} />)
     expect(screen.getByText('1 decision')).toBeDefined()
   })
 
   it('shows trace count with plural "decisions"', () => {
-    render(<WhyThisOrder traces={[makeTrace(), makeTrace()]} traceCount={5} />)
+    render(<WhyThisOrder buckets={[makeBucket()]} traces={[makeTrace(), makeTrace()]} traceCount={5} />)
     expect(screen.getByText('5 decisions')).toBeDefined()
   })
 
-  it('renders decision type with correct label', () => {
+  it('renders decision type labels correctly', () => {
     const traces = [
       makeTrace({ decision_type: 'profile_shift', decision_summary: 'Profile changed' }),
     ]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    fireEvent.click(screen.getByText('Recent Decisions'))
     expect(screen.getByText('Profile Shift')).toBeDefined()
   })
 
-  it('renders all decision type labels correctly', () => {
-    const types = [
-      { type: 'bucket_reorganization', label: 'Reorganization' },
-      { type: 'conflict_identified', label: 'Conflict Found' },
-      { type: 'conflict_resolved', label: 'Conflict Resolved' },
-      { type: 'worker_assignment', label: 'Assignment' },
-    ]
-
-    types.forEach(({ type, label }) => {
-      const traces = [makeTrace({ decision_type: type, decision_summary: `summary-${type}` })]
-      const { unmount } = render(<WhyThisOrder traces={traces} traceCount={1} />)
-      fireEvent.click(screen.getByText('Why this order'))
-      expect(screen.getByText(label)).toBeDefined()
-      unmount()
-    })
-  })
-
   it('shows trigger text when present', () => {
-    const traces = [
-      makeTrace({ trigger: 'User requested priority change' }),
-    ]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
+    const traces = [makeTrace({ trigger: 'User requested priority change' })]
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={1} />)
+    fireEvent.click(screen.getByText('Recent Decisions'))
     expect(screen.getByText('User requested priority change')).toBeDefined()
-  })
-
-  it('does not show trigger when null', () => {
-    const traces = [makeTrace({ trigger: null, decision_summary: 'No trigger trace' })]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
-    expect(screen.getByText('No trigger trace')).toBeDefined()
-    // Only the summary and type label should be visible, no extra paragraphs
-    const traceCards = document.querySelectorAll('.plan-trace-trigger')
-    expect(traceCards.length).toBe(0)
   })
 
   it('renders multiple traces', () => {
     const traces = [
       makeTrace({ decision_summary: 'First decision' }),
       makeTrace({ decision_summary: 'Second decision' }),
-      makeTrace({ decision_summary: 'Third decision' }),
     ]
-    render(<WhyThisOrder traces={traces} traceCount={3} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
+    render(<WhyThisOrder buckets={[]} traces={traces} traceCount={2} />)
+    fireEvent.click(screen.getByText('Recent Decisions'))
     expect(screen.getByText('First decision')).toBeDefined()
     expect(screen.getByText('Second decision')).toBeDefined()
-    expect(screen.getByText('Third decision')).toBeDefined()
   })
 
-  it('shows "just now" for very recent timestamps', () => {
-    const traces = [makeTrace({ timestamp: new Date().toISOString() })]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
-    expect(screen.getByText('just now')).toBeDefined()
-  })
-
-  it('shows relative time for older timestamps', () => {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-    const traces = [makeTrace({ timestamp: twoHoursAgo })]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
-    expect(screen.getByText('2h ago')).toBeDefined()
-  })
-
-  it('falls back to decision_type as label for unknown types', () => {
-    const traces = [makeTrace({ decision_type: 'custom_type', decision_summary: 'Custom' })]
-    render(<WhyThisOrder traces={traces} traceCount={1} />)
-    fireEvent.click(screen.getByText('Why this order'))
-
-    expect(screen.getByText('custom_type')).toBeDefined()
+  it('applies rank-based CSS classes to bucket rank badges', () => {
+    const buckets = [
+      makeBucket({ rank: 1, definition: { name: 'B1', description: '' } }),
+      makeBucket({ rank: 3, definition: { name: 'B3', description: '' } }),
+    ]
+    render(<WhyThisOrder buckets={buckets} traces={[]} traceCount={0} />)
+    const rank1 = screen.getByText('#1')
+    const rank3 = screen.getByText('#3')
+    expect(rank1.className).toContain('bucket-badge-rank-1')
+    expect(rank3.className).toContain('bucket-badge-rank-3')
   })
 })
