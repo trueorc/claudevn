@@ -27,7 +27,12 @@ case "$AUTH_MODE" in
     while [ $attempt -lt $MAX_ATTEMPTS ]; do
       attempt=$((attempt + 1))
 
-      response=$(curl -s -w "\n%{http_code}" "$SERVING_AUTH_URL/credentials" 2>/dev/null || true)
+      # Use -k (insecure) when TLS_VERIFY is disabled (self-signed certs for local testing)
+      tls_flag=""
+      if [ "${TLS_VERIFY:-true}" = "false" ]; then
+        tls_flag="-k"
+      fi
+      response=$(curl -s $tls_flag -w "\n%{http_code}" "$SERVING_AUTH_URL/credentials" 2>/dev/null || true)
       http_code=$(echo "$response" | tail -1)
       body=$(echo "$response" | head -n -1)
 

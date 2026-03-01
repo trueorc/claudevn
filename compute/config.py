@@ -73,6 +73,9 @@ class ComputeConfig(BaseModel):
     sse_reconnect_delay: int = Field(default=5, description="SSE initial reconnect delay in seconds")
     sse_max_reconnect_delay: int = Field(default=60, description="SSE maximum reconnect delay in seconds")
 
+    # TLS verification (set to false for self-signed certs in local testing)
+    tls_verify: bool = Field(default=True, description="Verify TLS certificates for HTTPS connections")
+
     # Logging
     log_level: str = Field(default="INFO", description="Log level")
     log_file: Optional[str] = Field(default="./logs/compute.log", description="Log file path")
@@ -114,6 +117,7 @@ def load_config() -> ComputeConfig:
             "CLAUDEVN_SERVING_AUTH_URL",
             f"{os.getenv('CLAUDEVN_SERVING_URL', os.getenv('SERVING_URL', 'http://localhost:8002')).rstrip('/')}/api/v1/auth",
         ),
+        tls_verify=os.getenv("TLS_VERIFY", "true").lower() in ("true", "1", "yes"),
         sse_reconnect_delay=int(os.getenv("CLAUDEVN_SSE_RECONNECT_DELAY", "5")),
         sse_max_reconnect_delay=int(os.getenv("CLAUDEVN_SSE_MAX_RECONNECT_DELAY", "60")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),

@@ -174,6 +174,7 @@ async def lifespan(app: FastAPI):
         api_key=config.api_key,
         max_instances=max_instances,
         serving_repo_url=config.serving_repo_url,
+        tls_verify=config.tls_verify,
     )
     logger.info(f"Claude Code spawner initialized (max_instances={max_instances})")
     if config.serving_repo_url:
@@ -186,6 +187,7 @@ async def lifespan(app: FastAPI):
         expiry_warning_days=config.credential_expiry_warning_days,
         auth_mode=config.auth_mode,
         serving_auth_url=config.serving_auth_url,
+        tls_verify=config.tls_verify,
     )
     logger.info(f"Credential monitor initialized (status={credential_monitor.status.value})")
 
@@ -221,7 +223,8 @@ async def lifespan(app: FastAPI):
             capabilities=capabilities_list,
             resources=resources,
             reconnect_delay=config.sse_reconnect_delay,
-            max_reconnect_delay=config.sse_max_reconnect_delay
+            max_reconnect_delay=config.sse_max_reconnect_delay,
+            tls_verify=config.tls_verify,
         )
 
         # Register event handlers

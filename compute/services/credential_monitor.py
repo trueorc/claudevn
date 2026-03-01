@@ -42,6 +42,7 @@ class CredentialMonitor:
         event_callback: Optional[Any] = None,
         auth_mode: Optional[str] = None,
         serving_auth_url: Optional[str] = None,
+        tls_verify: bool = True,
     ):
         """Initialize the credential monitor.
 
@@ -52,6 +53,7 @@ class CredentialMonitor:
             event_callback: Async callback(event_type, data) for sending events to Serving
             auth_mode: Auth mode ("serving" enables auto-refresh from serving)
             serving_auth_url: Serving auth API URL for auto-refresh
+            tls_verify: Whether to verify TLS certificates
         """
         self._credentials_path = Path(os.path.expanduser(credentials_path))
         self._check_interval = check_interval
@@ -59,6 +61,7 @@ class CredentialMonitor:
         self._event_callback = event_callback
         self._auth_mode = auth_mode
         self._serving_auth_url = serving_auth_url
+        self._tls_verify = tls_verify
 
         self._status = CredentialStatus.MISSING
         self._expires_at: Optional[datetime] = None
@@ -319,7 +322,7 @@ class CredentialMonitor:
         logger.info(f"Fetching credentials from {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, verify=self._tls_verify) as client:
                 response = await client.get(url)
 
             if response.status_code != 200:
@@ -410,6 +413,7 @@ async def initialize_credential_monitor(
     event_callback: Optional[Any] = None,
     auth_mode: Optional[str] = None,
     serving_auth_url: Optional[str] = None,
+    tls_verify: bool = True,
 ) -> CredentialMonitor:
     """Initialize and start the global credential monitor.
 
@@ -420,6 +424,7 @@ async def initialize_credential_monitor(
         event_callback: Async callback for status events
         auth_mode: Auth mode ("serving" enables auto-refresh)
         serving_auth_url: Serving auth API URL for auto-refresh
+        tls_verify: Whether to verify TLS certificates
 
     Returns:
         The initialized credential monitor
@@ -431,6 +436,7 @@ async def initialize_credential_monitor(
         event_callback=event_callback,
         auth_mode=auth_mode,
         serving_auth_url=serving_auth_url,
+        tls_verify=tls_verify,
     )
     set_credential_monitor(monitor)
     await monitor.start()
