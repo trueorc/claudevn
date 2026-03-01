@@ -102,16 +102,14 @@ curl http://<serving-host>:8002/api/v1/health
 ssh user@remote-host
 
 # Clone the ClaudeVN repository
-git clone https://github.com/Guarrdon/trueorc.git
-cd trueorc
+git clone https://github.com/trueorc/claudevn.git
+cd claudevn
 ```
 
 ### Step 2: Create Compute Configuration
 
-Create a `.env.compute` file:
-
 ```bash
-cp .env.example .env.compute
+cp .env.compute.example .env.compute
 ```
 
 Edit `.env.compute` with your configuration:
@@ -119,17 +117,21 @@ Edit `.env.compute` with your configuration:
 ```bash
 # .env.compute
 
-# === Serving Integration ===
-SERVING_URL=http://<serving-host-ip>:8002
-CLAUDEVN_SERVING_AUTH_URL=http://<serving-host-ip>:8002/api/v1/auth
+# === Serving Connection ===
+CLAUDEVN_SERVING_URL=https://claudevn.example.com
+# Auth URL is auto-derived from SERVING_URL; only set if non-standard
+#CLAUDEVN_SERVING_AUTH_URL=https://claudevn.example.com/api/v1/auth
 
-# === Compute Identity ===
+# === Instance Identity ===
+CLAUDEVN_COMPUTE_ID=compute-remote-001
+CLAUDEVN_COMPUTE_NAME=Remote-Compute-GPU
+
+# === Internal var names (must match CLAUDEVN_* values) ===
 COMPUTE_INSTANCE_ID=compute-remote-001
 COMPUTE_INSTANCE_NAME=Remote-Compute-GPU
-COMPUTE_PUBLIC_URL=http://<remote-host-ip>:8010
+SERVING_URL=https://claudevn.example.com
 
 # === Registration ===
-COMPUTE_REGISTER_ON_STARTUP=true
 COMPUTE_HEARTBEAT_INTERVAL=30
 
 # === Auth Mode ===
@@ -138,82 +140,58 @@ COMPUTE_HEARTBEAT_INTERVAL=30
 COMPUTE_AUTH_MODE=serving
 
 # === Skills/Capabilities ===
+CLAUDEVN_SKILLS=code-writer,test-automator
+CLAUDEVN_CAPABILITIES=python,javascript,typescript
 COMPUTE_SKILLS=code-writer,test-automator
 COMPUTE_CAPABILITIES=python,javascript,typescript
 
-# === MCP ===
-MCP_ENABLED=true
-CLAUDEVN_SERVING_URL=http://<serving-host-ip>:8002
-
-# === Ports ===
-COMPUTE_HOST=0.0.0.0
+# === Network ===
 COMPUTE_PORT=8010
 
-# === Storage ===
-COMPUTE_STORAGE_PATH=/app/data/compute
-COMPUTE_LOG_FILE=/app/logs/compute.log
+# === TLS ===
+# Set to false only for local dev with self-signed certs (Caddy)
+#TLS_VERIFY=false
+
+# === Logging ===
 LOG_LEVEL=INFO
 ```
 
-**Replace**:
-- `<serving-host-ip>`: IP address or hostname of your Serving machine
-- `<remote-host-ip>`: IP address of the remote machine (for callbacks)
+**Replace** `claudevn.example.com` with your Serving domain or IP.
 
-### Step 3: Create Docker Compose Override
+> **Note on env_file vs environment**: The `env_file` directive injects
+> variables into the container runtime only — not into Docker Compose `${}`
+> interpolation. That's why `docker-compose.compute.yml` avoids `${}` references
+> for user-configurable values and passes everything through `env_file` instead.
+> See the compose file header comments for details.
 
-Create `docker-compose.remote.yml`:
+### Step 3: Start Remote Compute
 
-```yaml
-# docker-compose.remote.yml
-# Minimal compose file for remote compute instance
-
-services:
-  compute-remote:
-    build:
-      context: .
-      dockerfile: compute/Dockerfile
-    container_name: claudevn-compute-remote
-    ports:
-      - "8010:8010"
-    env_file:
-      - .env.compute
-    volumes:
-      - compute_data:/app/data
-      - compute_logs:/app/logs
-    restart: unless-stopped
-
-volumes:
-  compute_data:
-    driver: local
-  compute_logs:
-    driver: local
-```
-
-### Step 4: Start Remote Compute
+A pre-built `docker-compose.compute.yml` is included in the repository.
+No need to create your own compose file.
 
 ```bash
-docker compose -f docker-compose.remote.yml up -d
+docker compose -f docker-compose.compute.yml up -d
 ```
 
-### Step 5: Verify Registration
+### Step 4: Verify Registration
 
 Check logs on the remote host:
 
 ```bash
 # View registration logs
-docker compose -f docker-compose.remote.yml logs compute-remote
+docker compose -f docker-compose.compute.yml logs compute
 
 # Expected output:
-# [compute] Registering with serving at http://<serving-host>:8002
-# [compute] Registration successful
 # [entrypoint] Credentials fetched and written to /home/compute/.claude/.credentials.json
+# HTTP Request: POST https://claudevn.example.com/api/v1/compute/register "HTTP/1.1 201 Created"
+# SSE connected to https://claudevn.example.com/api/v1/compute/connect
 ```
 
 Check Serving host:
 
 ```bash
 # View registered compute instances
-curl http://<serving-host>:8002/api/v1/compute/instances
+curl https://claudevn.example.com/api/v1/compute/instances
 
 # Expected: Your remote instance in the list
 ```
@@ -224,48 +202,53 @@ curl http://<serving-host>:8002/api/v1/compute/instances
 
 ### Environment Variables
 
+Variables support both `CLAUDEVN_*` and `COMPUTE_*` prefixes. The `.env.compute` file
+should set both where noted (the `env_file` directive injects directly into the container).
+
 #### Core Settings
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SERVING_URL` | Yes | `http://serving:8002` | Base URL of Serving component |
-| `COMPUTE_INSTANCE_ID` | Yes | (auto-generated) | Unique identifier for this instance |
-| `COMPUTE_INSTANCE_NAME` | No | `Compute-001` | Human-readable name |
-| `COMPUTE_PUBLIC_URL` | No | Auto-detected | Public URL for callbacks |
+| `CLAUDEVN_SERVING_URL` | Yes | `http://localhost:8002` | Base URL of Serving component |
+| `CLAUDEVN_COMPUTE_ID` | Yes | (auto-generated) | Unique instance ID |
+| `CLAUDEVN_COMPUTE_NAME` | No | `Compute on {hostname}` | Human-readable name |
+| `COMPUTE_INSTANCE_ID` | Yes | — | Internal alias for `CLAUDEVN_COMPUTE_ID` (set to same value) |
+| `COMPUTE_INSTANCE_NAME` | No | — | Internal alias for `CLAUDEVN_COMPUTE_NAME` |
+| `SERVING_URL` | Yes | — | Internal alias for `CLAUDEVN_SERVING_URL` |
 
-#### Registration
+#### Registration and Heartbeat
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `COMPUTE_REGISTER_ON_STARTUP` | No | `true` | Auto-register with Serving on startup |
 | `COMPUTE_HEARTBEAT_INTERVAL` | No | `30` | Heartbeat interval in seconds |
+| `CLAUDEVN_API_KEY` | If token set | — | Registration token (must match `COMPUTE_REGISTRATION_TOKEN` on Serving) |
 
 #### Authentication
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `COMPUTE_AUTH_MODE` | No | `serving` | Auth mode: `serving` or `external` |
-| `CLAUDEVN_SERVING_AUTH_URL` | No | `{SERVING_URL}/api/v1/auth` | Auth endpoint URL |
+| `CLAUDEVN_SERVING_AUTH_URL` | No | Auto-derived | Auth endpoint (derived from `CLAUDEVN_SERVING_URL` if not set) |
 
 #### Skills and Capabilities
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `COMPUTE_SKILLS` | No | `code-writer` | Comma-separated skill tags |
-| `COMPUTE_CAPABILITIES` | No | `python` | Comma-separated capability tags |
+| `CLAUDEVN_SKILLS` | No | `code-writer` | Comma-separated skill tags |
+| `CLAUDEVN_CAPABILITIES` | No | `coding,testing,documentation` | Comma-separated capability tags |
+| `COMPUTE_SKILLS` | No | — | Internal alias (set to same as `CLAUDEVN_SKILLS`) |
+| `COMPUTE_CAPABILITIES` | No | — | Internal alias (set to same as `CLAUDEVN_CAPABILITIES`) |
 
-#### MCP Configuration
+#### TLS
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MCP_ENABLED` | No | `true` | Enable MCP tools |
-| `CLAUDEVN_SERVING_URL` | No | `{SERVING_URL}` | Serving URL for MCP connections |
+| `TLS_VERIFY` | No | `true` | Verify TLS certificates. Set `false` for self-signed certs in local dev. |
 
 #### Server Settings
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `COMPUTE_HOST` | No | `0.0.0.0` | Bind address |
 | `COMPUTE_PORT` | No | `8010` | HTTP port |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 
@@ -282,7 +265,8 @@ Fetch credentials from the central Serving component.
 **Configuration**:
 ```bash
 COMPUTE_AUTH_MODE=serving
-CLAUDEVN_SERVING_AUTH_URL=http://<serving-host>:8002/api/v1/auth
+# Auth URL is auto-derived from CLAUDEVN_SERVING_URL; only override if non-standard
+#CLAUDEVN_SERVING_AUTH_URL=https://<serving-host>/api/v1/auth
 ```
 
 **How It Works**:
@@ -354,14 +338,31 @@ Serving **does not** initiate connections to compute instances.
 
 Direct IP connectivity on private network.
 
-**Pros**: Simple, low latency, no encryption needed
+**Pros**: Simple, low latency
 **Cons**: Limited to single physical location
 
 **Example**:
 ```bash
-# Serving at 192.168.1.100
+# Serving at 192.168.1.100 (direct, no TLS)
+CLAUDEVN_SERVING_URL=http://192.168.1.100:8002
 SERVING_URL=http://192.168.1.100:8002
 ```
+
+**With Caddy TLS (local testing)**:
+```bash
+# Serving behind Caddy with self-signed cert
+CLAUDEVN_SERVING_URL=https://claudevn.local
+SERVING_URL=https://claudevn.local
+TLS_VERIFY=false  # Required for self-signed certs
+```
+
+When using a `.local` domain with Caddy, the compute container needs to resolve
+the hostname to the Docker host. Add `extra_hosts` to `docker-compose.compute.yml`:
+```yaml
+extra_hosts:
+  - "claudevn.local:host-gateway"
+```
+And add `claudevn.local` to `/etc/hosts` on the host machine pointing to `127.0.0.1`.
 
 #### VPN/Overlay Network
 
@@ -373,6 +374,7 @@ Secure tunnel using Tailscale, WireGuard, or similar.
 **Example with Tailscale**:
 ```bash
 # Serving at tailscale hostname
+CLAUDEVN_SERVING_URL=http://serving-node.tailscale.net:8002
 SERVING_URL=http://serving-node.tailscale.net:8002
 ```
 
@@ -411,8 +413,12 @@ server {
 
 **Remote compute config**:
 ```bash
+CLAUDEVN_SERVING_URL=https://claudevn.example.com
 SERVING_URL=https://claudevn.example.com
 ```
+
+> **Recommended**: Use the built-in Caddy TLS setup in `deploy/cloud/` instead of
+> configuring nginx manually. See the [Distributed Deployment Guide](distributed-deployment.md).
 
 #### Docker Swarm Overlay
 
@@ -520,6 +526,7 @@ Serving (us-east-1)
 **Example**:
 ```bash
 # EU compute instance
+CLAUDEVN_SERVING_URL=https://claudevn-us-east.example.com
 SERVING_URL=https://claudevn-us-east.example.com
 COMPUTE_HEARTBEAT_INTERVAL=60
 ```
@@ -541,8 +548,11 @@ Deploy compute instances with different capabilities.
 **Configuration**:
 ```bash
 # GPU instance
+CLAUDEVN_COMPUTE_ID=compute-gpu-001
 COMPUTE_INSTANCE_ID=compute-gpu-001
+CLAUDEVN_SKILLS=ml-trainer,data-scientist
 COMPUTE_SKILLS=ml-trainer,data-scientist
+CLAUDEVN_CAPABILITIES=python,pytorch,tensorflow,cuda
 COMPUTE_CAPABILITIES=python,pytorch,tensorflow,cuda
 ```
 
@@ -597,14 +607,22 @@ spec:
       - name: compute
         image: claudevn/compute:latest
         env:
+        - name: CLAUDEVN_SERVING_URL
+          value: "http://claudevn-serving.default.svc.cluster.local:8002"
         - name: SERVING_URL
           value: "http://claudevn-serving.default.svc.cluster.local:8002"
+        - name: CLAUDEVN_COMPUTE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         - name: COMPUTE_INSTANCE_ID
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
         - name: COMPUTE_AUTH_MODE
           value: "serving"
+        - name: CLAUDEVN_SKILLS
+          value: "code-writer,test-automator"
         - name: COMPUTE_SKILLS
           value: "code-writer,test-automator"
         volumeMounts:
@@ -631,20 +649,24 @@ spec:
 **Diagnosis**:
 ```bash
 # Check compute logs
-docker compose -f docker-compose.remote.yml logs compute-remote
+docker compose -f docker-compose.compute.yml logs compute
 
-# Test connectivity
-curl http://<serving-host>:8002/api/v1/health
+# Test connectivity from host
+curl https://<serving-host>/api/v1/health
+
+# Test from inside the container
+docker exec claudevn-compute-remote curl -k https://<serving-host>/api/v1/health
 ```
 
 **Common Causes**:
 
 | Issue | Fix |
 |-------|-----|
-| **Firewall blocking** | Allow port 8002 on Serving host |
-| **Wrong SERVING_URL** | Verify URL is correct and reachable |
-| **DNS resolution failure** | Use IP address instead of hostname |
-| **Auto-register disabled** | Set `COMPUTE_REGISTER_ON_STARTUP=true` |
+| **Firewall blocking** | Allow port 443 (TLS) or 8002 (direct) on Serving host |
+| **Wrong CLAUDEVN_SERVING_URL** | Verify URL is correct and reachable |
+| **DNS resolution failure** | Use `extra_hosts` in compose for `.local` domains, or use IP |
+| **TLS certificate error** | Set `TLS_VERIFY=false` in `.env.compute` for self-signed certs |
+| **Registration token mismatch** | Ensure `CLAUDEVN_API_KEY` matches Serving's `COMPUTE_REGISTRATION_TOKEN` |
 
 ---
 
@@ -655,10 +677,10 @@ curl http://<serving-host>:8002/api/v1/health
 **Diagnosis**:
 ```bash
 # Check auth status on Serving
-curl http://<serving-host>:8002/api/v1/auth/status
+curl https://<serving-host>/api/v1/auth/status
 
 # Check compute auth mode
-docker compose -f docker-compose.remote.yml exec compute-remote env | grep AUTH
+docker exec claudevn-compute-remote env | grep AUTH
 ```
 
 **Fixes**:
@@ -672,8 +694,9 @@ docker compose -f docker-compose.remote.yml exec compute-remote env | grep AUTH
    - Provision credentials manually on remote host
 
 3. **If network issue**:
-   - Test endpoint: `curl http://<serving-host>:8002/api/v1/auth/status`
+   - Test endpoint: `curl https://<serving-host>/api/v1/auth/status`
    - Check firewall rules
+   - If using self-signed certs: `curl -k https://<serving-host>/api/v1/auth/status`
 
 ---
 
@@ -684,7 +707,7 @@ docker compose -f docker-compose.remote.yml exec compute-remote env | grep AUTH
 **Diagnosis**:
 ```bash
 # Check heartbeat interval
-docker compose -f docker-compose.remote.yml exec compute-remote env | grep HEARTBEAT
+docker exec claudevn-compute-remote env | grep HEARTBEAT
 
 # Check network latency
 ping <serving-host>
@@ -714,7 +737,7 @@ OFFLINE_THRESHOLD=180
 **Diagnosis**:
 ```bash
 # Check compute SSE client logs
-docker compose -f docker-compose.remote.yml logs compute-remote | grep SSE
+docker compose -f docker-compose.compute.yml logs compute | grep SSE
 ```
 
 **Causes**:
@@ -738,6 +761,28 @@ location / {
 
 ---
 
+### TLS Certificate Errors
+
+**Symptom**: Compute logs show "SSL: CERTIFICATE_VERIFY_FAILED" or "tlsv1 alert internal error".
+
+**Common causes and fixes**:
+
+| Issue | Fix |
+|-------|-----|
+| **Self-signed cert** | Set `TLS_VERIFY=false` in `.env.compute` |
+| **Using IP instead of hostname** | TLS certs are issued per domain, not IP. Use the domain name in `CLAUDEVN_SERVING_URL` |
+| **Container can't resolve hostname** | Add `extra_hosts` mapping in `docker-compose.compute.yml` |
+| **Caddy cert not ready** | Wait a few seconds for Caddy to provision, then retry |
+
+**How TLS_VERIFY works**:
+- Entrypoint: `curl` uses `-k` flag when `TLS_VERIFY=false`
+- Python services: `httpx.AsyncClient(verify=False)` for SSE, credentials, and spawner
+
+> **Production**: Always leave `TLS_VERIFY=true` (default). Only use `false` for local
+> development with self-signed certificates (e.g., Caddy on a `.local` domain).
+
+---
+
 ### Port Conflicts
 
 **Symptom**: Container fails to start with "address already in use".
@@ -755,18 +800,72 @@ Change port in `.env.compute`:
 COMPUTE_PORT=8011
 ```
 
-And in `docker-compose.remote.yml`:
-```yaml
-ports:
-  - "8011:8011"
+> **Note**: `docker-compose.compute.yml` does not expose host ports by default.
+> In the SSE architecture, Serving never makes inbound connections to Compute.
+> The port is only used for container-internal healthchecks.
+
+---
+
+## Drain and Deregister
+
+### Overview
+
+Compute instances follow a lifecycle: **ONLINE** → **DRAINING** → **OFFLINE** → (optionally) **deregistered**.
+
+- **Drain** gracefully stops work assignment. In-flight work completes; no new work is assigned.
+- **Deregister** removes the instance from the registry entirely. API keys are revoked.
+
+### Draining an Instance
+
+From the Serving UI (Network & Health page), open the compute detail modal and click **Drain**.
+
+Or via API:
+```bash
+# Start drain
+curl -X POST https://<serving>/api/v1/compute/<instance-id>/drain \
+  -H 'Content-Type: application/json' \
+  -d '{"auto_deregister": false}'
+
+# Check drain status
+curl https://<serving>/api/v1/compute/<instance-id>/drain
+
+# Cancel drain (returns to ONLINE)
+curl -X DELETE https://<serving>/api/v1/compute/<instance-id>/drain
 ```
+
+**What happens during drain**:
+1. Instance status changes to **DRAINING**
+2. No new work is assigned to the instance
+3. In-flight work continues to completion
+4. Once all work completes, status transitions to **OFFLINE**
+5. If `auto_deregister: true` was set, the instance is removed from the registry
+
+### Deregistering an Instance
+
+Deregister is only available after the instance has been drained (status is DRAINING or OFFLINE).
+
+From the UI, the Deregister button is disabled until the instance is drained or offline.
+
+```bash
+curl -X DELETE https://<serving>/api/v1/compute/<instance-id>
+```
+
+Deregistration revokes the instance's MCP API key automatically.
+
+### Recovering from OFFLINE
+
+If an instance was drained and is OFFLINE, assigning projects to it will transition
+it back to **ONLINE** (provided it has an active SSE connection). This allows you to
+bench an instance temporarily without deregistering it.
 
 ---
 
 ## Related Documents
 
+- [Distributed Deployment Guide](distributed-deployment.md) - Cloud Serving with Caddy TLS
 - [Authentication Setup Guide](auth-setup.md) - Token-based auth system
-- [Docker Authentication Guide](docker-authentication.md) - Legacy OAuth-based auth
 - [v1.0 Architecture](../design/architecture/v1.0-architecture.md) - System architecture
 - [MCP Tools Specification](../design/specifications/mcp-tools.md) - SSE event protocol
 - [Compute Spawner Design](../design/specifications/compute-spawner.md) - Compute lifecycle
+- [Configuration Reference](../configuration-reference.md) - All environment variables
+- [TLS Termination ADR](../design/adr/006-tls-termination-caddy-vs-cloud-lb.md) - Caddy vs cloud LB decision

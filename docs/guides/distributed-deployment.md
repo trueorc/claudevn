@@ -207,3 +207,72 @@ echo $SERVING_PUBLIC_URL  # Should be https://claudevn.example.com
 
 You're using `http://` instead of `https://` for `CLAUDEVN_SERVING_URL`.
 Update to use HTTPS with the domain configured in Caddy.
+
+---
+
+## Local Testing with Caddy TLS
+
+You can test the full HTTPS flow locally using Caddy's automatic self-signed certificates.
+
+### Setup
+
+1. **Add host entry** so your machine resolves the `.local` domain:
+   ```bash
+   # /etc/hosts
+   127.0.0.1  claudevn.local
+   ```
+
+2. **Configure environment** — create a root `.env` file:
+   ```env
+   DOMAIN=claudevn.local
+   COMPUTE_REGISTRATION_TOKEN=troc_local_dev_token
+   ```
+
+3. **Start the stack with Caddy overlay**:
+   ```bash
+   docker compose -f docker-compose.yml -f deploy/cloud/docker-compose.cloud.yml up -d
+   ```
+
+4. **Verify HTTPS** — your browser will show a "not secure" warning for the self-signed
+   cert, but TLS encryption is active:
+   ```bash
+   curl -k https://claudevn.local/api/v1/health
+   ```
+
+### Remote Compute (local testing)
+
+For a remote compute instance connecting through Caddy TLS locally:
+
+```bash
+# .env.compute
+CLAUDEVN_SERVING_URL=https://claudevn.local
+SERVING_URL=https://claudevn.local
+TLS_VERIFY=false  # Required for self-signed certs
+```
+
+The `docker-compose.compute.yml` includes `extra_hosts: claudevn.local:host-gateway`
+so the container resolves the domain to the Docker host where Caddy is listening.
+
+```bash
+docker compose -f docker-compose.compute.yml up -d
+```
+
+### Browser trust (optional)
+
+To eliminate the "not secure" warning, install Caddy's root CA:
+```bash
+docker exec claudevn-caddy cat /data/caddy/pki/authorities/local/root.crt \
+  | sudo tee /usr/local/share/ca-certificates/caddy-local-root.crt > /dev/null
+sudo update-ca-certificates
+```
+Restart your browser after installing the CA.
+
+### TLS architecture
+
+TLS terminates at Caddy. Serving, Marketplace, and Compute all speak plain HTTP
+internally. In production, a real Let's Encrypt certificate replaces the self-signed
+one and `TLS_VERIFY` stays at the default `true`.
+
+```
+Browser/Compute → HTTPS (:443) → Caddy (TLS termination) → HTTP → Serving (:8002)
+```
