@@ -56,7 +56,7 @@ class SSEConnectionManager:
 
     def __init__(
         self,
-        keepalive_interval: int = 30,
+        keepalive_interval: int = 15,
         registry: Optional["ComputeRegistry"] = None
     ):
         """Initialize the connection manager.
