@@ -444,6 +444,10 @@ class Goal(BaseModel):
     goal_id: str = Field(..., description="Unique goal identifier")
     title: str = Field(..., description="Brief title of the goal")
     description: str = Field(..., description="Detailed description of what to achieve")
+    summary: Optional[str] = Field(
+        default=None,
+        description="AI-generated one-line summary (~60 chars) for history panel display"
+    )
 
     # Project association
     project_id: Optional[str] = Field(

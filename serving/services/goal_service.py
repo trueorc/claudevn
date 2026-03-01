@@ -123,6 +123,11 @@ class GoalService:
                             if not planning_error:
                                 planning_error = None
 
+                            # Parse summary (empty string means None)
+                            summary = goal_data.get('summary', '')
+                            if not summary:
+                                summary = None
+
                             # Parse intent fields
                             intent_signals_raw = goal_data.get('intent_signals', '[]')
                             intent_signals = []
@@ -159,6 +164,7 @@ class GoalService:
                                 goal_id=goal_data.get('goal_id', ''),
                                 title=goal_data.get('title', ''),
                                 description=goal_data.get('description', ''),
+                                summary=summary,
                                 project_id=project_id,
                                 decomposition_id=decomposition_id,
                                 decomposition_passes=decomposition_passes,
@@ -231,7 +237,8 @@ class GoalService:
                 'archived': str(goal.archived).lower(),
                 'archived_at': goal.archived_at.isoformat() if goal.archived_at else '',
                 'planning_started_at': goal.planning_started_at.isoformat() if goal.planning_started_at else '',
-                'planning_error': goal.planning_error or ''
+                'planning_error': goal.planning_error or '',
+                'summary': goal.summary or ''
             }
             await self._redis._redis.hset(key, mapping=mapping)
 

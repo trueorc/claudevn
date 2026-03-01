@@ -491,6 +491,9 @@ class UnifiedDirectiveService:
                     f"Intent mapping failed for directive {directive.directive_id}: {e}"
                 )
 
+            # Generate AI summary in background (fire-and-forget, #70)
+            self._schedule_summary_generation(goal.goal_id, directive.text)
+
             # Trigger auto-process in background (fire-and-forget).
             # Pass directive info so the outcome can be updated with
             # issue IDs once decomposition completes (#714).
@@ -618,6 +621,9 @@ class UnifiedDirectiveService:
                         f"{directive.directive_id}: {e}"
                     )
 
+                # Generate AI summary in background (fire-and-forget, #70)
+                self._schedule_summary_generation(goal.goal_id, directive.text)
+
                 # Trigger auto-process in background (fire-and-forget)
                 self._schedule_auto_process(
                     goal.goal_id,
@@ -685,6 +691,57 @@ class UnifiedDirectiveService:
     # =========================================================================
     # Internal Helpers
     # =========================================================================
+
+    def _schedule_summary_generation(self, goal_id: str, text: str) -> None:
+        """Schedule AI summary generation for a goal as a background task.
+
+        Uses the cheapest model (Haiku) to generate a one-line summary
+        of the directive text for display in the history panel (#70).
+        """
+        asyncio.create_task(self._generate_summary(goal_id, text))
+
+    async def _generate_summary(self, goal_id: str, text: str) -> None:
+        """Generate a one-line AI summary for a goal and persist it.
+
+        Uses Claude Haiku for minimal cost and latency. Falls back to
+        truncation if the API call fails (the frontend also has a
+        truncation fallback, so this is belt-and-suspenders).
+        """
+        try:
+            from models.claude_client import ClaudeModel
+            from services.claude_client import get_claude_client
+
+            client = get_claude_client()
+            response = await client.complete(
+                prompt=(
+                    f"Summarize this user directive in one short sentence "
+                    f"(max 60 characters). Output ONLY the summary, no quotes "
+                    f"or punctuation wrapping:\n\n{text}"
+                ),
+                system="You are a concise summarizer. Output only the summary text.",
+                model=ClaudeModel.HAIKU_35.value,
+                max_tokens=80,
+                temperature=0.0,
+            )
+
+            summary = response.content.strip().strip('"\'')
+            # Enforce length limit
+            if len(summary) > 80:
+                summary = summary[:77] + "..."
+
+            # Save to goal
+            from services.goal_service import get_goal_service
+
+            goal_service = get_goal_service()
+            goal = await goal_service.get_goal(goal_id)
+            if goal:
+                goal.summary = summary
+                goal.updated_at = datetime.now(timezone.utc)
+                await goal_service._save_goal_to_redis(goal)
+                logger.info(f"Generated summary for goal {goal_id}: {summary}")
+
+        except Exception as e:
+            logger.warning(f"Failed to generate summary for goal {goal_id}: {e}")
 
     def _schedule_auto_process(
         self,
