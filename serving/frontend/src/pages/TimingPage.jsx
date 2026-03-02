@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight } from 'lucide-react'
 import Spinner from '../components/common/Spinner'
 import useTiming from '../hooks/useTiming'
@@ -25,14 +25,16 @@ const PHASE_COLORS = {
 }
 
 const PHASE_BG_COLORS = {
-  workspace_setup: 'rgba(59, 130, 246, 0.1)',
-  repo_clone: 'rgba(139, 92, 246, 0.1)',
-  sdk_launch: 'rgba(245, 158, 11, 0.1)',
-  mcp_tool_call: 'rgba(16, 185, 129, 0.1)',
-  api_inference: 'rgba(239, 68, 68, 0.1)',
-  git_push: 'rgba(99, 102, 241, 0.1)',
-  total_wall_time: 'rgba(100, 116, 139, 0.1)'
+  workspace_setup: 'rgba(59, 130, 246, 0.15)',
+  repo_clone: 'rgba(139, 92, 246, 0.15)',
+  sdk_launch: 'rgba(245, 158, 11, 0.15)',
+  mcp_tool_call: 'rgba(16, 185, 129, 0.15)',
+  api_inference: 'rgba(239, 68, 68, 0.15)',
+  git_push: 'rgba(99, 102, 241, 0.15)',
+  total_wall_time: 'rgba(100, 116, 139, 0.15)'
 }
+
+const LONG_RUNNING_THRESHOLD_MS = 90000
 
 function formatDuration(ms) {
   if (ms == null) return '-'
@@ -47,9 +49,29 @@ function formatTimestamp(ts) {
   return d.toLocaleTimeString()
 }
 
+/** Strip common prefixes from MCP tool names (e.g. "claudevn_get_context" -> "get_context") */
+function cleanToolName(name) {
+  if (!name) return name
+  return name.replace(/^claudevn_/, '')
+}
+
+/** Check if an entry's metadata indicates it's an MCP tool call */
+function isMcpEntry(entry) {
+  if (entry.phase === 'mcp_tool_call') return true
+  const meta = entry.metadata || {}
+  return meta.tool_name?.startsWith('claudevn_') || false
+}
+
+/** Get display name for an entry */
+function getEntryDisplayName(entry) {
+  const meta = entry.metadata || {}
+  if (meta.tool_name) return cleanToolName(meta.tool_name)
+  return PHASE_LABELS[entry.phase] || entry.phase
+}
+
 function PhasePill({ phase }) {
   const color = PHASE_COLORS[phase] || '#94a3b8'
-  const bgColor = PHASE_BG_COLORS[phase] || 'rgba(148, 163, 184, 0.1)'
+  const bgColor = PHASE_BG_COLORS[phase] || 'rgba(148, 163, 184, 0.15)'
 
   return (
     <span className="phase-pill" style={{ backgroundColor: bgColor, color }}>
@@ -94,7 +116,7 @@ function AggregateStatsTable({ aggregates }) {
                     style={{
                       width: `${Math.max((stat.avg_ms / maxAvg) * 60, 3)}px`,
                       backgroundColor: PHASE_COLORS[stat.phase] || '#94a3b8',
-                      opacity: 0.5
+                      opacity: 0.6
                     }}
                   />
                 </div>
@@ -112,143 +134,140 @@ function AggregateStatsTable({ aggregates }) {
   )
 }
 
-function WaterfallLegend({ entries }) {
-  const phases = [...new Set(entries.map(e => e.phase))]
+function ProjectSummary({ workItems, totalWorkItems }) {
+  const totalDuration = workItems.reduce((sum, item) => {
+    const wall = item.entries.find(e => e.phase === 'total_wall_time')
+    return sum + (wall?.duration_ms || 0)
+  }, 0)
+
+  const issueCount = new Set(
+    workItems.filter(i => i.issue_id).map(i => i.issue_id)
+  ).size
 
   return (
-    <div className="waterfall-legend">
-      {phases.map(phase => (
-        <span key={phase} className="waterfall-legend-item">
-          <span className="waterfall-legend-swatch" style={{ backgroundColor: PHASE_COLORS[phase] || '#94a3b8' }} />
-          {PHASE_LABELS[phase] || phase}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function WaterfallBar({ entries, maxDuration }) {
-  if (!entries.length || !maxDuration) return null
-
-  const starts = entries.map(e => new Date(e.start).getTime())
-  const minStart = Math.min(...starts)
-
-  const timeMarkers = [0, maxDuration * 0.25, maxDuration * 0.5, maxDuration * 0.75, maxDuration]
-
-  return (
-    <div className="waterfall-chart">
-      <WaterfallLegend entries={entries} />
-
-      <div className="waterfall-time-axis">
-        <span />
-        <div className="waterfall-time-labels">
-          {timeMarkers.map((ms, idx) => (
-            <span key={idx}>{formatDuration(ms)}</span>
-          ))}
-        </div>
-        <span />
+    <div className="timing-project-summary">
+      <div className="timing-project-stat">
+        <span className="timing-project-stat-label">Total Time</span>
+        <span className="timing-project-stat-value accent">{formatDuration(totalDuration)}</span>
       </div>
-
-      {entries.map((entry, idx) => {
-        const start = new Date(entry.start).getTime()
-        const duration = entry.duration_ms || 0
-        const offset = ((start - minStart) / maxDuration) * 100
-        const width = (duration / maxDuration) * 100
-        const color = PHASE_COLORS[entry.phase] || '#94a3b8'
-
-        return (
-          <div key={idx} className="waterfall-row">
-            <span className="waterfall-label">
-              <span className="waterfall-label-dot" style={{ backgroundColor: color }} />
-              {PHASE_LABELS[entry.phase] || entry.phase}
-            </span>
-            <div className="waterfall-track">
-              <div
-                className="waterfall-bar"
-                style={{
-                  left: `${Math.min(offset, 98)}%`,
-                  width: `${Math.max(width, 0.5)}%`,
-                  backgroundColor: color
-                }}
-                title={`${PHASE_LABELS[entry.phase] || entry.phase}: ${formatDuration(duration)}`}
-              />
-            </div>
-            <span className="waterfall-duration">{formatDuration(duration)}</span>
-          </div>
-        )
-      })}
+      <div className="timing-project-divider" />
+      <div className="timing-project-stat">
+        <span className="timing-project-stat-label">Issues</span>
+        <span className="timing-project-stat-value">{issueCount}</span>
+      </div>
+      <div className="timing-project-divider" />
+      <div className="timing-project-stat">
+        <span className="timing-project-stat-label">Work Items</span>
+        <span className="timing-project-stat-value">{totalWorkItems}</span>
+      </div>
     </div>
   )
 }
 
-function IssueLink({ issueId, issueTitle }) {
-  if (!issueId) return null
+function ToolCallRow({ entry, maxDuration }) {
+  const displayName = getEntryDisplayName(entry)
+  const mcp = isMcpEntry(entry)
+  const duration = entry.duration_ms || 0
+  const isLong = duration >= LONG_RUNNING_THRESHOLD_MS
+  const barPercent = maxDuration > 0 ? Math.min((duration / maxDuration) * 100, 100) : 0
+  const color = isLong ? '#ef4444' : (PHASE_COLORS[entry.phase] || '#94a3b8')
 
-  // Extract issue number from issue ID (e.g., "issue-42" -> 42)
-  const match = issueId.match(/(\d+)$/)
-  const displayId = match ? `#${match[1]}` : issueId
+  const meta = entry.metadata || {}
+  const metaEntries = Object.entries(meta).filter(([k]) => k !== 'tool_name')
 
   return (
     <>
-      <span className="work-item-issue-link" title={issueTitle || issueId}>
-        {displayId}
-      </span>
-      {issueTitle && (
-        <span className="work-item-issue-title" title={issueTitle}>
-          {issueTitle}
+      <div className="tool-call-row">
+        <div className="tool-call-name">
+          <span className="tool-call-label">{displayName}</span>
+          {mcp && <span className="tool-call-badge mcp">MCP</span>}
+          {!mcp && entry.phase !== 'total_wall_time' && (
+            <span className="tool-call-badge phase">{PHASE_LABELS[entry.phase] || entry.phase}</span>
+          )}
+        </div>
+        <div className="tool-call-duration-bar">
+          <div className="duration-bar-track">
+            <div
+              className="duration-bar-fill"
+              style={{
+                width: `${Math.max(barPercent, 1)}%`,
+                backgroundColor: color
+              }}
+            />
+          </div>
+        </div>
+        <span className={`tool-call-duration${isLong ? ' long-running' : ''}`}>
+          {formatDuration(duration)}
         </span>
+      </div>
+      {metaEntries.length > 0 && (
+        <div className="tool-call-row" style={{ paddingTop: 0 }}>
+          <span className="tool-call-meta">
+            {metaEntries.map(([k, v]) => `${k}=${v}`).join(', ')}
+          </span>
+        </div>
       )}
     </>
   )
 }
 
-function WorkItemRow({ item }) {
+function IssueGroup({ issueKey, issueId, issueTitle, items }) {
   const [expanded, setExpanded] = useState(false)
 
-  const completedEntries = item.entries.filter(e => e.duration_ms != null)
-  const totalDuration = completedEntries.reduce((sum, e) => sum + (e.duration_ms || 0), 0)
+  // Collect all entries across work items for this issue (excluding total_wall_time)
+  const allEntries = items.flatMap(item =>
+    item.entries.filter(e => e.duration_ms != null && e.phase !== 'total_wall_time')
+  )
 
-  const wallTime = completedEntries.find(e => e.phase === 'total_wall_time')
-  const maxDuration = wallTime?.duration_ms || totalDuration || 1
+  const totalDuration = allEntries.reduce((sum, e) => sum + (e.duration_ms || 0), 0)
+  const maxEntryDuration = allEntries.length > 0
+    ? Math.max(...allEntries.map(e => e.duration_ms || 0))
+    : 1
+
+  // Extract issue display ID
+  const displayId = issueId
+    ? (() => {
+        const match = issueId.match(/(\d+)$/)
+        return match ? `#${match[1]}` : issueId
+      })()
+    : null
+
+  const latestTime = items.length > 0
+    ? items.reduce((latest, item) => {
+        const t = new Date(item.created_at).getTime()
+        return t > latest ? t : latest
+      }, 0)
+    : null
 
   return (
-    <div className="work-item-row">
-      <div className="work-item-header" onClick={() => setExpanded(!expanded)}>
-        <span className="work-item-expand">
+    <div className="issue-group">
+      <div className="issue-group-header" onClick={() => setExpanded(!expanded)}>
+        <span className="issue-group-expand">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
-        <div className="work-item-primary">
-          <div className="work-item-primary-row">
-            <span className="work-item-id">{item.work_id}</span>
-            <IssueLink issueId={item.issue_id} issueTitle={item.issue_title} />
-          </div>
-          <span className="work-item-instance">{item.instance_id}</span>
+        <div className="issue-group-primary">
+          {displayId ? (
+            <>
+              <span className="issue-group-id">{displayId}</span>
+              {issueTitle && <span className="issue-group-title">{issueTitle}</span>}
+            </>
+          ) : (
+            <span className="issue-group-no-issue">No associated issue</span>
+          )}
         </div>
-        <span className="work-item-phases">{completedEntries.length} phases</span>
-        <span className="work-item-total">{formatDuration(totalDuration)}</span>
-        <span className="work-item-time">{formatTimestamp(item.created_at)}</span>
+        <div className="issue-group-stats">
+          <span className="issue-group-calls">{allEntries.length} calls</span>
+          <span className="issue-group-duration">{formatDuration(totalDuration)}</span>
+          {latestTime && (
+            <span className="issue-group-time">{formatTimestamp(new Date(latestTime).toISOString())}</span>
+          )}
+        </div>
       </div>
       {expanded && (
-        <div className="work-item-detail">
-          <WaterfallBar entries={completedEntries} maxDuration={maxDuration} />
-          <div className="work-item-entries">
-            {item.entries.map((entry, idx) => (
-              <div key={idx} className="entry-row">
-                <span className="entry-phase">
-                  <span
-                    className="entry-phase-dot"
-                    style={{ backgroundColor: PHASE_COLORS[entry.phase] || '#94a3b8' }}
-                  />
-                  {PHASE_LABELS[entry.phase] || entry.phase}
-                </span>
-                <span className="entry-start">{formatTimestamp(entry.start)}</span>
-                <span className="entry-duration">{formatDuration(entry.duration_ms)}</span>
-                {entry.metadata && Object.keys(entry.metadata).length > 0 && (
-                  <span className="entry-meta">
-                    {Object.entries(entry.metadata).map(([k, v]) => `${k}=${v}`).join(', ')}
-                  </span>
-                )}
-              </div>
+        <div className="issue-group-detail">
+          <div className="tool-call-list">
+            {allEntries.map((entry, idx) => (
+              <ToolCallRow key={idx} entry={entry} maxDuration={maxEntryDuration} />
             ))}
           </div>
         </div>
@@ -257,17 +276,52 @@ function WorkItemRow({ item }) {
   )
 }
 
+/** Group work items by issue, returning sorted groups */
+function groupByIssue(workItems) {
+  const groups = new Map()
+
+  for (const item of workItems) {
+    const key = item.issue_id || `_no_issue_${item.work_id}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        issueKey: key,
+        issueId: item.issue_id,
+        issueTitle: item.issue_title,
+        items: []
+      })
+    }
+    const group = groups.get(key)
+    // Update title if we get a better one
+    if (item.issue_title && !group.issueTitle) {
+      group.issueTitle = item.issue_title
+    }
+    group.items.push(item)
+  }
+
+  // Sort: issues with IDs first (by most recent), then no-issue items
+  return [...groups.values()].sort((a, b) => {
+    if (a.issueId && !b.issueId) return -1
+    if (!a.issueId && b.issueId) return 1
+    // Sort by most recent work item
+    const aTime = Math.max(...a.items.map(i => new Date(i.created_at).getTime()))
+    const bTime = Math.max(...b.items.map(i => new Date(i.created_at).getTime()))
+    return bTime - aTime
+  })
+}
+
 function TimingPage() {
   const { workItems, aggregates, totalWorkItems, loading, error, refresh } = useTiming({
     pollInterval: 10000,
     limit: 20
   })
 
+  const issueGroups = useMemo(() => groupByIssue(workItems), [workItems])
+
   if (loading && !workItems.length) {
     return (
       <div className="page">
         <header className="page-header">
-          <h1 className="page-title">Compute Timing</h1>
+          <h1 className="page-title">Timing</h1>
         </header>
         <div className="loading-container">
           <Spinner />
@@ -282,9 +336,8 @@ function TimingPage() {
         <div className="page-header-content">
           <h1 className="page-title">
             <Timer size={20} />
-            Compute Timing
+            Timing
           </h1>
-          <span className="timing-total-count">{totalWorkItems} work items tracked</span>
         </div>
         <button onClick={refresh} className="refresh-btn" disabled={loading}>
           <RefreshCw size={16} className={loading ? 'spinning' : ''} />
@@ -298,6 +351,9 @@ function TimingPage() {
         </div>
       )}
 
+      {/* Project Summary */}
+      <ProjectSummary workItems={workItems} totalWorkItems={totalWorkItems} />
+
       {/* Aggregate Stats Section */}
       <section className="timing-section">
         <header className="section-header">
@@ -309,20 +365,26 @@ function TimingPage() {
         <AggregateStatsTable aggregates={aggregates} />
       </section>
 
-      {/* Per-Work-Item Timing Section */}
+      {/* Issues Section */}
       <section className="timing-section">
         <header className="section-header">
           <h2 className="section-title">
             <Clock size={16} />
-            Recent Work Items
+            Issues
           </h2>
         </header>
-        {workItems.length === 0 ? (
+        {issueGroups.length === 0 ? (
           <p className="timing-empty">No timing data yet. Timing data will appear when compute instances process work items.</p>
         ) : (
-          <div className="work-items-list">
-            {workItems.map((item, idx) => (
-              <WorkItemRow key={`${item.work_id}-${item.instance_id}-${idx}`} item={item} />
+          <div className="issue-groups-list">
+            {issueGroups.map(group => (
+              <IssueGroup
+                key={group.issueKey}
+                issueKey={group.issueKey}
+                issueId={group.issueId}
+                issueTitle={group.issueTitle}
+                items={group.items}
+              />
             ))}
           </div>
         )}
@@ -332,3 +394,4 @@ function TimingPage() {
 }
 
 export default TimingPage
+export { formatDuration, cleanToolName, groupByIssue, LONG_RUNNING_THRESHOLD_MS }
