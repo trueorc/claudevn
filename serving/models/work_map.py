@@ -458,6 +458,12 @@ class Goal(BaseModel):
     priority: IssuePriority = Field(default=IssuePriority.P1)
     status: GoalStatus = Field(default=GoalStatus.PLANNING)
 
+    # Lineage: originating directive
+    directive_id: Optional[str] = Field(
+        None,
+        description="Originating unified directive ID (back-reference for lineage tracing)"
+    )
+
     # Populated after planning
     issue_ids: List[str] = Field(default_factory=list, description="Issue IDs created for this goal")
 

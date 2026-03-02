@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight } from 'lucide-react'
+import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Spinner from '../components/common/Spinner'
 import useTiming from '../hooks/useTiming'
 import './TimingPage.css'
@@ -69,6 +69,16 @@ function getEntryDisplayName(entry) {
   return PHASE_LABELS[entry.phase] || entry.phase
 }
 
+function SourceBadge({ type }) {
+  const config = {
+    directive: { label: 'DIRECTIVE', className: 'source-badge-directive' },
+    issue: { label: 'ISSUE', className: 'source-badge-issue' },
+    untracked: { label: 'UNTRACKED', className: 'source-badge-untracked' },
+  }
+  const { label, className } = config[type] || config.untracked
+  return <span className={`source-badge ${className}`}>{label}</span>
+}
+
 function PhasePill({ phase }) {
   const color = PHASE_COLORS[phase] || '#94a3b8'
   const bgColor = PHASE_BG_COLORS[phase] || 'rgba(148, 163, 184, 0.15)'
@@ -134,31 +144,29 @@ function AggregateStatsTable({ aggregates }) {
   )
 }
 
-function ProjectSummary({ workItems, totalWorkItems }) {
-  const totalDuration = workItems.reduce((sum, item) => {
-    const wall = item.entries.find(e => e.phase === 'total_wall_time')
-    return sum + (wall?.duration_ms || 0)
-  }, 0)
-
-  const issueCount = new Set(
-    workItems.filter(i => i.issue_id).map(i => i.issue_id)
-  ).size
+function ProjectSummary({ projectSummary }) {
+  if (!projectSummary) return null
 
   return (
     <div className="timing-project-summary">
       <div className="timing-project-stat">
         <span className="timing-project-stat-label">Total Time</span>
-        <span className="timing-project-stat-value accent">{formatDuration(totalDuration)}</span>
+        <span className="timing-project-stat-value accent">{formatDuration(projectSummary.total_duration_ms)}</span>
+      </div>
+      <div className="timing-project-divider" />
+      <div className="timing-project-stat">
+        <span className="timing-project-stat-label">Directives</span>
+        <span className="timing-project-stat-value">{projectSummary.directive_count}</span>
       </div>
       <div className="timing-project-divider" />
       <div className="timing-project-stat">
         <span className="timing-project-stat-label">Issues</span>
-        <span className="timing-project-stat-value">{issueCount}</span>
+        <span className="timing-project-stat-value">{projectSummary.issue_count}</span>
       </div>
       <div className="timing-project-divider" />
       <div className="timing-project-stat">
-        <span className="timing-project-stat-label">Work Items</span>
-        <span className="timing-project-stat-value">{totalWorkItems}</span>
+        <span className="timing-project-stat-label">Events</span>
+        <span className="timing-project-stat-value">{projectSummary.timing_event_count}</span>
       </div>
     </div>
   )
@@ -211,10 +219,9 @@ function ToolCallRow({ entry, maxDuration }) {
   )
 }
 
-function IssueGroup({ issueKey, issueId, issueTitle, items }) {
+function IssueGroup({ issueId, issueTitle, items, badge }) {
   const [expanded, setExpanded] = useState(false)
 
-  // Collect all entries across work items for this issue (excluding total_wall_time)
   const allEntries = items.flatMap(item =>
     item.entries.filter(e => e.duration_ms != null && e.phase !== 'total_wall_time')
   )
@@ -224,7 +231,6 @@ function IssueGroup({ issueKey, issueId, issueTitle, items }) {
     ? Math.max(...allEntries.map(e => e.duration_ms || 0))
     : 1
 
-  // Extract issue display ID
   const displayId = issueId
     ? (() => {
         const match = issueId.match(/(\d+)$/)
@@ -245,6 +251,7 @@ function IssueGroup({ issueKey, issueId, issueTitle, items }) {
         <span className="issue-group-expand">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
+        {badge && <SourceBadge type={badge} />}
         <div className="issue-group-primary">
           {displayId ? (
             <>
@@ -276,46 +283,148 @@ function IssueGroup({ issueKey, issueId, issueTitle, items }) {
   )
 }
 
-/** Group work items by issue, returning sorted groups */
-function groupByIssue(workItems) {
-  const groups = new Map()
+function DirectiveGroup({ directiveId, directiveText, issueGroups }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const totalDuration = issueGroups.reduce((sum, group) => {
+    return sum + group.items.reduce((s, item) => {
+      const wall = item.entries.find(e => e.phase === 'total_wall_time')
+      return s + (wall?.duration_ms || 0)
+    }, 0)
+  }, 0)
+
+  const issueCount = issueGroups.length
+
+  return (
+    <div className="issue-group directive-group">
+      <div className="issue-group-header" onClick={() => setExpanded(!expanded)}>
+        <span className="issue-group-expand">
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+        <SourceBadge type="directive" />
+        <div className="issue-group-primary">
+          <span className="issue-group-title">{directiveText || directiveId}</span>
+        </div>
+        <div className="issue-group-stats">
+          <span className="issue-group-calls">{issueCount} {issueCount === 1 ? 'issue' : 'issues'}</span>
+          <span className="issue-group-duration">{formatDuration(totalDuration)}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div className="issue-group-detail directive-children">
+          {issueGroups.map(group => (
+            <IssueGroup
+              key={group.issueKey}
+              issueId={group.issueId}
+              issueTitle={group.issueTitle}
+              items={group.items}
+              badge="issue"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Group work items into three tiers:
+ * 1. Directives - items with directive_id, grouped by directive then by issue
+ * 2. Issues - items with issue_id but no directive_id
+ * 3. Untracked - items with neither
+ */
+function groupByTier(workItems) {
+  const directiveMap = new Map()  // directive_id -> { directiveText, issueMap }
+  const issueOnly = new Map()     // issue_id -> { issueId, issueTitle, items }
+  const untracked = []            // items with no issue or directive
 
   for (const item of workItems) {
-    const key = item.issue_id || `_no_issue_${item.work_id}`
-    if (!groups.has(key)) {
-      groups.set(key, {
-        issueKey: key,
-        issueId: item.issue_id,
-        issueTitle: item.issue_title,
-        items: []
-      })
+    if (item.directive_id) {
+      // Tier 1: Directive
+      if (!directiveMap.has(item.directive_id)) {
+        directiveMap.set(item.directive_id, {
+          directiveId: item.directive_id,
+          directiveText: item.directive_text,
+          issueMap: new Map(),
+        })
+      }
+      const dGroup = directiveMap.get(item.directive_id)
+      if (item.directive_text && !dGroup.directiveText) {
+        dGroup.directiveText = item.directive_text
+      }
+      const issueKey = item.issue_id || `_no_issue_${item.work_id}`
+      if (!dGroup.issueMap.has(issueKey)) {
+        dGroup.issueMap.set(issueKey, {
+          issueKey,
+          issueId: item.issue_id,
+          issueTitle: item.issue_title,
+          items: [],
+        })
+      }
+      const iGroup = dGroup.issueMap.get(issueKey)
+      if (item.issue_title && !iGroup.issueTitle) iGroup.issueTitle = item.issue_title
+      iGroup.items.push(item)
+    } else if (item.issue_id) {
+      // Tier 2: Issue only
+      if (!issueOnly.has(item.issue_id)) {
+        issueOnly.set(item.issue_id, {
+          issueKey: item.issue_id,
+          issueId: item.issue_id,
+          issueTitle: item.issue_title,
+          items: [],
+        })
+      }
+      const group = issueOnly.get(item.issue_id)
+      if (item.issue_title && !group.issueTitle) group.issueTitle = item.issue_title
+      group.items.push(item)
+    } else {
+      // Tier 3: Untracked
+      untracked.push(item)
     }
-    const group = groups.get(key)
-    // Update title if we get a better one
-    if (item.issue_title && !group.issueTitle) {
-      group.issueTitle = item.issue_title
-    }
-    group.items.push(item)
   }
 
-  // Sort: issues with IDs first (by most recent), then no-issue items
-  return [...groups.values()].sort((a, b) => {
-    if (a.issueId && !b.issueId) return -1
-    if (!a.issueId && b.issueId) return 1
-    // Sort by most recent work item
+  // Convert directive issueMap to sorted arrays
+  const directives = [...directiveMap.values()].map(d => ({
+    ...d,
+    issueGroups: [...d.issueMap.values()].sort((a, b) => {
+      const aTime = Math.max(...a.items.map(i => new Date(i.created_at).getTime()))
+      const bTime = Math.max(...b.items.map(i => new Date(i.created_at).getTime()))
+      return bTime - aTime
+    }),
+  }))
+
+  // Sort directives by most recent activity
+  directives.sort((a, b) => {
+    const aTime = Math.max(...a.issueGroups.flatMap(g => g.items.map(i => new Date(i.created_at).getTime())))
+    const bTime = Math.max(...b.issueGroups.flatMap(g => g.items.map(i => new Date(i.created_at).getTime())))
+    return bTime - aTime
+  })
+
+  const issues = [...issueOnly.values()].sort((a, b) => {
     const aTime = Math.max(...a.items.map(i => new Date(i.created_at).getTime()))
     const bTime = Math.max(...b.items.map(i => new Date(i.created_at).getTime()))
     return bTime - aTime
   })
+
+  // Wrap untracked items as individual groups
+  const untrackedGroups = untracked.map(item => ({
+    issueKey: `_untracked_${item.work_id}`,
+    issueId: null,
+    issueTitle: null,
+    items: [item],
+  }))
+
+  return { directives, issues, untrackedGroups }
 }
 
 function TimingPage() {
-  const { workItems, aggregates, totalWorkItems, loading, error, refresh } = useTiming({
+  const { workItems, aggregates, totalWorkItems, projectSummary, loading, error, refresh } = useTiming({
     pollInterval: 10000,
     limit: 20
   })
 
-  const issueGroups = useMemo(() => groupByIssue(workItems), [workItems])
+  const [showUntracked, setShowUntracked] = useState(false)
+  const { directives, issues, untrackedGroups } = useMemo(() => groupByTier(workItems), [workItems])
 
   if (loading && !workItems.length) {
     return (
@@ -329,6 +438,8 @@ function TimingPage() {
       </div>
     )
   }
+
+  const hasData = directives.length > 0 || issues.length > 0 || untrackedGroups.length > 0
 
   return (
     <div className="page">
@@ -352,7 +463,7 @@ function TimingPage() {
       )}
 
       {/* Project Summary */}
-      <ProjectSummary workItems={workItems} totalWorkItems={totalWorkItems} />
+      <ProjectSummary projectSummary={projectSummary} />
 
       {/* Aggregate Stats Section */}
       <section className="timing-section">
@@ -365,33 +476,95 @@ function TimingPage() {
         <AggregateStatsTable aggregates={aggregates} />
       </section>
 
-      {/* Issues Section */}
-      <section className="timing-section">
-        <header className="section-header">
-          <h2 className="section-title">
-            <Clock size={16} />
-            Issues
-          </h2>
-        </header>
-        {issueGroups.length === 0 ? (
-          <p className="timing-empty">No timing data yet. Timing data will appear when compute instances process work items.</p>
-        ) : (
-          <div className="issue-groups-list">
-            {issueGroups.map(group => (
-              <IssueGroup
-                key={group.issueKey}
-                issueKey={group.issueKey}
-                issueId={group.issueId}
-                issueTitle={group.issueTitle}
-                items={group.items}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Three-Tier Timing Display */}
+      {!hasData ? (
+        <p className="timing-empty">No timing data yet. Timing data will appear when compute instances process work items.</p>
+      ) : (
+        <>
+          {/* Tier 1: Directives */}
+          {directives.length > 0 && (
+            <section className="timing-section">
+              <header className="section-header">
+                <h2 className="section-title">
+                  <Clock size={16} />
+                  Directives
+                  <span className="section-count">{directives.length}</span>
+                </h2>
+              </header>
+              <div className="issue-groups-list">
+                {directives.map(d => (
+                  <DirectiveGroup
+                    key={d.directiveId}
+                    directiveId={d.directiveId}
+                    directiveText={d.directiveText}
+                    issueGroups={d.issueGroups}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Tier 2: Issues (no directive parent) */}
+          {issues.length > 0 && (
+            <section className="timing-section">
+              <header className="section-header">
+                <h2 className="section-title">
+                  <Clock size={16} />
+                  Issues
+                  <span className="section-count">{issues.length}</span>
+                </h2>
+              </header>
+              <div className="issue-groups-list">
+                {issues.map(group => (
+                  <IssueGroup
+                    key={group.issueKey}
+                    issueId={group.issueId}
+                    issueTitle={group.issueTitle}
+                    items={group.items}
+                    badge="issue"
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Tier 3: Untracked */}
+          {untrackedGroups.length > 0 && (
+            <section className="timing-section">
+              <header className="section-header">
+                <h2 className="section-title">
+                  <Clock size={16} />
+                  Untracked
+                  <span className="section-count">{untrackedGroups.length}</span>
+                </h2>
+                <button
+                  className="untracked-toggle"
+                  onClick={() => setShowUntracked(!showUntracked)}
+                >
+                  {showUntracked ? <EyeOff size={14} /> : <Eye size={14} />}
+                  {showUntracked ? 'Hide' : 'Show'}
+                </button>
+              </header>
+              {showUntracked && (
+                <div className="issue-groups-list">
+                  {untrackedGroups.map(group => (
+                    <IssueGroup
+                      key={group.issueKey}
+                      issueId={group.issueId}
+                      issueTitle={group.issueTitle}
+                      items={group.items}
+                      badge="untracked"
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+        </>
+      )}
     </div>
   )
 }
 
 export default TimingPage
-export { formatDuration, cleanToolName, groupByIssue, LONG_RUNNING_THRESHOLD_MS }
+export { formatDuration, cleanToolName, groupByTier, LONG_RUNNING_THRESHOLD_MS }
