@@ -1060,6 +1060,10 @@ app.add_middleware(
 # Add rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
 
+# Add Cognito auth middleware (after rate limiting, so rate limits apply first)
+from middleware.cognito_middleware import CognitoAuthMiddleware
+app.add_middleware(CognitoAuthMiddleware)
+
 
 # Include routers with /api/v1 prefix
 API_VERSION = os.getenv('API_VERSION', 'v1')
