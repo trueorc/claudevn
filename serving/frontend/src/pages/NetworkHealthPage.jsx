@@ -5,6 +5,7 @@ import HealthPanel, { HealthStatusBar, HealthBreakdown } from '../components/hea
 import ComputeList from '../components/network/ComputeList'
 import MarketplaceList from '../components/network/MarketplaceList'
 import NetworkMap from '../components/network/NetworkMap'
+import PendingConnections from '../components/network/PendingConnections'
 import ComputeDetailModal from '../components/network/ComputeDetailModal'
 import MarketplaceDetailModal from '../components/network/MarketplaceDetailModal'
 import AuthModal from '../components/auth/AuthModal'
@@ -102,6 +103,9 @@ function NetworkHealthPage() {
           {error}
         </div>
       )}
+
+      {/* Pending Connections - shown at top when pending exist */}
+      <PendingConnections />
 
       {/* Health Status Section - Always visible */}
       <section className="health-section">
