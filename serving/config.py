@@ -107,6 +107,13 @@ class CognitoConfig(BaseModel):
     admin_enabled: bool = Field(default=False, description="Enable admin user management endpoints")
 
 
+class NetworkCapacityConfig(BaseModel):
+    """Network capacity configuration."""
+    max_compute_instances: int = Field(
+        default=0, description="Maximum compute instances (0 = unlimited)"
+    )
+
+
 class RateLimitConfig(BaseModel):
     """Rate limiting configuration."""
     enabled: bool = Field(default=True, description="Enable rate limiting")
@@ -138,6 +145,7 @@ class ServingConfig(BaseModel):
     git: GitConfig = Field(default_factory=GitConfig)
     marketplace: MarketplaceConfig = Field(default_factory=MarketplaceConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    network_capacity: NetworkCapacityConfig = Field(default_factory=NetworkCapacityConfig)
     cognito: CognitoConfig = Field(default_factory=CognitoConfig)
     demo_mode: bool = Field(default=False, description="Demo mode - blocks real compute execution")
 
@@ -231,6 +239,11 @@ class ServingConfig(BaseModel):
             burst_multiplier=float(os.getenv("RATE_LIMIT_BURST_MULTIPLIER", "1.5"))
         )
 
+        # Network capacity config
+        network_capacity = NetworkCapacityConfig(
+            max_compute_instances=int(os.getenv("MAX_COMPUTE_INSTANCES", "0")),
+        )
+
         # Cognito config
         cognito = CognitoConfig(
             auth_mode=os.getenv("AUTH_MODE", "bypass"),
@@ -252,6 +265,7 @@ class ServingConfig(BaseModel):
             git=git,
             marketplace=marketplace,
             rate_limit=rate_limit,
+            network_capacity=network_capacity,
             cognito=cognito,
             demo_mode=demo_mode
         )

@@ -577,6 +577,10 @@ class ComputeRegistry:
             if inst.status == InstanceStatus.PENDING
         ]
 
+    def get_instance_count(self) -> int:
+        """Get the total number of registered instances (all statuses)."""
+        return len(self._instances)
+
     async def get_by_project(
         self,
         project_id: str,
