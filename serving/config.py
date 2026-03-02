@@ -98,6 +98,15 @@ class MarketplaceConfig(BaseModel):
     )
 
 
+class CognitoConfig(BaseModel):
+    """AWS Cognito authentication configuration."""
+    auth_mode: str = Field(default="bypass", description="Auth mode: 'cognito' or 'bypass'")
+    user_pool_id: str = Field(default="", description="Cognito User Pool ID")
+    app_client_id: str = Field(default="", description="Cognito App Client ID")
+    region: str = Field(default="us-east-1", description="AWS region for Cognito")
+    admin_enabled: bool = Field(default=False, description="Enable admin user management endpoints")
+
+
 class RateLimitConfig(BaseModel):
     """Rate limiting configuration."""
     enabled: bool = Field(default=True, description="Enable rate limiting")
@@ -129,6 +138,7 @@ class ServingConfig(BaseModel):
     git: GitConfig = Field(default_factory=GitConfig)
     marketplace: MarketplaceConfig = Field(default_factory=MarketplaceConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    cognito: CognitoConfig = Field(default_factory=CognitoConfig)
     demo_mode: bool = Field(default=False, description="Demo mode - blocks real compute execution")
 
     @classmethod
@@ -221,6 +231,15 @@ class ServingConfig(BaseModel):
             burst_multiplier=float(os.getenv("RATE_LIMIT_BURST_MULTIPLIER", "1.5"))
         )
 
+        # Cognito config
+        cognito = CognitoConfig(
+            auth_mode=os.getenv("AUTH_MODE", "bypass"),
+            user_pool_id=os.getenv("COGNITO_USER_POOL_ID", ""),
+            app_client_id=os.getenv("COGNITO_APP_CLIENT_ID", ""),
+            region=os.getenv("COGNITO_REGION", "us-east-1"),
+            admin_enabled=os.getenv("COGNITO_ADMIN_ENABLED", "false").lower() == "true",
+        )
+
         demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
 
         return cls(
@@ -233,6 +252,7 @@ class ServingConfig(BaseModel):
             git=git,
             marketplace=marketplace,
             rate_limit=rate_limit,
+            cognito=cognito,
             demo_mode=demo_mode
         )
 
