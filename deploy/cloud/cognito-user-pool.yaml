@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ClaudeVN Cognito User Pool for UI authentication
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - production
+    Description: Deployment environment
+
+  TemporaryPasswordValidityDays:
+    Type: Number
+    Default: 7
+    Description: Days before temporary passwords expire
+
+  AccessTokenValidityMinutes:
+    Type: Number
+    Default: 60
+    Description: Access token validity in minutes
+
+  RefreshTokenValidityDays:
+    Type: Number
+    Default: 30
+    Description: Refresh token validity in days
+
+  ServingUrl:
+    Type: String
+    Default: http://localhost:8002
+    Description: URL of the serving UI (used in invitation emails)
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, production]
+
+Resources:
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'claudevn-${Environment}'
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailSubject: !Sub 'You have been invited to ClaudeVN (${Environment})'
+          EmailMessage: !Sub |
+            <h2>Welcome to ClaudeVN</h2>
+            <p>You have been invited to the ClaudeVN network.</p>
+            <p>Your temporary credentials:</p>
+            <ul>
+              <li><strong>Email:</strong> {username}</li>
+              <li><strong>Temporary password:</strong> {####}</li>
+            </ul>
+            <p>Sign in at: <a href="${ServingUrl}/login">${ServingUrl}/login</a></p>
+            <p>You will be asked to set a new password on first login.</p>
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: !Ref TemporaryPasswordValidityDays
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      UserPoolAddOns:
+        AdvancedSecurityMode: !If [IsProduction, ENFORCED, 'OFF']
+      DeletionProtection: !If [IsProduction, ACTIVE, INACTIVE]
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 'claudevn-ui-${Environment}'
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: !Ref AccessTokenValidityMinutes
+      IdTokenValidity: !Ref AccessTokenValidityMinutes
+      RefreshTokenValidity: !Ref RefreshTokenValidityDays
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      SupportedIdentityProviders:
+        - COGNITO
+
+Outputs:
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+
+  UserPoolArn:
+    Description: Cognito User Pool ARN
+    Value: !GetAtt CognitoUserPool.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolArn'
+
+  AppClientId:
+    Description: Cognito App Client ID
+    Value: !Ref CognitoUserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-AppClientId'
+
+  Region:
+    Description: AWS Region
+    Value: !Ref 'AWS::Region'
+
+  JwksUrl:
+    Description: JWKS URL for token verification
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}/.well-known/jwks.json'
