@@ -1,8 +1,9 @@
 """
-FastAPI application for ClaudeVN Compute Infrastructure (v1.0).
+ClaudeVN Compute Infrastructure (v1.0) — standalone asyncio application.
 
-This is the v1.0 architecture where compute is lightweight infrastructure
-that spawns Claude Code CLI instances for work execution.
+No HTTP server. Compute connects outbound to Serving via SSE and receives
+work assignments. Docker healthcheck uses a heartbeat file updated on each
+SSE keepalive.
 """
 
 import asyncio
@@ -10,16 +11,12 @@ import os
 import signal
 import logging
 from pathlib import Path
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from config import load_config, get_version
 from services.sse_event_client import initialize_sse_event_client
 from services.conflict_handler import initialize_conflict_handler
 from services.claude_code_spawner import initialize_claude_code_spawner, get_claude_code_spawner
 from services.credential_monitor import initialize_credential_monitor, get_credential_monitor
-from api import health
 
 
 # Configure logging
@@ -40,17 +37,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Heartbeat file path for Docker healthcheck
+HEARTBEAT_FILE = Path(os.getenv("COMPUTE_HEARTBEAT_FILE", "/tmp/compute-heartbeat"))
+
 # Global state
 config = None
 sse_event_client = None
 conflict_handler = None
 claude_code_spawner = None
 credential_monitor = None
+_shutdown_event: asyncio.Event = None
+
+
+def _touch_heartbeat() -> None:
+    """Update heartbeat file timestamp for Docker healthcheck."""
+    try:
+        HEARTBEAT_FILE.touch()
+    except OSError:
+        pass
 
 
 async def _handle_keepalive(event_type: str, data: dict) -> None:
     """Handle keepalive events from Serving."""
     logger.debug(f"Received keepalive: {data.get('timestamp')}")
+    _touch_heartbeat()
 
 
 async def _handle_credentials_refresh(event_type: str, data: dict) -> None:
@@ -148,12 +158,10 @@ async def _async_sighup_reload() -> None:
         logger.info(f"SIGHUP credential reload complete: status={new_status.value}")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup and shutdown events."""
+async def startup() -> None:
+    """Initialize all services."""
     global config, sse_event_client, conflict_handler, claude_code_spawner, credential_monitor
 
-    # Startup
     logger.info("Starting ClaudeVN Compute Infrastructure (v1.0)...")
 
     # Load configuration
@@ -244,11 +252,14 @@ async def lifespan(app: FastAPI):
         logger.error("Compute infrastructure cannot function without SSE connection")
         raise
 
+    # Touch heartbeat on successful startup
+    _touch_heartbeat()
+
     logger.info("Compute infrastructure started successfully")
 
-    yield
 
-    # Shutdown
+async def shutdown() -> None:
+    """Shut down all services cleanly."""
     logger.info("Shutting down Compute infrastructure...")
 
     # Stop credential monitor
@@ -282,87 +293,34 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error stopping SSE client: {e}")
 
+    # Remove heartbeat file on clean shutdown
+    try:
+        HEARTBEAT_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
     logger.info("Compute infrastructure shutdown complete")
 
 
-# Create FastAPI application
-app = FastAPI(
-    title="ClaudeVN Compute Infrastructure",
-    description="Lightweight compute infrastructure that spawns Claude Code instances (v1.0)",
-    version=get_version(),
-    lifespan=lifespan
-)
+async def main() -> None:
+    """Run the compute infrastructure as a standalone asyncio application."""
+    global _shutdown_event
+    _shutdown_event = asyncio.Event()
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    loop = asyncio.get_event_loop()
 
-# Include routers (only health endpoint needed for v1.0)
-app.include_router(health.router)
+    # Register signal handlers for graceful shutdown
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _shutdown_event.set)
 
+    await startup()
 
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    from services.claude_code_spawner import get_claude_code_spawner
-
-    spawner = get_claude_code_spawner()
-    spawner_status = spawner.get_status() if spawner else {"error": "spawner not initialized"}
-
-    return {
-        "service": "ClaudeVN Compute Infrastructure",
-        "version": get_version(),
-        "architecture": "v1.0",
-        "status": "running",
-        "compute_id": config.instance_id if config else "unknown",
-        "spawner": spawner_status,
-        "docs": "/docs",
-        "health": "/health",
-    }
-
-
-@app.get("/version")
-async def version():
-    """Get version information."""
-    return {
-        "version": get_version(),
-        "service": "compute",
-        "architecture": "v1.0"
-    }
-
-
-@app.get("/status")
-async def status():
-    """Get detailed status."""
-    from services.claude_code_spawner import get_claude_code_spawner
-    from services.sse_event_client import get_sse_event_client
-
-    spawner = get_claude_code_spawner()
-    sse_client = get_sse_event_client()
-
-    return {
-        "compute_id": config.instance_id if config else "unknown",
-        "serving_url": config.serving_url if config else "unknown",
-        "spawner": spawner.get_status() if spawner else None,
-        "sse_client": sse_client.get_status() if sse_client else None,
-    }
+    try:
+        # Wait until shutdown is signaled
+        await _shutdown_event.wait()
+    finally:
+        await shutdown()
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    # Load config for port
-    cfg = load_config()
-
-    uvicorn.run(
-        "app:app",
-        host=cfg.host,
-        port=cfg.port,
-        reload=False,
-        log_level=cfg.log_level.lower()
-    )
+    asyncio.run(main())

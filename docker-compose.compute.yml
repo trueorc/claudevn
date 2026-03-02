@@ -12,7 +12,7 @@
 #
 # Prerequisites:
 #   - Accessible Serving instance (configure CLAUDEVN_SERVING_URL in .env.compute)
-#   - Network connectivity to Serving (HTTP + SSH Git port 2222)
+#   - Network connectivity to Serving (HTTPS outbound only)
 #   - Full repository checkout (for build context)
 #
 # Authentication Modes:
@@ -21,7 +21,7 @@
 #
 # Scaling:
 #   To run multiple compute instances, edit .env.compute and duplicate this file
-#   with unique CLAUDEVN_COMPUTE_ID, COMPUTE_PORT, and container_name values.
+#   with unique CLAUDEVN_COMPUTE_ID and container_name values.
 #
 # Note on env_file vs environment:
 #   env_file injects vars into the container runtime only - NOT into compose ${} interpolation.
@@ -31,11 +31,8 @@
 
 services:
   # Remote Compute Instance
-  # NOTE: No host port mapping. In the SSE architecture, Serving never makes
-  # inbound connections to Compute. Compute connects outbound to Serving via SSE.
-  # The internal port is used only for container healthchecks (docker network).
-  # To access the Compute health API for debugging, use:
-  #   docker exec claudevn-compute-remote curl http://localhost:8010/api/v1/health
+  # No HTTP server, no ports. Connects outbound to Serving via SSE.
+  # Healthcheck uses heartbeat file updated on each SSE keepalive.
   compute:
     build:
       context: .
@@ -44,8 +41,7 @@ services:
     env_file:
       - .env.compute
     environment:
-      # Hardcoded server binding defaults (not user-configurable via .env.compute)
-      - COMPUTE_HOST=0.0.0.0
+      # Hardcoded defaults (not user-configurable via .env.compute)
       - COMPUTE_STORAGE_PATH=/app/data/compute
       - COMPUTE_LOG_FILE=/app/logs/compute.log
 
@@ -53,7 +49,7 @@ services:
       - COMPUTE_REGISTER_ON_STARTUP=true
       - MCP_ENABLED=true
 
-      # All other vars (COMPUTE_PORT, COMPUTE_INSTANCE_ID, COMPUTE_INSTANCE_NAME,
+      # All other vars (COMPUTE_INSTANCE_ID, COMPUTE_INSTANCE_NAME,
       # SERVING_URL, CLAUDEVN_SERVING_URL, CLAUDEVN_SERVING_AUTH_URL,
       # COMPUTE_HEARTBEAT_INTERVAL, COMPUTE_SKILLS, COMPUTE_CAPABILITIES,
       # CLAUDEVN_RESOURCES_CPU, CLAUDEVN_RESOURCES_MEMORY, COMPUTE_AUTH_MODE,
@@ -67,13 +63,6 @@ services:
     volumes:
       - compute_data:/app/data
       - compute_logs:/app/logs
-
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8010/api/v1/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
     restart: unless-stopped
 
