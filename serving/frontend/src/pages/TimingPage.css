@@ -344,8 +344,100 @@
   padding-left: 0;
 }
 
+/* Source Badges (Directive / Issue / Untracked) */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.source-badge-directive {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+.source-badge-issue {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.source-badge-untracked {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+/* Directive Group (nested) */
+.directive-group > .issue-group-header .issue-group-title {
+  font-weight: 500;
+}
+
+.directive-children {
+  padding: 0;
+}
+
+.directive-children .issue-group {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+
+.directive-children .issue-group:last-child {
+  border-bottom: none;
+}
+
+.directive-children .issue-group-header {
+  padding-left: 2rem;
+}
+
+.directive-children .tool-call-row {
+  padding-left: 3.5rem;
+}
+
+/* Section count badge */
+.section-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.05rem 0.5rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Untracked toggle */
+.untracked-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 150ms ease;
+  margin-left: auto;
+}
+
+.untracked-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
 /* Section header */
 .section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   margin-bottom: 0.75rem;
 }
 

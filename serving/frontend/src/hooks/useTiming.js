@@ -38,6 +38,7 @@ function useTiming(options = {}) {
     workItems: dashboard?.work_items || [],
     aggregates: dashboard?.aggregates || [],
     totalWorkItems: dashboard?.total_work_items || 0,
+    projectSummary: dashboard?.project_summary || null,
     loading,
     error,
     refresh

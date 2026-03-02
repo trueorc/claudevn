@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, cleanToolName, groupByIssue, LONG_RUNNING_THRESHOLD_MS } from './TimingPage'
+import { formatDuration, cleanToolName, groupByTier, LONG_RUNNING_THRESHOLD_MS } from './TimingPage'
 
 describe('formatDuration', () => {
   it('returns dash for null/undefined', () => {
@@ -53,79 +53,121 @@ describe('LONG_RUNNING_THRESHOLD_MS', () => {
   })
 })
 
-describe('groupByIssue', () => {
-  const makeItem = (workId, issueId, issueTitle, createdAt) => ({
+describe('groupByTier', () => {
+  const makeItem = (workId, opts = {}) => ({
     work_id: workId,
     instance_id: 'compute-1',
-    issue_id: issueId,
-    issue_title: issueTitle,
-    created_at: createdAt || '2024-01-01T00:00:00Z',
+    issue_id: opts.issueId || null,
+    issue_title: opts.issueTitle || null,
+    goal_id: opts.goalId || null,
+    directive_id: opts.directiveId || null,
+    directive_text: opts.directiveText || null,
+    created_at: opts.createdAt || '2024-01-01T00:00:00Z',
     entries: [
       { phase: 'mcp_tool_call', duration_ms: 100, start: '2024-01-01T00:00:00Z', metadata: {} }
     ]
   })
 
-  it('returns empty array for empty input', () => {
-    expect(groupByIssue([])).toEqual([])
+  it('returns empty tiers for empty input', () => {
+    const { directives, issues, untrackedGroups } = groupByTier([])
+    expect(directives).toEqual([])
+    expect(issues).toEqual([])
+    expect(untrackedGroups).toEqual([])
   })
 
-  it('groups work items by issue_id', () => {
+  it('groups items with directive_id into directives tier', () => {
     const items = [
-      makeItem('w1', 'issue-42', 'Fix bug', '2024-01-01T01:00:00Z'),
-      makeItem('w2', 'issue-42', 'Fix bug', '2024-01-01T02:00:00Z'),
-      makeItem('w3', 'issue-43', 'Add feature', '2024-01-01T03:00:00Z'),
+      makeItem('w1', { directiveId: 'd-1', directiveText: 'Build feature', issueId: 'i-1', issueTitle: 'Task 1' }),
+      makeItem('w2', { directiveId: 'd-1', directiveText: 'Build feature', issueId: 'i-2', issueTitle: 'Task 2' }),
     ]
 
-    const groups = groupByIssue(items)
-    expect(groups).toHaveLength(2)
-
-    const issue42 = groups.find(g => g.issueId === 'issue-42')
-    expect(issue42.items).toHaveLength(2)
-    expect(issue42.issueTitle).toBe('Fix bug')
-
-    const issue43 = groups.find(g => g.issueId === 'issue-43')
-    expect(issue43.items).toHaveLength(1)
+    const { directives, issues, untrackedGroups } = groupByTier(items)
+    expect(directives).toHaveLength(1)
+    expect(directives[0].directiveId).toBe('d-1')
+    expect(directives[0].directiveText).toBe('Build feature')
+    expect(directives[0].issueGroups).toHaveLength(2)
+    expect(issues).toHaveLength(0)
+    expect(untrackedGroups).toHaveLength(0)
   })
 
-  it('creates separate groups for items without issue_id', () => {
+  it('groups items with issue_id but no directive into issues tier', () => {
     const items = [
-      makeItem('w1', null, null, '2024-01-01T01:00:00Z'),
-      makeItem('w2', null, null, '2024-01-01T02:00:00Z'),
+      makeItem('w1', { issueId: 'i-1', issueTitle: 'Fix bug' }),
+      makeItem('w2', { issueId: 'i-1', issueTitle: 'Fix bug' }),
+      makeItem('w3', { issueId: 'i-2', issueTitle: 'Add test' }),
     ]
 
-    const groups = groupByIssue(items)
-    expect(groups).toHaveLength(2)
+    const { directives, issues, untrackedGroups } = groupByTier(items)
+    expect(directives).toHaveLength(0)
+    expect(issues).toHaveLength(2)
+    expect(issues.find(g => g.issueId === 'i-1').items).toHaveLength(2)
+    expect(untrackedGroups).toHaveLength(0)
   })
 
-  it('sorts issues before no-issue items', () => {
+  it('puts items with no issue or directive into untracked tier', () => {
     const items = [
-      makeItem('w1', null, null, '2024-01-01T03:00:00Z'),
-      makeItem('w2', 'issue-42', 'Fix bug', '2024-01-01T01:00:00Z'),
+      makeItem('w1'),
+      makeItem('w2'),
     ]
 
-    const groups = groupByIssue(items)
-    expect(groups[0].issueId).toBe('issue-42')
-    expect(groups[1].issueId).toBeNull()
+    const { directives, issues, untrackedGroups } = groupByTier(items)
+    expect(directives).toHaveLength(0)
+    expect(issues).toHaveLength(0)
+    expect(untrackedGroups).toHaveLength(2)
+  })
+
+  it('sorts directives by most recent activity', () => {
+    const items = [
+      makeItem('w1', { directiveId: 'd-old', issueId: 'i-1', createdAt: '2024-01-01T01:00:00Z' }),
+      makeItem('w2', { directiveId: 'd-new', issueId: 'i-2', createdAt: '2024-01-01T03:00:00Z' }),
+    ]
+
+    const { directives } = groupByTier(items)
+    expect(directives[0].directiveId).toBe('d-new')
+    expect(directives[1].directiveId).toBe('d-old')
   })
 
   it('sorts issues by most recent work item', () => {
     const items = [
-      makeItem('w1', 'issue-42', 'Old issue', '2024-01-01T01:00:00Z'),
-      makeItem('w2', 'issue-43', 'New issue', '2024-01-01T03:00:00Z'),
+      makeItem('w1', { issueId: 'i-old', createdAt: '2024-01-01T01:00:00Z' }),
+      makeItem('w2', { issueId: 'i-new', createdAt: '2024-01-01T03:00:00Z' }),
     ]
 
-    const groups = groupByIssue(items)
-    expect(groups[0].issueId).toBe('issue-43')
-    expect(groups[1].issueId).toBe('issue-42')
+    const { issues } = groupByTier(items)
+    expect(issues[0].issueId).toBe('i-new')
+    expect(issues[1].issueId).toBe('i-old')
+  })
+
+  it('fills in directive text from any item in the group', () => {
+    const items = [
+      makeItem('w1', { directiveId: 'd-1', issueId: 'i-1' }),
+      makeItem('w2', { directiveId: 'd-1', directiveText: 'Build feature', issueId: 'i-2' }),
+    ]
+
+    const { directives } = groupByTier(items)
+    expect(directives[0].directiveText).toBe('Build feature')
   })
 
   it('fills in issue title from any item in the group', () => {
     const items = [
-      makeItem('w1', 'issue-42', null, '2024-01-01T01:00:00Z'),
-      makeItem('w2', 'issue-42', 'Fix the bug', '2024-01-01T02:00:00Z'),
+      makeItem('w1', { issueId: 'i-1' }),
+      makeItem('w2', { issueId: 'i-1', issueTitle: 'Fix the bug' }),
     ]
 
-    const groups = groupByIssue(items)
-    expect(groups[0].issueTitle).toBe('Fix the bug')
+    const { issues } = groupByTier(items)
+    expect(issues[0].issueTitle).toBe('Fix the bug')
+  })
+
+  it('handles mixed tiers correctly', () => {
+    const items = [
+      makeItem('w1', { directiveId: 'd-1', issueId: 'i-1', issueTitle: 'Task 1' }),
+      makeItem('w2', { issueId: 'i-2', issueTitle: 'Standalone' }),
+      makeItem('w3'),
+    ]
+
+    const { directives, issues, untrackedGroups } = groupByTier(items)
+    expect(directives).toHaveLength(1)
+    expect(issues).toHaveLength(1)
+    expect(untrackedGroups).toHaveLength(1)
   })
 })

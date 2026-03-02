@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 
 from models.timing import (
     AggregateStats,
+    ProjectTimingSummary,
     TimingDashboardResponse,
     TimingEntry,
     TimingPhase,
@@ -268,19 +269,23 @@ class TimingService:
         else:
             total = len(self._memory)
 
+        # Compute project summary
+        project_summary = self._compute_project_summary(work_items, total)
+
         return TimingDashboardResponse(
             work_items=work_items,
             aggregates=aggregates,
             total_work_items=total,
+            project_summary=project_summary,
         )
 
     async def _enrich_issue_context(
         self, work_items: List[WorkItemTiming]
     ) -> None:
-        """Enrich work items with issue context from the work map service.
+        """Enrich work items with full lineage context.
 
-        Looks up each work_id in the work map service to find the associated
-        issue ID and title. Modifies work items in place.
+        Resolves the chain: work_id → issue → goal → directive.
+        Modifies work items in place.
         """
         try:
             from services.work_map_service import get_work_map_service
@@ -289,16 +294,94 @@ class TimingService:
             logger.debug("Work map service not available for issue enrichment")
             return
 
+        # Cache lookups to avoid repeated queries
+        issue_cache = {}  # issue_id -> Issue
+        goal_cache = {}   # goal_id -> Goal
+        directive_cache = {}  # directive_id -> UnifiedDirective
+
         for item in work_items:
+            # Step 1: Resolve issue from work item
+            if not item.issue_id:
+                try:
+                    work = await wm_service.get_work(item.work_id)
+                    if work and work.issue_id:
+                        item.issue_id = work.issue_id
+                        item.issue_title = work.title
+                except Exception:
+                    logger.debug(f"Could not look up issue for work_id={item.work_id}")
+
+            # Step 2: Resolve goal from issue
+            if item.issue_id and not item.goal_id:
+                try:
+                    issue = issue_cache.get(item.issue_id)
+                    if issue is None:
+                        issue = await wm_service.get_issue(item.issue_id)
+                        issue_cache[item.issue_id] = issue
+                    if issue and issue.goal_id:
+                        item.goal_id = issue.goal_id
+                except Exception:
+                    logger.debug(f"Could not look up goal for issue_id={item.issue_id}")
+
+            # Step 3: Resolve directive from goal
+            if item.goal_id and not item.directive_id:
+                try:
+                    goal = goal_cache.get(item.goal_id)
+                    if goal is None:
+                        from services.goal_service import get_goal_service
+                        goal_service = get_goal_service()
+                        goal = await goal_service.get_goal(item.goal_id)
+                        goal_cache[item.goal_id] = goal
+                    if goal and goal.directive_id:
+                        item.directive_id = goal.directive_id
+                        # Resolve directive text
+                        if item.directive_id not in directive_cache:
+                            try:
+                                from services.unified_directive_service import get_unified_directive_service
+                                uds = get_unified_directive_service()
+                                directive = await uds.get_directive(
+                                    goal.project_id or "", item.directive_id
+                                )
+                                directive_cache[item.directive_id] = directive
+                            except Exception:
+                                directive_cache[item.directive_id] = None
+                        directive = directive_cache.get(item.directive_id)
+                        if directive:
+                            # Use first 120 chars of directive text as summary
+                            text = directive.text
+                            item.directive_text = text[:120] + ("..." if len(text) > 120 else "")
+                except Exception:
+                    logger.debug(f"Could not look up directive for goal_id={item.goal_id}")
+
+    @staticmethod
+    def _compute_project_summary(
+        work_items: List[WorkItemTiming], total_work_items: int
+    ) -> ProjectTimingSummary:
+        """Compute project-level timing summary from enriched work items."""
+        total_duration = 0.0
+        directive_ids = set()
+        issue_ids = set()
+        timing_event_count = 0
+
+        for item in work_items:
+            # Sum wall times
+            for entry in item.entries:
+                if entry.phase.value == "total_wall_time" and entry.duration_ms:
+                    total_duration += entry.duration_ms
+            # Count timing entries
+            timing_event_count += len(item.entries)
+            # Collect unique directives and issues
+            if item.directive_id:
+                directive_ids.add(item.directive_id)
             if item.issue_id:
-                continue  # Already has issue context
-            try:
-                work = await wm_service.get_work(item.work_id)
-                if work and work.issue_id:
-                    item.issue_id = work.issue_id
-                    item.issue_title = work.title
-            except Exception:
-                logger.debug(f"Could not look up issue for work_id={item.work_id}")
+                issue_ids.add(item.issue_id)
+
+        return ProjectTimingSummary(
+            total_duration_ms=round(total_duration, 1),
+            directive_count=len(directive_ids),
+            issue_count=len(issue_ids),
+            timing_event_count=timing_event_count,
+            work_item_count=total_work_items,
+        )
 
     # =========================================================================
     # Private helpers

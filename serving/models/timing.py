@@ -37,6 +37,9 @@ class WorkItemTiming(BaseModel):
     )
     issue_id: Optional[str] = Field(None, description="Associated issue identifier")
     issue_title: Optional[str] = Field(None, description="Associated issue title")
+    goal_id: Optional[str] = Field(None, description="Parent goal identifier")
+    directive_id: Optional[str] = Field(None, description="Originating directive identifier")
+    directive_text: Optional[str] = Field(None, description="Directive summary text")
 
 
 class AggregateStats(BaseModel):
@@ -51,8 +54,18 @@ class AggregateStats(BaseModel):
     max_ms: float = Field(0.0, description="Maximum duration in milliseconds")
 
 
+class ProjectTimingSummary(BaseModel):
+    """Project-level timing summary for the dashboard."""
+    total_duration_ms: float = Field(0.0, description="Sum of all wall times")
+    directive_count: int = Field(0, description="Unique directives with timing data")
+    issue_count: int = Field(0, description="Unique issues with timing data")
+    timing_event_count: int = Field(0, description="Total timing entries")
+    work_item_count: int = Field(0, description="Total work items")
+
+
 class TimingDashboardResponse(BaseModel):
     """Response for the timing dashboard API."""
     work_items: List[WorkItemTiming] = Field(default_factory=list, description="Recent work item timings")
     aggregates: List[AggregateStats] = Field(default_factory=list, description="Aggregate stats by phase")
     total_work_items: int = Field(0, description="Total work items with timing data")
+    project_summary: Optional[ProjectTimingSummary] = Field(None, description="Project-level timing summary")

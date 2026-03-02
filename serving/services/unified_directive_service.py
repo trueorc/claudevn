@@ -465,6 +465,10 @@ class UnifiedDirectiveService:
             )
             goal = await goal_service.create_goal(request)
 
+            # Propagate directive_id to goal for lineage tracing (#122)
+            goal.directive_id = directive.directive_id
+            await goal_service._save_goal_to_redis(goal)
+
             # Set outcome immediately so it's available even if
             # subsequent intent mapping fails (prevents frontend
             # fallback from creating a duplicate goal).
@@ -600,6 +604,10 @@ class UnifiedDirectiveService:
                 )
                 goal = await goal_service.create_goal(request)
                 outcome.goal_id_created = goal.goal_id
+
+                # Propagate directive_id to goal for lineage tracing (#122)
+                goal.directive_id = directive.directive_id
+                await goal_service._save_goal_to_redis(goal)
 
                 # Map directive intent to goal intent fields (best-effort)
                 try:
