@@ -115,13 +115,19 @@ async def _sse_event_generator(
         SSE-formatted event strings
     """
     try:
-        # Send initial connected event
+        # Send initial connected event with pending status
+        instance = await registry.get_instance(compute_id)
+        initial_status = instance.status.value if instance else "connected"
         connected_data = json.dumps({
-            "status": "connected",
+            "status": initial_status,
             "compute_id": compute_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
-        yield f"event: connected\ndata: {connected_data}\n\n"
+        # Send pending_approval event if instance starts in PENDING state
+        if instance and instance.status == InstanceStatus.PENDING:
+            yield f"event: pending_approval\ndata: {connected_data}\n\n"
+        else:
+            yield f"event: connected\ndata: {connected_data}\n\n"
 
         # Track when to send next keepalive
         last_keepalive = datetime.now(timezone.utc)
@@ -367,11 +373,13 @@ async def connect_sse(
             gpu_count=resources.get("gpu"),
         )
 
-    # Create and register the instance
+    # Create and register the instance (starts as PENDING until approved)
     instance = ComputeInstance(
         instance_id=compute_id,
         name=f"Compute {compute_id}",
         endpoint="sse",  # SSE-connected instances don't have HTTP endpoints
+        status=InstanceStatus.PENDING,
+        pending_since=datetime.now(timezone.utc),
         capabilities=instance_capabilities,
         metadata={
             "connection_type": "sse",
