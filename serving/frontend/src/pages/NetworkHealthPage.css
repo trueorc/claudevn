@@ -1,5 +1,18 @@
 /* Network & Health Combined Page Styles */
 
+.capacity-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--bg-tertiary, #2a2a3e);
+  border: 1px solid var(--border-color, #3a3a50);
+  border-radius: 12px;
+  color: var(--text-secondary, #a0a0b8);
+  vertical-align: middle;
+}
+
 .loading-container {
   display: flex;
   align-items: center;
