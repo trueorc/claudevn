@@ -1,0 +1,128 @@
+.pending-connections {
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-md, 16px);
+  margin-bottom: var(--space-lg, 24px);
+}
+
+.pending-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+  margin-bottom: var(--space-sm, 8px);
+}
+
+.pending-icon {
+  color: #f59e0b;
+}
+
+.pending-title {
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  color: #f59e0b;
+  flex: 1;
+}
+
+.pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm, 8px);
+}
+
+.pending-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm, 8px) var(--space-md, 16px);
+  background: var(--bg-elevated, #1a1a1a);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.pending-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pending-name {
+  font-size: var(--font-size-sm, 13px);
+  color: var(--text, #fafafa);
+  font-weight: 500;
+}
+
+.pending-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+  font-size: var(--font-size-xs, 11px);
+  color: var(--text-muted, #71717a);
+}
+
+.pending-caps {
+  color: var(--text-secondary, #a1a1aa);
+}
+
+.pending-labels {
+  display: flex;
+  gap: 4px;
+}
+
+.pending-label-tag {
+  padding: 1px 6px;
+  background: rgba(124, 58, 237, 0.15);
+  color: var(--primary, #7c3aed);
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.pending-time {
+  color: var(--text-muted, #71717a);
+}
+
+.pending-actions {
+  display: flex;
+  gap: var(--space-xs, 4px);
+}
+
+.pending-approve {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--font-size-xs, 11px);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.pending-approve:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.pending-approve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pending-deny {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--font-size-xs, 11px);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.pending-deny:hover {
+  background: rgba(239, 68, 68, 0.2);
+}

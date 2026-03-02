@@ -35,6 +35,7 @@ from services.reconciliation_manager import (
     start_reconciliation_manager, stop_reconciliation_manager
 )
 from api import compute
+from api import compute_approval
 from api import marketplaces
 from api import skills
 from api import agents
@@ -1071,6 +1072,7 @@ API_VERSION = os.getenv('API_VERSION', 'v1')
 api_prefix = f"/api/{API_VERSION}"
 
 app.include_router(compute.router, prefix=api_prefix)
+app.include_router(compute_approval.router, prefix=api_prefix)
 app.include_router(marketplaces.router, prefix=api_prefix)
 app.include_router(skills.router, prefix=api_prefix)
 app.include_router(agents.router, prefix=api_prefix)
