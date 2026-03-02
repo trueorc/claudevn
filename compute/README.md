@@ -23,7 +23,7 @@ cd compute
 ./start.sh
 ```
 
-The engine will start on port 8003 (configurable) and operate in standalone mode.
+The engine will start and connect outbound to Serving via SSE.
 
 ### Integrated Mode
 
@@ -34,7 +34,7 @@ Start as part of the complete ClaudeVN platform:
 ./start_all.sh
 ```
 
-This starts Marketplace (8001), Serving (8002), and Compute (8003) together.
+This starts Marketplace (8003), Serving (8002), and Compute together.
 
 ### Stop the Engine
 
@@ -51,51 +51,45 @@ cd ..
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│           ClaudeVN Compute Engine (8003)             │
+│           ClaudeVN Compute Engine                    │
+│           (no HTTP server, no ports)                 │
 ├─────────────────────────────────────────────────────┤
 │                                                      │
-│  ┌──────────────┐         ┌────────────────┐       │
-│  │   Agents     │         │     Tools      │       │
-│  │   Registry   │         │    Registry    │       │
-│  └──────────────┘         └────────────────┘       │
-│                                                      │
 │  ┌──────────────────────────────────────────┐      │
-│  │       Registration Client                 │      │
-│  │  - Register with Serving                 │      │
-│  │  - Send heartbeats                       │      │
-│  │  - Report capabilities                   │      │
+│  │       SSE Event Client (outbound)         │      │
+│  │  - Connects to Serving SSE endpoint      │      │
+│  │  - Receives work_assigned events         │      │
+│  │  - Receives keepalive (heartbeat file)   │      │
 │  └──────────────────────────────────────────┘      │
 │                                                      │
 │  ┌──────────────────────────────────────────┐      │
-│  │          LLM Integration                  │      │
-│  │  - OpenAI, Anthropic providers           │      │
-│  │  - Fallback support                      │      │
-│  │  - Token tracking                        │      │
+│  │       Claude Code Spawner                 │      │
+│  │  - Spawns Claude Code CLI instances      │      │
+│  │  - Manages work execution lifecycle      │      │
+│  └──────────────────────────────────────────┘      │
+│                                                      │
+│  ┌──────────────────────────────────────────┐      │
+│  │       Credential Monitor                  │      │
+│  │  - Fetches credentials from Serving      │      │
+│  │  - Monitors expiry and refreshes         │      │
 │  └──────────────────────────────────────────┘      │
 │                                                      │
 └─────────────────────────────────────────────────────┘
-         │                               │
-         │ Registration                  │ Heartbeats
-         │ /api/v1/compute/register      │ /api/v1/compute/{id}/health
-         ▼                               ▼
+         │
+         │ Outbound SSE connection
+         │ GET /api/v1/compute/connect
+         ▼
 ┌─────────────────────────────────────────────────────┐
 │        Serving Component (Port 8002)                │
 │         - Compute Registry                          │
-│         - Marketplace Proxy                         │
-│         - Session Management                        │
+│         - SSE Connection Manager                    │
+│         - Work Orchestrator                         │
 └─────────────────────────────────────────────────────┘
 ```
 
 ## Configuration
 
 The compute engine is configured through environment variables:
-
-### Server Settings
-
-```bash
-COMPUTE_HOST=0.0.0.0              # Bind address
-COMPUTE_PORT=8003                  # Service port
-```
 
 ### Instance Identity
 
@@ -139,39 +133,22 @@ COMPUTE_ENABLE_GPU=false             # Enable GPU support
 LOG_LEVEL=INFO                       # Logging level
 ```
 
-## API Endpoints
+## Health Check
 
-### Health and Status
+Compute has no HTTP server. Docker healthcheck uses a **heartbeat file** mechanism:
 
-- `GET /health` - Health check with basic stats
-- `GET /stats` - Detailed statistics
-- `GET /` - Root endpoint with service info
-- `GET /version` - Version information
+1. SSE keepalive events from Serving touch `/tmp/compute-heartbeat` every ~15 seconds
+2. Docker healthcheck verifies the file was updated within the last 60 seconds
+3. If the file is stale or missing, the container is marked unhealthy
 
-### Instance Information
+For manual health checking:
+```bash
+# Check heartbeat file freshness
+docker exec claudevn-compute-1 find /tmp/compute-heartbeat -newermt '-60 seconds'
 
-- `GET /info` - Complete instance information
-- `GET /info/capabilities` - Capabilities (agents, tools, resources)
-- `GET /info/resources` - Hardware resources (CPU, memory, GPU)
-
-### Agent Management
-
-- `GET /agents` - List all agents
-- `GET /agents/{agent_id}` - Get specific agent
-- `POST /agents` - Register new agent
-- `DELETE /agents/{agent_id}` - Unregister agent
-
-### Tool Management
-
-- `GET /tools` - List all tools
-- `GET /tools/{tool_id}` - Get specific tool
-- `POST /tools` - Register new tool
-- `DELETE /tools/{tool_id}` - Unregister tool
-
-### Documentation
-
-- `GET /docs` - Interactive API documentation (Swagger UI)
-- `GET /redoc` - Alternative API documentation (ReDoc)
+# Check logs
+docker logs claudevn-compute-1
+```
 
 ## Agent Definitions
 
@@ -283,7 +260,7 @@ compute/
 │   ├── agent_registry.py    # Agent registry
 │   ├── tool_registry.py     # Tool registry
 │   └── registration_client.py  # Serving registration
-├── app.py                    # FastAPI application
+├── app.py                    # Standalone asyncio application (no HTTP server)
 ├── main.py                   # Entry point
 ├── config.py                 # Configuration
 ├── requirements.txt          # Python dependencies
@@ -336,22 +313,16 @@ See `compute/tests/integration/test_compute_serving_integration.py` for details.
 
 #### Manual Testing
 
-Test the health endpoint:
+Check the heartbeat file (inside container):
 
 ```bash
-curl http://localhost:8003/health
+docker exec claudevn-compute-1 ls -la /tmp/compute-heartbeat
 ```
 
-Test agent listing:
+Check logs:
 
 ```bash
-curl http://localhost:8003/agents
-```
-
-Get instance info:
-
-```bash
-curl http://localhost:8003/info
+docker logs claudevn-compute-1
 ```
 
 ## Integration with Serving
@@ -390,14 +361,11 @@ tail -f ../logs/compute.log
 ### Check Status
 
 ```bash
-# Health check
-curl http://localhost:8003/health
+# Check heartbeat
+docker exec claudevn-compute-1 find /tmp/compute-heartbeat -newermt '-60 seconds'
 
-# Detailed stats
-curl http://localhost:8003/stats
-
-# Instance info
-curl http://localhost:8003/info
+# Check container health
+docker inspect --format='{{.State.Health.Status}}' claudevn-compute-1
 ```
 
 ### Registration Status
@@ -409,19 +377,6 @@ curl http://localhost:8002/api/v1/compute
 ```
 
 ## Troubleshooting
-
-### Port Already in Use
-
-```bash
-# Find process using port 8003
-lsof -i :8003
-
-# Kill it
-kill -9 <PID>
-
-# Or use stop script
-./stop.sh
-```
 
 ### Registration Fails
 

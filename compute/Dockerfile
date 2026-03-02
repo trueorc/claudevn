@@ -1,5 +1,6 @@
 # ClaudeVN Compute Engine Dockerfile
-# v1.0: Supports MCP-based communication with Serving
+# v1.0: Standalone asyncio process — connects outbound to Serving via SSE.
+# No HTTP server, no exposed ports. Docker healthcheck uses heartbeat file.
 # Authentication: Uses host's Claude OAuth credentials via entrypoint copy from staging mount
 FROM python:3.11-slim-bookworm
 
@@ -21,6 +22,7 @@ RUN apt-get update && \
     procps \
     iputils-ping \
     netcat-openbsd \
+    findutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for Claude CLI (required for bypassPermissions mode)
@@ -53,12 +55,10 @@ RUN chmod +x /app/entrypoint.sh
 RUN mkdir -p data/compute logs workspace data/workspace && \
     chown -R compute:compute /app
 
-# Expose port (each instance gets a different port via docker-compose)
-EXPOSE 8003
+# No port exposed — compute connects outbound to Serving via SSE.
+# Serving never makes inbound connections to compute.
 
 # Default environment variables (overridden per instance in docker-compose)
-ENV COMPUTE_HOST=0.0.0.0
-ENV COMPUTE_PORT=8003
 ENV COMPUTE_INSTANCE_ID=compute-default
 ENV COMPUTE_INSTANCE_NAME=Compute-Instance
 ENV COMPUTE_STORAGE_PATH=/app/data/compute
@@ -84,13 +84,16 @@ ENV CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
 # The entire service runs as 'compute' user (uid 1000) via gosu in entrypoint.
 # Git authentication uses HTTP tokens provisioned by Serving via SSE.
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${COMPUTE_PORT}/api/v1/health || exit 1
+# Heartbeat file for Docker healthcheck (updated on each SSE keepalive)
+ENV COMPUTE_HEARTBEAT_FILE=/tmp/compute-heartbeat
+
+# Health check: verify heartbeat file was updated within the last 60 seconds.
+# SSE keepalive events touch this file every 15s, so 60s allows for network hiccups.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD find /tmp/compute-heartbeat -newermt '-60 seconds' 2>/dev/null | grep -q . || exit 1
 
 # Entrypoint copies credentials from staging mount and fixes ownership
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Run the application using shell form to expand environment variable
-CMD ["sh", "-c", "python -m uvicorn app:app --host 0.0.0.0 --port ${COMPUTE_PORT:-8003}"]
-
+# Run the compute engine as a standalone asyncio process (no HTTP server)
+CMD ["python", "app.py"]

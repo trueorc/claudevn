@@ -104,6 +104,6 @@ chown -R compute:compute /app/logs /app/data 2>/dev/null || true
 
 # Drop privileges and execute the main command as 'compute' user.
 # The entrypoint runs as root for credential setup (chown), then gosu drops to
-# compute for the actual service. This ensures uvicorn, the spawner, git, SSH keys,
+# compute for the actual service. This ensures the SSE client, spawner, git,
 # and Claude CLI all run as the same user — eliminating ownership mismatches.
 exec gosu compute "$@"

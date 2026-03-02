@@ -15,23 +15,22 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 PID_FILE=".compute.pid"
-COMPUTE_PORT=${COMPUTE_PORT:-8003}
 
 # Function to kill process safely
 kill_process() {
     local pid=$1
-    
+
     if ps -p $pid > /dev/null 2>&1; then
         echo -e "${YELLOW}→${NC} Stopping compute engine (PID: ${pid})..."
         kill -15 $pid 2>/dev/null || true
         sleep 2
-        
+
         # Force kill if still running
         if ps -p $pid > /dev/null 2>&1; then
             echo -e "${YELLOW}→${NC} Force stopping..."
             kill -9 $pid 2>/dev/null || true
         fi
-        
+
         if ! ps -p $pid > /dev/null 2>&1; then
             echo -e "${GREEN}✓${NC} Compute engine stopped"
             return 0
@@ -54,18 +53,12 @@ else
     echo -e "${YELLOW}⚠${NC}  No PID file found"
 fi
 
-# Also check port for any remaining processes
-if lsof -Pi :$COMPUTE_PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
-    echo -e "${YELLOW}→${NC} Found process on port ${COMPUTE_PORT}"
-    PIDS=$(lsof -Pi :$COMPUTE_PORT -sTCP:LISTEN -t)
-    for PID in $PIDS; do
-        kill_process $PID
-    done
-fi
+# Clean up heartbeat file
+HEARTBEAT_FILE="${COMPUTE_HEARTBEAT_FILE:-/tmp/compute-heartbeat}"
+rm -f "$HEARTBEAT_FILE" 2>/dev/null
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
 echo -e "${GREEN}✓ Compute Engine Stopped${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
-

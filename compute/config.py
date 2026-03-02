@@ -18,10 +18,6 @@ logger = logging.getLogger(__name__)
 class ComputeConfig(BaseModel):
     """Configuration for compute infrastructure (v1.0)."""
 
-    # Server settings
-    host: str = Field(default="0.0.0.0", description="Bind host")
-    port: int = Field(default=8003, description="Bind port")
-
     # Instance identity
     instance_id: Optional[str] = Field(default=None, description="Unique compute infrastructure ID")
     instance_name: Optional[str] = Field(default=None, description="Human-readable instance name")
@@ -96,8 +92,6 @@ def load_config() -> ComputeConfig:
     """
     # Load from environment
     config = ComputeConfig(
-        host=os.getenv("CLAUDEVN_HOST", os.getenv("COMPUTE_HOST", "0.0.0.0")),
-        port=int(os.getenv("CLAUDEVN_PORT", os.getenv("COMPUTE_PORT", "8003"))),
         instance_id=os.getenv("CLAUDEVN_COMPUTE_ID", os.getenv("COMPUTE_INSTANCE_ID")),
         instance_name=os.getenv("CLAUDEVN_COMPUTE_NAME", os.getenv("COMPUTE_INSTANCE_NAME")),
         serving_url=os.getenv("CLAUDEVN_SERVING_URL", os.getenv("SERVING_URL", "http://localhost:8002")),
@@ -127,7 +121,7 @@ def load_config() -> ComputeConfig:
     # Generate instance ID if not provided
     if not config.instance_id:
         hostname = socket.gethostname()
-        config.instance_id = f"compute-{hostname}-{config.port}"
+        config.instance_id = f"compute-{hostname}"
 
     # Generate instance name if not provided
     if not config.instance_name:
