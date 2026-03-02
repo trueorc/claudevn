@@ -16,6 +16,7 @@ import ProfilePage from './pages/ProfilePage'
 import SSHKeysPage from './pages/SSHKeysPage'
 import AuthSetupPage from './pages/AuthSetupPage'
 import TimingPage from './pages/TimingPage'
+import UserManagementPage from './pages/UserManagementPage'
 import LoginPage from './pages/LoginPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
@@ -45,6 +46,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             <Route path="/timing" element={<TimingPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
+            <Route path="/settings/users" element={<UserManagementPage />} />
             {/* Redirects from old routes */}
             <Route path="/goals" element={<Navigate to="/directives" replace />} />
             <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
