@@ -24,6 +24,7 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/mcp/",                  # MCP tools (uses API key auth)
     "/api/v1/auth/credentials",      # Compute credential fetching
     "/api/v1/auth/token",            # Claude token management (internal)
+    "/api/v1/auth/cognito-config",   # Frontend Cognito config (needed before auth)
     "/api/v1/auth/status",           # Auth status check
     "/api/v1/marketplace/register",  # Marketplace registration
 )

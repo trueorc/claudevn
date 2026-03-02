@@ -138,6 +138,7 @@ class TestPublicRoutes:
         "/api/v1/mcp/tools/call",
         "/api/v1/mcp/status",
         "/api/v1/auth/credentials",
+        "/api/v1/auth/cognito-config",
         "/api/v1/auth/token",
         "/api/v1/auth/status",
         "/api/v1/marketplace/register",

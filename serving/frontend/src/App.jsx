@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider } from './contexts/AppContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
+import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
 import { ToastContainer } from './components/common/Toast'
 import Sidebar from './components/layout/Sidebar'
 import AuthExpiredBanner from './components/common/AuthExpiredBanner'
@@ -15,6 +16,9 @@ import ProfilePage from './pages/ProfilePage'
 import SSHKeysPage from './pages/SSHKeysPage'
 import AuthSetupPage from './pages/AuthSetupPage'
 import TimingPage from './pages/TimingPage'
+import LoginPage from './pages/LoginPage'
+import SetPasswordPage from './pages/SetPasswordPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import { useAuth } from './hooks/useAuth'
 
 function AuthenticatedApp({ expired, expiringAt, onReauth }) {
@@ -59,7 +63,39 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
   )
 }
 
-function App() {
+function CognitoGate({ children }) {
+  const { loading: cognitoLoading, isAuthenticated: cognitoAuthed, isBypass } = useCognitoAuth()
+
+  if (cognitoLoading) {
+    return (
+      <div className="auth-setup-page">
+        <div className="auth-setup-card">
+          <div className="auth-setup-spinner" />
+          <p style={{ color: 'var(--text-secondary, #888)', marginTop: '1rem', fontSize: '0.9rem' }}>
+            Connecting...
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // In cognito mode, unauthenticated users see login/set-password/forgot-password routes
+  if (!cognitoAuthed && !isBypass) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/set-password" element={<SetPasswordPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    )
+  }
+
+  // Cognito authenticated (or bypass mode) — proceed to Claude token auth
+  return children
+}
+
+function ClaudeTokenGate() {
   const { status, loading, authenticated, expired, expiringAt, error, message, submitToken, reauth, skipSetup } = useAuth()
 
   if (loading) {
@@ -91,21 +127,31 @@ function App() {
     )
   }
 
+  if (authenticated) {
+    return <AuthenticatedApp expired={expired} expiringAt={expiringAt} onReauth={reauth} />
+  }
+
   return (
-    <ToastProvider>
-      <AppProvider>
-        {authenticated ? (
-          <AuthenticatedApp expired={expired} expiringAt={expiringAt} onReauth={reauth} />
-        ) : (
-          <AuthSetupPage
-            status={status}
-            message={message}
-            submitToken={submitToken}
-            skipSetup={skipSetup}
-          />
-        )}
-      </AppProvider>
-    </ToastProvider>
+    <AuthSetupPage
+      status={status}
+      message={message}
+      submitToken={submitToken}
+      skipSetup={skipSetup}
+    />
+  )
+}
+
+function App() {
+  return (
+    <CognitoAuthProvider>
+      <ToastProvider>
+        <AppProvider>
+          <CognitoGate>
+            <ClaudeTokenGate />
+          </CognitoGate>
+        </AppProvider>
+      </ToastProvider>
+    </CognitoAuthProvider>
   )
 }
 
