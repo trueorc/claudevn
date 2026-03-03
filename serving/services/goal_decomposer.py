@@ -408,13 +408,29 @@ You have been assigned to {task_instruction}.
 
 {constraints_section}
 
+## Runtime Requirements
+For each issue, infer what runtime tools are needed based on the work description.
+Use the `required_tools` field with `runtime:<name>` or `runtime:<name>:<version>` format.
+
+Common mappings:
+- React, Vite, npm, Node.js, Express, Next.js, TypeScript → `runtime:node`
+- Django, Flask, pip, Python scripts, FastAPI → `runtime:python`
+- Go modules, Go binaries, go build → `runtime:go`
+- Cargo, Rust, rustc → `runtime:rust`
+- Maven, Gradle, Java, Spring → `runtime:java`
+
+Include version when explicitly specified (e.g., "Node 22" → `runtime:node:22`).
+If the runtime is ambiguous or unclear, leave `required_tools` empty — the system
+will detect capability gaps at execution time.
+
 ## Your Task
 1. Analyze this goal thoroughly
 2. Break it into discrete, implementable issues
-3. Submit results using `claudevn_submit_decomposition` with:
+3. For each issue, infer required runtime tools from the description
+4. Submit results using `claudevn_submit_decomposition` with:
    - decomposition_id: "{decomposition_id}"
    - goal_id: "{goal_id}"
-   - issues: [list of issues with temp_ids, titles, descriptions, etc.]
+   - issues: [list of issues with temp_ids, titles, descriptions, required_tools, etc.]
    - confidence: your confidence score (0-1)
    - reasoning: explanation of your approach
 
@@ -610,6 +626,11 @@ Include: decomposition_id, goal_id, issues array, confidence score, and reasonin
             }
             priority = priority_map.get(issue.priority, IssuePriority.P2)
 
+            # Combine LLM-inferred tools with keyword-based fallback
+            from services.runtime_inference import infer_runtime_tools
+            inferred_tools = infer_runtime_tools(issue.title, issue.description)
+            combined_tools = list(dict.fromkeys(issue.required_tools + inferred_tools))
+
             issue_data: Dict[str, Any] = {
                 "temp_id": issue.temp_id,
                 "title": issue.title,
@@ -618,6 +639,7 @@ Include: decomposition_id, goal_id, issues array, confidence score, and reasonin
                 "area": area,
                 "priority": priority,
                 "required_skills": issue.required_skills,
+                "required_tools": combined_tools,
                 "goal_id": goal_id,
                 "blocked_by_temp_ids": issue.blocked_by,
                 "acceptance_criteria": issue.acceptance_criteria,

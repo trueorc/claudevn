@@ -43,6 +43,10 @@ class DecomposedIssue(BaseModel):
         default_factory=list,
         description="Skill IDs needed to complete this issue"
     )
+    required_tools: List[str] = Field(
+        default_factory=list,
+        description="Runtime tools required (e.g., runtime:node, runtime:python:3.12)"
+    )
     estimated_complexity: EstimatedComplexity = Field(
         default=EstimatedComplexity.M,
         description="Estimated size/complexity"
@@ -157,6 +161,11 @@ DECOMPOSITION_SCHEMA = {
                     "required_skills": {
                         "type": "array",
                         "items": {"type": "string"}
+                    },
+                    "required_tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Runtime tools required (e.g., runtime:node, runtime:python:3.12, runtime:go)"
                     },
                     "estimated_complexity": {
                         "type": "string",
