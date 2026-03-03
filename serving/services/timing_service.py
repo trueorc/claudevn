@@ -172,6 +172,60 @@ class TimingService:
             f"for {work_id}/{instance_id}"
         )
 
+    async def update_session_metrics(
+        self,
+        work_id: str,
+        instance_id: str,
+        cost_usd: Optional[float] = None,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        cache_read_tokens: Optional[int] = None,
+        cache_creation_tokens: Optional[int] = None,
+        num_turns: Optional[int] = None,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Update session-level metrics on a WorkItemTiming record.
+
+        Args:
+            work_id: Work item ID
+            instance_id: Compute instance ID
+            cost_usd: Total cost in USD
+            input_tokens: Total input tokens
+            output_tokens: Total output tokens
+            cache_read_tokens: Cache read tokens
+            cache_creation_tokens: Cache creation tokens
+            num_turns: Number of conversation turns
+            session_id: SDK session ID
+        """
+        key = self._make_key(work_id, instance_id)
+        timing = await self._get_timing(key, work_id, instance_id)
+
+        if not timing:
+            timing = WorkItemTiming(work_id=work_id, instance_id=instance_id)
+            if not self._redis:
+                self._index.append(key)
+                if len(self._index) > MAX_IN_MEMORY_ITEMS:
+                    old_key = self._index.pop(0)
+                    self._memory.pop(old_key, None)
+
+        if cost_usd is not None:
+            timing.total_cost_usd = cost_usd
+        if input_tokens is not None:
+            timing.input_tokens = input_tokens
+        if output_tokens is not None:
+            timing.output_tokens = output_tokens
+        if cache_read_tokens is not None:
+            timing.cache_read_tokens = cache_read_tokens
+        if cache_creation_tokens is not None:
+            timing.cache_creation_tokens = cache_creation_tokens
+        if num_turns is not None:
+            timing.num_turns = num_turns
+        if session_id is not None:
+            timing.session_id = session_id
+
+        await self._save_timing(key, timing)
+        logger.debug(f"Session metrics updated for {work_id}/{instance_id}")
+
     async def get_work_item_timing(
         self, work_id: str, instance_id: str
     ) -> Optional[WorkItemTiming]:
@@ -510,13 +564,21 @@ class TimingService:
             if not data:
                 return None
             entries = json.loads(data.get("entries", "[]"))
-            return WorkItemTiming(
+            timing = WorkItemTiming(
                 work_id=data.get("work_id", work_id),
                 instance_id=data.get("instance_id", instance_id),
                 entries=[TimingEntry(**e) for e in entries],
                 created_at=datetime.fromisoformat(data["created_at"])
                 if "created_at" in data else datetime.now(timezone.utc),
             )
+            timing.total_cost_usd = float(data["total_cost_usd"]) if data.get("total_cost_usd") else None
+            timing.input_tokens = int(data["input_tokens"]) if data.get("input_tokens") else None
+            timing.output_tokens = int(data["output_tokens"]) if data.get("output_tokens") else None
+            timing.cache_read_tokens = int(data["cache_read_tokens"]) if data.get("cache_read_tokens") else None
+            timing.cache_creation_tokens = int(data["cache_creation_tokens"]) if data.get("cache_creation_tokens") else None
+            timing.num_turns = int(data["num_turns"]) if data.get("num_turns") else None
+            timing.session_id = data.get("session_id") or None
+            return timing
 
         return self._memory.get(key)
 
@@ -525,9 +587,23 @@ class TimingService:
         if self._redis:
             redis_key = f"{TIMING_KEY_PREFIX}:{key}"
             entries = [e.model_dump(mode="json") for e in timing.entries]
-            await self._redis.hset(redis_key, mapping={
-                "entries": json.dumps(entries),
-            })
+            mapping: Dict[str, str] = {"entries": json.dumps(entries)}
+            # Persist session-level metrics
+            if timing.total_cost_usd is not None:
+                mapping["total_cost_usd"] = str(timing.total_cost_usd)
+            if timing.input_tokens is not None:
+                mapping["input_tokens"] = str(timing.input_tokens)
+            if timing.output_tokens is not None:
+                mapping["output_tokens"] = str(timing.output_tokens)
+            if timing.cache_read_tokens is not None:
+                mapping["cache_read_tokens"] = str(timing.cache_read_tokens)
+            if timing.cache_creation_tokens is not None:
+                mapping["cache_creation_tokens"] = str(timing.cache_creation_tokens)
+            if timing.num_turns is not None:
+                mapping["num_turns"] = str(timing.num_turns)
+            if timing.session_id is not None:
+                mapping["session_id"] = timing.session_id
+            await self._redis.hset(redis_key, mapping=mapping)
         else:
             self._memory[key] = timing
 

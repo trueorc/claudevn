@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, cleanToolName, classifyWorkItems, sumEntryDurations, LONG_RUNNING_THRESHOLD_MS } from './TimingPage'
+import { formatDuration, cleanToolName, classifyWorkItems, sumEntryDurations, formatTokens, formatCost, LONG_RUNNING_THRESHOLD_MS } from './TimingPage'
 
 describe('formatDuration', () => {
   it('returns dash for null/undefined', () => {
@@ -86,6 +86,34 @@ describe('sumEntryDurations', () => {
       }
     ]
     expect(sumEntryDurations(items)).toBe(100)
+  })
+})
+
+describe('formatTokens', () => {
+  it('returns null for null/zero', () => {
+    expect(formatTokens(null)).toBe(null)
+    expect(formatTokens(0)).toBe(null)
+  })
+  it('formats thousands', () => {
+    expect(formatTokens(142000)).toBe('142K')
+    expect(formatTokens(1500)).toBe('2K')
+  })
+  it('formats millions', () => {
+    expect(formatTokens(1500000)).toBe('1.5M')
+  })
+  it('formats small numbers', () => {
+    expect(formatTokens(500)).toBe('500')
+  })
+})
+
+describe('formatCost', () => {
+  it('returns null for null/zero', () => {
+    expect(formatCost(null)).toBe(null)
+    expect(formatCost(0)).toBe(null)
+  })
+  it('formats USD', () => {
+    expect(formatCost(0.47)).toBe('$0.47')
+    expect(formatCost(1.234)).toBe('$1.23')
   })
 })
 
