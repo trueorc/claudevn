@@ -202,6 +202,42 @@ class SSEConnectionManager:
         """
         return [c for c in self._connections.values() if tool in c.tools_available]
 
+    def has_capable_connection(
+        self,
+        required_labels: Optional[list[str]] = None,
+        required_tools: Optional[list[str]] = None,
+        required_capabilities: Optional[list[str]] = None,
+    ) -> bool:
+        """Check if any connected compute matches the capability requirements, regardless of idle status.
+
+        Unlike find_matching_connection, this ignores idle/busy state and auth status
+        to answer: "does any compute in the network have the required capabilities?"
+
+        Returns:
+            True if at least one connection matches all requirements
+        """
+        candidates = list(self._connections.values())
+        if required_labels:
+            candidates = [c for c in candidates if all(l in c.labels for l in required_labels)]
+        if required_tools:
+            candidates = [c for c in candidates if all(t in c.tools_available for t in required_tools)]
+        if required_capabilities:
+            candidates = [c for c in candidates if all(cap in c.capabilities for cap in required_capabilities)]
+        return len(candidates) > 0
+
+    def describe_available_capabilities(self) -> dict[str, set[str]]:
+        """Return the aggregate capabilities, labels, and tools across all connections.
+
+        Returns:
+            Dict with keys 'capabilities', 'labels', 'tools' each mapping to a set of strings.
+        """
+        result: dict[str, set[str]] = {"capabilities": set(), "labels": set(), "tools": set()}
+        for conn in self._connections.values():
+            result["capabilities"].update(conn.capabilities)
+            result["labels"].update(conn.labels)
+            result["tools"].update(conn.tools_available)
+        return result
+
     def find_matching_connection(
         self,
         required_labels: Optional[list[str]] = None,

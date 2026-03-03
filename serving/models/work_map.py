@@ -110,6 +110,7 @@ class BlockerType(str, Enum):
     RESOURCE = "resource"          # Waiting on resource availability
     CLARIFICATION = "clarification"  # Needs human clarification
     TECHNICAL = "technical"        # Technical issue
+    CAPABILITY_MISSING = "capability_missing"  # Required capabilities not available
 
 
 class EvaluationStatus(str, Enum):
