@@ -5,13 +5,14 @@ import AuthBadge from '../auth/AuthBadge'
 import './Network.css'
 
 function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
-  const { instance_id, name, status, capabilities, last_heartbeat, project_ids } = instance
+  const { instance_id, name, status, capabilities, last_heartbeat, project_ids, lifecycle_mode } = instance
 
   const agentCount = capabilities?.agents?.length || 0
   const toolCount = capabilities?.tools?.length || 0
   const isDraining = status === 'draining'
   const isBenched = !isDraining && (!project_ids || project_ids.length === 0)
   const isAllProjects = project_ids?.includes('*')
+  const isManaged = lifecycle_mode === 'managed'
 
   const cardClassName = `compute-card${isBenched ? ' compute-benched' : ''}${isDraining ? ' compute-draining' : ''}`
 
@@ -23,6 +24,7 @@ function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
           <span className="instance-name">{name || instance_id}</span>
         </div>
         <div className="badge-group">
+          {isManaged && <span className="lifecycle-badge managed">managed</span>}
           <AuthBadge authInfo={authInfo} onClick={onAuthClick} />
           <StatusBadge status={isBenched ? 'benched' : status} />
         </div>

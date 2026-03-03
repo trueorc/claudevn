@@ -292,6 +292,21 @@
   align-items: center;
 }
 
+.lifecycle-badge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lifecycle-badge.managed {
+  background: var(--accent-muted, #2563eb22);
+  color: var(--accent, #3b82f6);
+  border: 1px solid var(--accent, #3b82f6);
+}
+
 .badge-tier {
   display: inline-flex;
   align-items: center;
