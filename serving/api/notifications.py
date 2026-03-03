@@ -73,3 +73,27 @@ async def mark_all_read(
         return {"marked_count": count}
     except RuntimeError:
         return {"marked_count": 0}
+
+
+@router.post("/{notification_id}/dismiss")
+async def dismiss_notification(notification_id: str):
+    """Dismiss (remove) a single notification."""
+    try:
+        service = get_notification_service()
+        found = service.dismiss(notification_id)
+        return {"dismissed": found}
+    except RuntimeError:
+        return {"dismissed": False}
+
+
+@router.post("/dismiss-all")
+async def dismiss_all_notifications(
+    project_id: Optional[str] = Query(None),
+):
+    """Dismiss all read notifications."""
+    try:
+        service = get_notification_service()
+        count = service.dismiss_all(project_id)
+        return {"dismissed_count": count}
+    except RuntimeError:
+        return {"dismissed_count": 0}

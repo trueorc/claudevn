@@ -135,6 +135,36 @@ class NotificationService:
                 count += 1
         return count
 
+    def dismiss(self, notification_id: str) -> bool:
+        """Dismiss (remove) a notification.
+
+        Returns:
+            True if found and removed, False if not found
+        """
+        for n in self._notifications:
+            if n.notification_id == notification_id:
+                self._notifications.remove(n)
+                return True
+        return False
+
+    def dismiss_all(self, project_id: Optional[str] = None) -> int:
+        """Dismiss all read notifications.
+
+        Args:
+            project_id: Only dismiss notifications for this project
+
+        Returns:
+            Number of notifications dismissed
+        """
+        to_remove = [
+            n for n in self._notifications
+            if n.read
+            and (project_id is None or n.project_id == project_id or n.project_id is None)
+        ]
+        for n in to_remove:
+            self._notifications.remove(n)
+        return len(to_remove)
+
     def get_unread_count(self, project_id: Optional[str] = None) -> int:
         """Get count of unread notifications."""
         return sum(

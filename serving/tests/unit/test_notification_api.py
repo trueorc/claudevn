@@ -128,3 +128,53 @@ class TestMarkAllRead:
         resp = client.post("/notifications/read-all?project_id=p1")
         assert resp.status_code == 200
         mock_service.mark_all_read.assert_called_once_with("p1")
+
+
+# =============================================================================
+# POST /notifications/{id}/dismiss
+# =============================================================================
+
+
+class TestDismiss:
+    def test_dismiss(self, client, mock_service):
+        mock_service.dismiss.return_value = True
+        resp = client.post("/notifications/notif_abc/dismiss")
+        assert resp.status_code == 200
+        assert resp.json() == {"dismissed": True}
+        mock_service.dismiss.assert_called_once_with("notif_abc")
+
+    def test_dismiss_not_found(self, client, mock_service):
+        mock_service.dismiss.return_value = False
+        resp = client.post("/notifications/notif_xxx/dismiss")
+        assert resp.json() == {"dismissed": False}
+
+    def test_dismiss_graceful_on_uninitialized(self, client):
+        with patch("api.notifications.get_notification_service", side_effect=RuntimeError):
+            resp = client.post("/notifications/notif_abc/dismiss")
+        assert resp.status_code == 200
+        assert resp.json() == {"dismissed": False}
+
+
+# =============================================================================
+# POST /notifications/dismiss-all
+# =============================================================================
+
+
+class TestDismissAll:
+    def test_dismiss_all(self, client, mock_service):
+        mock_service.dismiss_all.return_value = 5
+        resp = client.post("/notifications/dismiss-all")
+        assert resp.status_code == 200
+        assert resp.json() == {"dismissed_count": 5}
+
+    def test_dismiss_all_with_project(self, client, mock_service):
+        mock_service.dismiss_all.return_value = 2
+        resp = client.post("/notifications/dismiss-all?project_id=p1")
+        assert resp.status_code == 200
+        mock_service.dismiss_all.assert_called_once_with("p1")
+
+    def test_dismiss_all_graceful_on_uninitialized(self, client):
+        with patch("api.notifications.get_notification_service", side_effect=RuntimeError):
+            resp = client.post("/notifications/dismiss-all")
+        assert resp.status_code == 200
+        assert resp.json() == {"dismissed_count": 0}

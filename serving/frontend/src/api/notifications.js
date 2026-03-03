@@ -4,6 +4,7 @@ export async function getNotifications(projectId = null, options = {}) {
   const params = new URLSearchParams()
   if (projectId) params.append('project_id', projectId)
   if (options.unreadOnly) params.append('unread_only', 'true')
+  if (options.category) params.append('category', options.category)
   if (options.limit) params.append('limit', String(options.limit))
   const qs = params.toString()
   return request(`/notifications${qs ? `?${qs}` : ''}`)
@@ -25,4 +26,15 @@ export async function markAllNotificationsRead(projectId = null) {
   if (projectId) params.append('project_id', projectId)
   const qs = params.toString()
   return request(`/notifications/read-all${qs ? `?${qs}` : ''}`, { method: 'POST' })
+}
+
+export async function dismissNotification(notificationId) {
+  return request(`/notifications/${notificationId}/dismiss`, { method: 'POST' })
+}
+
+export async function dismissAllNotifications(projectId = null) {
+  const params = new URLSearchParams()
+  if (projectId) params.append('project_id', projectId)
+  const qs = params.toString()
+  return request(`/notifications/dismiss-all${qs ? `?${qs}` : ''}`, { method: 'POST' })
 }
