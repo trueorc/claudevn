@@ -137,9 +137,14 @@ services:
       # Compute spawner
       - WORKSPACES_PATH=/app/data/workspaces
       - SERVING_PUBLIC_URL=http://serving:8002
+      # Docker provisioner (uncomment to enable auto-provisioning)
+      # - DOCKER_PROVISIONER_ENABLED=true
+      # - DOCKER_PROVISIONER_NETWORK=claudevn_claudevn-network
     volumes:
       - serving_data:/app/data
       - serving_logs:/app/logs
+      # Docker socket for DockerProvisioner (uncomment to enable)
+      # - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - claudevn-network
     depends_on:
