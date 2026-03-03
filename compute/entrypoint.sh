@@ -99,6 +99,11 @@ with open('$TARGET_DIR/.credentials.json', 'w') as f:
     ;;
 esac
 
+# Auto-detect installed runtimes and append to COMPUTE_CAPABILITIES
+if [ -f /app/detect-capabilities.sh ]; then
+  source /app/detect-capabilities.sh
+fi
+
 # Fix ownership of volume-mounted directories (Docker creates them as root)
 chown -R compute:compute /app/logs /app/data 2>/dev/null || true
 
