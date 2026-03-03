@@ -3,8 +3,9 @@
 import pytest
 from pathlib import Path
 from datetime import datetime
+from unittest.mock import Mock
 
-from models import Persona, PersonaCreateRequest, PersonaUpdateRequest
+from models import Persona, Skill, PersonaCreateRequest, PersonaUpdateRequest
 from persona_registry import PersonaRegistry
 
 
@@ -384,3 +385,128 @@ async def test_get_skills_with_skill_registry(registry):
     assert found[0].id == "skill-a"
     assert len(missing) == 1
     assert "skill-b" in missing
+
+
+# =============================================================================
+# Test: Eager Merged Instructions Generation
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_initialize_eagerly_generates_merged_instructions(tmp_path):
+    """Test that initialize() eagerly generates merged_instructions for personas
+    with references_skills but empty merged_instructions."""
+    # Create a persona YAML with references_skills but empty merged_instructions
+    personas_dir = tmp_path / "personas"
+    (personas_dir / "system").mkdir(parents=True)
+    (personas_dir / "versions").mkdir(parents=True)
+
+    persona_file = personas_dir / "system" / "test-persona.yaml"
+    persona_file.write_text("""id: test-persona
+name: Test Persona
+description: A test persona
+version: "1.0.0"
+author: system
+instructions: |
+  You are a test persona.
+references_skills:
+  - skill-a
+merged_instructions: ""
+tags:
+  - testing
+constraints:
+  - Be careful
+""")
+
+    # Set up a mock skill registry
+    mock_skill = Skill(
+        id="skill-a",
+        name="Skill A",
+        description="A test skill",
+        instructions="Do skill A things.",
+    )
+    mock_skill_registry = Mock()
+    mock_skill_registry.get_skill.side_effect = lambda sid: mock_skill if sid == "skill-a" else None
+
+    # Initialize registry with the skill registry set
+    registry = PersonaRegistry(personas_path=str(personas_dir))
+    registry.set_skill_registry(mock_skill_registry)
+    await registry.initialize()
+
+    # merged_instructions should now be populated
+    persona = registry.get_persona("test-persona")
+    assert persona is not None
+    assert persona.merged_instructions != ""
+    assert "Skill A" in persona.merged_instructions
+    assert "Do skill A things." in persona.merged_instructions
+
+
+@pytest.mark.asyncio
+async def test_get_persona_never_returns_empty_merged_when_skills_exist(tmp_path):
+    """Test that get_persona() never returns empty merged_instructions
+    when referenced skills exist in the registry."""
+    personas_dir = tmp_path / "personas"
+    (personas_dir / "system").mkdir(parents=True)
+    (personas_dir / "versions").mkdir(parents=True)
+
+    persona_file = personas_dir / "system" / "eager-test.yaml"
+    persona_file.write_text("""id: eager-test
+name: Eager Test
+description: Tests eager merge
+version: "1.0.0"
+author: system
+instructions: Base instructions.
+references_skills:
+  - skill-x
+merged_instructions: ""
+tags: []
+constraints: []
+""")
+
+    mock_skill = Skill(
+        id="skill-x",
+        name="Skill X",
+        description="Skill X",
+        instructions="Skill X instructions.",
+    )
+    mock_skill_registry = Mock()
+    mock_skill_registry.get_skill.return_value = mock_skill
+
+    registry = PersonaRegistry(personas_path=str(personas_dir))
+    registry.set_skill_registry(mock_skill_registry)
+    await registry.initialize()
+
+    persona = registry.get_persona("eager-test")
+    assert persona is not None
+    assert persona.merged_instructions != ""
+    assert "Skill X" in persona.merged_instructions
+
+
+@pytest.mark.asyncio
+async def test_initialize_without_skill_registry_skips_eager_merge(tmp_path):
+    """Test that initialize() without a skill registry doesn't fail."""
+    personas_dir = tmp_path / "personas"
+    (personas_dir / "system").mkdir(parents=True)
+    (personas_dir / "versions").mkdir(parents=True)
+
+    persona_file = personas_dir / "system" / "no-skills.yaml"
+    persona_file.write_text("""id: no-skills
+name: No Skills
+description: Test
+version: "1.0.0"
+author: system
+instructions: Just instructions.
+references_skills:
+  - missing-skill
+merged_instructions: ""
+tags: []
+constraints: []
+""")
+
+    registry = PersonaRegistry(personas_path=str(personas_dir))
+    # No skill registry set
+    await registry.initialize()
+
+    persona = registry.get_persona("no-skills")
+    assert persona is not None
+    # merged_instructions stays empty since no skill registry available
+    assert persona.merged_instructions == ""
