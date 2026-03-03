@@ -12,7 +12,6 @@ from typing import Dict, List, Optional
 
 from models.timing import (
     AggregateStats,
-    ProjectTimingSummary,
     TimingDashboardResponse,
     TimingEntry,
     TimingPhase,
@@ -205,45 +204,81 @@ class TimingService:
         keys.reverse()
         return [self._memory[k] for k in keys if k in self._memory]
 
+    @staticmethod
+    def _clean_tool_name(name: str) -> str:
+        """Strip common prefixes from MCP tool names."""
+        if name and name.startswith("claudevn_"):
+            return name[len("claudevn_"):]
+        return name
+
     async def get_aggregate_stats(self, limit: int = 100) -> List[AggregateStats]:
         """Compute aggregate stats across recent work items.
+
+        MCP tool calls are broken out by individual tool name rather than
+        being grouped as a single "mcp_tool_call" category.
 
         Args:
             limit: Number of recent work items to aggregate over
 
         Returns:
-            List of AggregateStats, one per phase
+            List of AggregateStats, one per (phase, tool_name) combination
         """
         timings = await self.get_recent_timings(limit)
 
-        # Collect durations by phase
-        by_phase: Dict[TimingPhase, List[float]] = {}
+        # Collect durations by (phase, tool_name) where tool_name is set
+        # only for MCP tool calls.
+        by_key: Dict[tuple, List[float]] = {}
         for timing in timings:
             for entry in timing.entries:
-                if entry.duration_ms is not None:
-                    by_phase.setdefault(entry.phase, []).append(entry.duration_ms)
+                if entry.duration_ms is None:
+                    continue
+                if entry.phase == TimingPhase.MCP_TOOL_CALL:
+                    raw_name = (entry.metadata or {}).get("tool_name", "")
+                    tool_name = self._clean_tool_name(raw_name) if raw_name else "unknown"
+                    key = (entry.phase, tool_name)
+                else:
+                    key = (entry.phase, None)
+                by_key.setdefault(key, []).append(entry.duration_ms)
 
         results = []
+        # Non-MCP phases first (in enum order), then MCP tools sorted by name
         for phase in TimingPhase:
-            durations = by_phase.get(phase, [])
+            if phase == TimingPhase.MCP_TOOL_CALL:
+                continue
+            durations = by_key.get((phase, None), [])
             if not durations:
                 continue
+            results.append(self._make_aggregate(phase, None, durations))
 
-            durations_sorted = sorted(durations)
-            count = len(durations_sorted)
-
-            results.append(AggregateStats(
-                phase=phase,
-                count=count,
-                avg_ms=round(statistics.mean(durations_sorted), 1),
-                p50_ms=round(self._percentile(durations_sorted, 50), 1),
-                p95_ms=round(self._percentile(durations_sorted, 95), 1),
-                p99_ms=round(self._percentile(durations_sorted, 99), 1),
-                min_ms=round(durations_sorted[0], 1),
-                max_ms=round(durations_sorted[-1], 1),
-            ))
+        # MCP tool calls sorted alphabetically by tool name
+        mcp_keys = sorted(
+            (k for k in by_key if k[0] == TimingPhase.MCP_TOOL_CALL),
+            key=lambda k: k[1] or "",
+        )
+        for key in mcp_keys:
+            phase, tool_name = key
+            durations = by_key[key]
+            results.append(self._make_aggregate(phase, tool_name, durations))
 
         return results
+
+    def _make_aggregate(
+        self, phase: TimingPhase, tool_name: Optional[str], durations: List[float]
+    ) -> AggregateStats:
+        """Build an AggregateStats from a list of durations."""
+        durations_sorted = sorted(durations)
+        count = len(durations_sorted)
+        return AggregateStats(
+            phase=phase,
+            tool_name=tool_name,
+            count=count,
+            avg_ms=round(statistics.mean(durations_sorted), 1),
+            p50_ms=round(self._percentile(durations_sorted, 50), 1),
+            p95_ms=round(self._percentile(durations_sorted, 95), 1),
+            p99_ms=round(self._percentile(durations_sorted, 99), 1),
+            min_ms=round(durations_sorted[0], 1),
+            max_ms=round(durations_sorted[-1], 1),
+        )
 
     async def get_dashboard(self, limit: int = 20) -> TimingDashboardResponse:
         """Get dashboard data combining recent timings and aggregates.
@@ -269,22 +304,20 @@ class TimingService:
         else:
             total = len(self._memory)
 
-        # Compute project summary
-        project_summary = self._compute_project_summary(work_items, total)
-
         return TimingDashboardResponse(
             work_items=work_items,
             aggregates=aggregates,
             total_work_items=total,
-            project_summary=project_summary,
         )
 
     async def _enrich_issue_context(
         self, work_items: List[WorkItemTiming]
     ) -> None:
-        """Enrich work items with full lineage context.
+        """Enrich work items with issue and directive context.
 
-        Resolves the chain: work_id → issue → goal → directive.
+        Looks up each work_id in the work map service to find the associated
+        issue ID and title.  Also traces directive-level work items
+        (decomp-*, char-*, conflict-*) back to their parent directive.
         Modifies work items in place.
         """
         try:
@@ -292,16 +325,25 @@ class TimingService:
             wm_service = get_work_map_service()
         except (RuntimeError, ImportError):
             logger.debug("Work map service not available for issue enrichment")
-            return
+            wm_service = None
 
-        # Cache lookups to avoid repeated queries
-        issue_cache = {}  # issue_id -> Issue
-        goal_cache = {}   # goal_id -> Goal
-        directive_cache = {}  # directive_id -> UnifiedDirective
+        # Optional services for directive tracing
+        goal_service = None
+        directive_service = None
+        try:
+            from services.goal_service import get_goal_service
+            goal_service = get_goal_service()
+        except (RuntimeError, ImportError):
+            pass
+        try:
+            from services.unified_directive_service import get_unified_directive_service
+            directive_service = get_unified_directive_service()
+        except (RuntimeError, ImportError):
+            pass
 
         for item in work_items:
-            # Step 1: Resolve issue from work item
-            if not item.issue_id:
+            # Enrich issue context from work map
+            if not item.issue_id and wm_service:
                 try:
                     work = await wm_service.get_work(item.work_id)
                     if work and work.issue_id:
@@ -310,78 +352,77 @@ class TimingService:
                 except Exception:
                     logger.debug(f"Could not look up issue for work_id={item.work_id}")
 
-            # Step 2: Resolve goal from issue
-            if item.issue_id and not item.goal_id:
-                try:
-                    issue = issue_cache.get(item.issue_id)
-                    if issue is None:
-                        issue = await wm_service.get_issue(item.issue_id)
-                        issue_cache[item.issue_id] = issue
-                    if issue and issue.goal_id:
-                        item.goal_id = issue.goal_id
-                except Exception:
-                    logger.debug(f"Could not look up goal for issue_id={item.issue_id}")
+            # Trace directive-level work (decomp-*, char-*, conflict-*)
+            if not item.directive_id:
+                await self._enrich_directive_context(
+                    item, goal_service, directive_service
+                )
 
-            # Step 3: Resolve directive from goal
-            if item.goal_id and not item.directive_id:
-                try:
-                    goal = goal_cache.get(item.goal_id)
-                    if goal is None:
-                        from services.goal_service import get_goal_service
-                        goal_service = get_goal_service()
-                        goal = await goal_service.get_goal(item.goal_id)
-                        goal_cache[item.goal_id] = goal
-                    if goal and goal.directive_id:
-                        item.directive_id = goal.directive_id
-                        # Resolve directive text
-                        if item.directive_id not in directive_cache:
-                            try:
-                                from services.unified_directive_service import get_unified_directive_service
-                                uds = get_unified_directive_service()
-                                directive = await uds.get_directive(
-                                    goal.project_id or "", item.directive_id
-                                )
-                                directive_cache[item.directive_id] = directive
-                            except Exception:
-                                directive_cache[item.directive_id] = None
-                        directive = directive_cache.get(item.directive_id)
-                        if directive:
-                            # Use first 120 chars of directive text as summary
-                            text = directive.text
-                            item.directive_text = text[:120] + ("..." if len(text) > 120 else "")
-                except Exception:
-                    logger.debug(f"Could not look up directive for goal_id={item.goal_id}")
+    async def _enrich_directive_context(
+        self,
+        item: WorkItemTiming,
+        goal_service,
+        directive_service,
+    ) -> None:
+        """Trace a work item back to its parent directive if possible.
 
-    @staticmethod
-    def _compute_project_summary(
-        work_items: List[WorkItemTiming], total_work_items: int
-    ) -> ProjectTimingSummary:
-        """Compute project-level timing summary from enriched work items."""
-        total_duration = 0.0
-        directive_ids = set()
-        issue_ids = set()
-        timing_event_count = 0
+        Handles decomp-{id}, char-{id}, and conflict-{work_id}-{hex} patterns
+        by looking up the goal associated with the decomposition/characterization
+        and then finding the directive that created the goal.
+        """
+        work_id = item.work_id
+        goal_id = None
 
-        for item in work_items:
-            # Sum wall times
-            for entry in item.entries:
-                if entry.phase.value == "total_wall_time" and entry.duration_ms:
-                    total_duration += entry.duration_ms
-            # Count timing entries
-            timing_event_count += len(item.entries)
-            # Collect unique directives and issues
-            if item.directive_id:
-                directive_ids.add(item.directive_id)
-            if item.issue_id:
-                issue_ids.add(item.issue_id)
+        try:
+            if work_id.startswith("decomp-") and goal_service:
+                # decomp-{decomposition_id} — find goal by decomposition_id
+                decomp_id = work_id
+                goals = await goal_service.list_goals()
+                for goal in goals:
+                    if getattr(goal, "decomposition_id", None) == decomp_id:
+                        goal_id = goal.goal_id
+                        break
+            elif work_id.startswith("char-") and goal_service:
+                # char-{id} — characterization tasks tie to a goal similarly
+                goals = await goal_service.list_goals()
+                for goal in goals:
+                    passes = getattr(goal, "decomposition_passes", []) or []
+                    for p in passes:
+                        if isinstance(p, dict) and p.get("characterization_id") == work_id:
+                            goal_id = goal.goal_id
+                            break
+                    if goal_id:
+                        break
+            elif work_id.startswith("conflict-"):
+                # conflict-{original_work_id}-{hex} — no direct goal link;
+                # mark as directive-level system work
+                item.directive_id = "__system__"
+                item.directive_title = "Conflict Resolution"
+                return
+            elif work_id.startswith("compute-"):
+                # compute lifecycle — system-level
+                item.directive_id = "__system__"
+                item.directive_title = "Compute Lifecycle"
+                return
+            else:
+                return  # Not a directive-level work item
 
-        return ProjectTimingSummary(
-            total_duration_ms=round(total_duration, 1),
-            directive_count=len(directive_ids),
-            issue_count=len(issue_ids),
-            timing_event_count=timing_event_count,
-            work_item_count=total_work_items,
-        )
+            # Resolve goal → directive
+            if goal_id and directive_service:
+                directives = await directive_service.list_directives()
+                for d in directives:
+                    outcome = getattr(d, "outcome", None)
+                    if outcome and getattr(outcome, "goal_id_created", None) == goal_id:
+                        item.directive_id = d.directive_id
+                        item.directive_title = getattr(d, "title", None) or d.directive_id
+                        return
+
+            # Could resolve goal but not directive — still mark as directive-level
+            if goal_id:
+                item.directive_id = f"goal:{goal_id}"
+                item.directive_title = f"Goal {goal_id[:8]}..."
+        except Exception:
+            logger.debug(f"Could not trace directive for work_id={work_id}")
 
     # =========================================================================
     # Private helpers

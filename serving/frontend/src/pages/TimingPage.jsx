@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
+import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight, Layers, AlertCircle } from 'lucide-react'
 import Spinner from '../components/common/Spinner'
 import useTiming from '../hooks/useTiming'
 import './TimingPage.css'
@@ -69,24 +69,24 @@ function getEntryDisplayName(entry) {
   return PHASE_LABELS[entry.phase] || entry.phase
 }
 
-function SourceBadge({ type }) {
-  const config = {
-    directive: { label: 'DIRECTIVE', className: 'source-badge-directive' },
-    issue: { label: 'ISSUE', className: 'source-badge-issue' },
-    untracked: { label: 'UNTRACKED', className: 'source-badge-untracked' },
-  }
-  const { label, className } = config[type] || config.untracked
-  return <span className={`source-badge ${className}`}>{label}</span>
+/** Sum all entry durations for a list of work items (excluding total_wall_time) */
+function sumEntryDurations(items) {
+  return items.reduce((sum, item) => {
+    return sum + item.entries
+      .filter(e => e.duration_ms != null && e.phase !== 'total_wall_time')
+      .reduce((s, e) => s + (e.duration_ms || 0), 0)
+  }, 0)
 }
 
-function PhasePill({ phase }) {
+function PhasePill({ phase, toolName }) {
   const color = PHASE_COLORS[phase] || '#94a3b8'
   const bgColor = PHASE_BG_COLORS[phase] || 'rgba(148, 163, 184, 0.15)'
+  const label = toolName || PHASE_LABELS[phase] || phase
 
   return (
     <span className="phase-pill" style={{ backgroundColor: bgColor, color }}>
       <span className="phase-dot" style={{ backgroundColor: color }} />
-      {PHASE_LABELS[phase] || phase}
+      {label}
     </span>
   )
 }
@@ -114,59 +114,64 @@ function AggregateStatsTable({ aggregates }) {
           </tr>
         </thead>
         <tbody>
-          {aggregates.map(stat => (
-            <tr key={stat.phase}>
-              <td><PhasePill phase={stat.phase} /></td>
-              <td className="timing-num">{stat.count}</td>
-              <td className="timing-num">
-                <div className="stat-bar-container">
-                  <span>{formatDuration(stat.avg_ms)}</span>
-                  <span
-                    className="stat-bar"
-                    style={{
-                      width: `${Math.max((stat.avg_ms / maxAvg) * 60, 3)}px`,
-                      backgroundColor: PHASE_COLORS[stat.phase] || '#94a3b8',
-                      opacity: 0.6
-                    }}
-                  />
-                </div>
-              </td>
-              <td className="timing-num">{formatDuration(stat.p50_ms)}</td>
-              <td className="timing-num">{formatDuration(stat.p95_ms)}</td>
-              <td className="timing-num">{formatDuration(stat.p99_ms)}</td>
-              <td className="timing-num">{formatDuration(stat.min_ms)}</td>
-              <td className="timing-num">{formatDuration(stat.max_ms)}</td>
-            </tr>
-          ))}
+          {aggregates.map(stat => {
+            const key = stat.tool_name
+              ? `${stat.phase}:${stat.tool_name}`
+              : stat.phase
+            return (
+              <tr key={key}>
+                <td><PhasePill phase={stat.phase} toolName={stat.tool_name} /></td>
+                <td className="timing-num">{stat.count}</td>
+                <td className="timing-num">
+                  <div className="stat-bar-container">
+                    <span>{formatDuration(stat.avg_ms)}</span>
+                    <span
+                      className="stat-bar"
+                      style={{
+                        width: `${Math.max((stat.avg_ms / maxAvg) * 60, 3)}px`,
+                        backgroundColor: PHASE_COLORS[stat.phase] || '#94a3b8',
+                        opacity: 0.6
+                      }}
+                    />
+                  </div>
+                </td>
+                <td className="timing-num">{formatDuration(stat.p50_ms)}</td>
+                <td className="timing-num">{formatDuration(stat.p95_ms)}</td>
+                <td className="timing-num">{formatDuration(stat.p99_ms)}</td>
+                <td className="timing-num">{formatDuration(stat.min_ms)}</td>
+                <td className="timing-num">{formatDuration(stat.max_ms)}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
 
-function ProjectSummary({ projectSummary }) {
-  if (!projectSummary) return null
+function ProjectSummary({ workItems, totalWorkItems }) {
+  // Sum all entry durations (excluding total_wall_time) across all work items
+  const totalDuration = sumEntryDurations(workItems)
+
+  const issueCount = new Set(
+    workItems.filter(i => i.issue_id).map(i => i.issue_id)
+  ).size
 
   return (
     <div className="timing-project-summary">
       <div className="timing-project-stat">
         <span className="timing-project-stat-label">Total Time</span>
-        <span className="timing-project-stat-value accent">{formatDuration(projectSummary.total_duration_ms)}</span>
-      </div>
-      <div className="timing-project-divider" />
-      <div className="timing-project-stat">
-        <span className="timing-project-stat-label">Directives</span>
-        <span className="timing-project-stat-value">{projectSummary.directive_count}</span>
+        <span className="timing-project-stat-value accent">{formatDuration(totalDuration)}</span>
       </div>
       <div className="timing-project-divider" />
       <div className="timing-project-stat">
         <span className="timing-project-stat-label">Issues</span>
-        <span className="timing-project-stat-value">{projectSummary.issue_count}</span>
+        <span className="timing-project-stat-value">{issueCount}</span>
       </div>
       <div className="timing-project-divider" />
       <div className="timing-project-stat">
-        <span className="timing-project-stat-label">Events</span>
-        <span className="timing-project-stat-value">{projectSummary.timing_event_count}</span>
+        <span className="timing-project-stat-label">Work Items</span>
+        <span className="timing-project-stat-value">{totalWorkItems}</span>
       </div>
     </div>
   )
@@ -219,7 +224,7 @@ function ToolCallRow({ entry, maxDuration }) {
   )
 }
 
-function IssueGroup({ issueId, issueTitle, items, badge }) {
+function WorkItemGroup({ groupKey, label, sublabel, items }) {
   const [expanded, setExpanded] = useState(false)
 
   const allEntries = items.flatMap(item =>
@@ -230,13 +235,6 @@ function IssueGroup({ issueId, issueTitle, items, badge }) {
   const maxEntryDuration = allEntries.length > 0
     ? Math.max(...allEntries.map(e => e.duration_ms || 0))
     : 1
-
-  const displayId = issueId
-    ? (() => {
-        const match = issueId.match(/(\d+)$/)
-        return match ? `#${match[1]}` : issueId
-      })()
-    : null
 
   const latestTime = items.length > 0
     ? items.reduce((latest, item) => {
@@ -251,16 +249,9 @@ function IssueGroup({ issueId, issueTitle, items, badge }) {
         <span className="issue-group-expand">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
-        {badge && <SourceBadge type={badge} />}
         <div className="issue-group-primary">
-          {displayId ? (
-            <>
-              <span className="issue-group-id">{displayId}</span>
-              {issueTitle && <span className="issue-group-title">{issueTitle}</span>}
-            </>
-          ) : (
-            <span className="issue-group-no-issue">No associated issue</span>
-          )}
+          <span className="issue-group-title">{label}</span>
+          {sublabel && <span className="issue-group-subtitle">{sublabel}</span>}
         </div>
         <div className="issue-group-stats">
           <span className="issue-group-calls">{allEntries.length} calls</span>
@@ -283,148 +274,80 @@ function IssueGroup({ issueId, issueTitle, items, badge }) {
   )
 }
 
-function DirectiveGroup({ directiveId, directiveText, issueGroups }) {
-  const [expanded, setExpanded] = useState(false)
-
-  const totalDuration = issueGroups.reduce((sum, group) => {
-    return sum + group.items.reduce((s, item) => {
-      const wall = item.entries.find(e => e.phase === 'total_wall_time')
-      return s + (wall?.duration_ms || 0)
-    }, 0)
-  }, 0)
-
-  const issueCount = issueGroups.length
-
-  return (
-    <div className="issue-group directive-group">
-      <div className="issue-group-header" onClick={() => setExpanded(!expanded)}>
-        <span className="issue-group-expand">
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
-        <SourceBadge type="directive" />
-        <div className="issue-group-primary">
-          <span className="issue-group-title">{directiveText || directiveId}</span>
-        </div>
-        <div className="issue-group-stats">
-          <span className="issue-group-calls">{issueCount} {issueCount === 1 ? 'issue' : 'issues'}</span>
-          <span className="issue-group-duration">{formatDuration(totalDuration)}</span>
-        </div>
-      </div>
-      {expanded && (
-        <div className="issue-group-detail directive-children">
-          {issueGroups.map(group => (
-            <IssueGroup
-              key={group.issueKey}
-              issueId={group.issueId}
-              issueTitle={group.issueTitle}
-              items={group.items}
-              badge="issue"
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * Group work items into three tiers:
- * 1. Directives - items with directive_id, grouped by directive then by issue
- * 2. Issues - items with issue_id but no directive_id
- * 3. Untracked - items with neither
- */
-function groupByTier(workItems) {
-  const directiveMap = new Map()  // directive_id -> { directiveText, issueMap }
-  const issueOnly = new Map()     // issue_id -> { issueId, issueTitle, items }
-  const untracked = []            // items with no issue or directive
+/** Classify work items into three tiers: directives, issues, unassigned */
+function classifyWorkItems(workItems) {
+  const directiveGroups = new Map()
+  const issueGroups = new Map()
+  const unassigned = []
 
   for (const item of workItems) {
-    if (item.directive_id) {
-      // Tier 1: Directive
-      if (!directiveMap.has(item.directive_id)) {
-        directiveMap.set(item.directive_id, {
-          directiveId: item.directive_id,
-          directiveText: item.directive_text,
-          issueMap: new Map(),
+    if (item.issue_id) {
+      // Issue tier: has a resolved issue
+      const key = item.issue_id
+      if (!issueGroups.has(key)) {
+        issueGroups.set(key, {
+          key,
+          label: item.issue_title || item.issue_id,
+          sublabel: null,
+          items: []
         })
       }
-      const dGroup = directiveMap.get(item.directive_id)
-      if (item.directive_text && !dGroup.directiveText) {
-        dGroup.directiveText = item.directive_text
+      const group = issueGroups.get(key)
+      if (item.issue_title && !group.label) {
+        group.label = item.issue_title
       }
-      const issueKey = item.issue_id || `_no_issue_${item.work_id}`
-      if (!dGroup.issueMap.has(issueKey)) {
-        dGroup.issueMap.set(issueKey, {
-          issueKey,
-          issueId: item.issue_id,
-          issueTitle: item.issue_title,
-          items: [],
-        })
-      }
-      const iGroup = dGroup.issueMap.get(issueKey)
-      if (item.issue_title && !iGroup.issueTitle) iGroup.issueTitle = item.issue_title
-      iGroup.items.push(item)
-    } else if (item.issue_id) {
-      // Tier 2: Issue only
-      if (!issueOnly.has(item.issue_id)) {
-        issueOnly.set(item.issue_id, {
-          issueKey: item.issue_id,
-          issueId: item.issue_id,
-          issueTitle: item.issue_title,
-          items: [],
-        })
-      }
-      const group = issueOnly.get(item.issue_id)
-      if (item.issue_title && !group.issueTitle) group.issueTitle = item.issue_title
       group.items.push(item)
+    } else if (item.directive_id) {
+      // Directive tier: decomp, char, conflict, compute lifecycle
+      const key = item.directive_id
+      if (!directiveGroups.has(key)) {
+        directiveGroups.set(key, {
+          key,
+          label: item.directive_title || item.directive_id,
+          sublabel: item.work_id,
+          items: []
+        })
+      }
+      directiveGroups.get(key).items.push(item)
     } else {
-      // Tier 3: Untracked
-      untracked.push(item)
+      // Unassigned: not linked to directive or issue
+      unassigned.push(item)
     }
   }
 
-  // Convert directive issueMap to sorted arrays
-  const directives = [...directiveMap.values()].map(d => ({
-    ...d,
-    issueGroups: [...d.issueMap.values()].sort((a, b) => {
+  // Sort each tier by most recent item
+  const sortByRecent = (groups) =>
+    [...groups.values()].sort((a, b) => {
       const aTime = Math.max(...a.items.map(i => new Date(i.created_at).getTime()))
       const bTime = Math.max(...b.items.map(i => new Date(i.created_at).getTime()))
       return bTime - aTime
-    }),
+    })
+
+  // Unassigned: each work item is its own group
+  const unassignedGroups = unassigned.map(item => ({
+    key: item.work_id,
+    label: item.work_id,
+    sublabel: null,
+    items: [item]
   }))
 
-  // Sort directives by most recent activity
-  directives.sort((a, b) => {
-    const aTime = Math.max(...a.issueGroups.flatMap(g => g.items.map(i => new Date(i.created_at).getTime())))
-    const bTime = Math.max(...b.issueGroups.flatMap(g => g.items.map(i => new Date(i.created_at).getTime())))
-    return bTime - aTime
-  })
-
-  const issues = [...issueOnly.values()].sort((a, b) => {
-    const aTime = Math.max(...a.items.map(i => new Date(i.created_at).getTime()))
-    const bTime = Math.max(...b.items.map(i => new Date(i.created_at).getTime()))
-    return bTime - aTime
-  })
-
-  // Wrap untracked items as individual groups
-  const untrackedGroups = untracked.map(item => ({
-    issueKey: `_untracked_${item.work_id}`,
-    issueId: null,
-    issueTitle: null,
-    items: [item],
-  }))
-
-  return { directives, issues, untrackedGroups }
+  return {
+    directives: sortByRecent(directiveGroups),
+    issues: sortByRecent(issueGroups),
+    unassigned: unassignedGroups
+  }
 }
 
 function TimingPage() {
-  const { workItems, aggregates, totalWorkItems, projectSummary, loading, error, refresh } = useTiming({
+  const { workItems, aggregates, totalWorkItems, loading, error, refresh } = useTiming({
     pollInterval: 10000,
     limit: 20
   })
 
-  const [showUntracked, setShowUntracked] = useState(false)
-  const { directives, issues, untrackedGroups } = useMemo(() => groupByTier(workItems), [workItems])
+  const { directives, issues, unassigned } = useMemo(
+    () => classifyWorkItems(workItems),
+    [workItems]
+  )
 
   if (loading && !workItems.length) {
     return (
@@ -438,8 +361,6 @@ function TimingPage() {
       </div>
     )
   }
-
-  const hasData = directives.length > 0 || issues.length > 0 || untrackedGroups.length > 0
 
   return (
     <div className="page">
@@ -463,7 +384,7 @@ function TimingPage() {
       )}
 
       {/* Project Summary */}
-      <ProjectSummary projectSummary={projectSummary} />
+      <ProjectSummary workItems={workItems} totalWorkItems={totalWorkItems} />
 
       {/* Aggregate Stats Section */}
       <section className="timing-section">
@@ -476,95 +397,79 @@ function TimingPage() {
         <AggregateStatsTable aggregates={aggregates} />
       </section>
 
-      {/* Three-Tier Timing Display */}
-      {!hasData ? (
-        <p className="timing-empty">No timing data yet. Timing data will appear when compute instances process work items.</p>
-      ) : (
-        <>
-          {/* Tier 1: Directives */}
-          {directives.length > 0 && (
-            <section className="timing-section">
-              <header className="section-header">
-                <h2 className="section-title">
-                  <Clock size={16} />
-                  Directives
-                  <span className="section-count">{directives.length}</span>
-                </h2>
-              </header>
-              <div className="issue-groups-list">
-                {directives.map(d => (
-                  <DirectiveGroup
-                    key={d.directiveId}
-                    directiveId={d.directiveId}
-                    directiveText={d.directiveText}
-                    issueGroups={d.issueGroups}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+      {/* Directives Section */}
+      {directives.length > 0 && (
+        <section className="timing-section">
+          <header className="section-header">
+            <h2 className="section-title">
+              <Layers size={16} />
+              Directives
+            </h2>
+          </header>
+          <div className="issue-groups-list">
+            {directives.map(group => (
+              <WorkItemGroup
+                key={group.key}
+                groupKey={group.key}
+                label={group.label}
+                sublabel={group.sublabel}
+                items={group.items}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
-          {/* Tier 2: Issues (no directive parent) */}
-          {issues.length > 0 && (
-            <section className="timing-section">
-              <header className="section-header">
-                <h2 className="section-title">
-                  <Clock size={16} />
-                  Issues
-                  <span className="section-count">{issues.length}</span>
-                </h2>
-              </header>
-              <div className="issue-groups-list">
-                {issues.map(group => (
-                  <IssueGroup
-                    key={group.issueKey}
-                    issueId={group.issueId}
-                    issueTitle={group.issueTitle}
-                    items={group.items}
-                    badge="issue"
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+      {/* Issues Section */}
+      <section className="timing-section">
+        <header className="section-header">
+          <h2 className="section-title">
+            <Clock size={16} />
+            Issues
+          </h2>
+        </header>
+        {issues.length === 0 ? (
+          <p className="timing-empty">No issue timing data yet. Timing data will appear when compute instances process work items.</p>
+        ) : (
+          <div className="issue-groups-list">
+            {issues.map(group => (
+              <WorkItemGroup
+                key={group.key}
+                groupKey={group.key}
+                label={group.label}
+                sublabel={group.sublabel}
+                items={group.items}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
-          {/* Tier 3: Untracked */}
-          {untrackedGroups.length > 0 && (
-            <section className="timing-section">
-              <header className="section-header">
-                <h2 className="section-title">
-                  <Clock size={16} />
-                  Untracked
-                  <span className="section-count">{untrackedGroups.length}</span>
-                </h2>
-                <button
-                  className="untracked-toggle"
-                  onClick={() => setShowUntracked(!showUntracked)}
-                >
-                  {showUntracked ? <EyeOff size={14} /> : <Eye size={14} />}
-                  {showUntracked ? 'Hide' : 'Show'}
-                </button>
-              </header>
-              {showUntracked && (
-                <div className="issue-groups-list">
-                  {untrackedGroups.map(group => (
-                    <IssueGroup
-                      key={group.issueKey}
-                      issueId={group.issueId}
-                      issueTitle={group.issueTitle}
-                      items={group.items}
-                      badge="untracked"
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-        </>
+      {/* Unassigned Section */}
+      {unassigned.length > 0 && (
+        <section className="timing-section">
+          <header className="section-header">
+            <h2 className="section-title">
+              <AlertCircle size={16} />
+              Unassigned
+            </h2>
+          </header>
+          <div className="issue-groups-list">
+            {unassigned.map(group => (
+              <WorkItemGroup
+                key={group.key}
+                groupKey={group.key}
+                label={group.label}
+                sublabel={group.sublabel}
+                items={group.items}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   )
 }
 
 export default TimingPage
-export { formatDuration, cleanToolName, groupByTier, LONG_RUNNING_THRESHOLD_MS }
+export { formatDuration, cleanToolName, classifyWorkItems, sumEntryDurations, LONG_RUNNING_THRESHOLD_MS }
