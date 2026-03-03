@@ -119,10 +119,31 @@ class MarketplaceClient:
         self._cache.clear()
         logger.debug("Marketplace client cache cleared")
 
+    @staticmethod
+    def _normalize_to_skill(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a persona/skill dict to have all Skill model fields.
+
+        Ensures fields expected by downstream consumers (specialized_tools,
+        constraints, dependencies, conflicts_with) are present with
+        empty-list defaults when missing.
+        """
+        defaults = {
+            "specialized_tools": [],
+            "tags": [],
+            "conflicts_with": [],
+            "constraints": [],
+            "dependencies": [],
+            "instructions": "",
+            "version": "1.0.0",
+            "author": "system",
+        }
+        normalized = {**defaults, **data}
+        return normalized
+
     def _get_fallback_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        """Get a skill from fallback personas."""
+        """Get a skill from fallback personas, normalized to Skill model shape."""
         if skill_id in self._fallback_personas:
-            persona = self._fallback_personas[skill_id].copy()
+            persona = self._normalize_to_skill(self._fallback_personas[skill_id].copy())
             persona["source"] = "fallback"
             persona["fallback_mode"] = True
             logger.warning(f"Using fallback persona for skill: {skill_id}")
@@ -130,10 +151,10 @@ class MarketplaceClient:
         return None
 
     def _get_fallback_skills_list(self) -> Dict[str, Any]:
-        """Get list of all fallback skills."""
+        """Get list of all fallback skills, normalized to Skill model shape."""
         skills = []
         for skill_id, skill_data in self._fallback_personas.items():
-            skill = skill_data.copy()
+            skill = self._normalize_to_skill(skill_data.copy())
             skill["source"] = "fallback"
             skill["fallback_mode"] = True
             skills.append(skill)
