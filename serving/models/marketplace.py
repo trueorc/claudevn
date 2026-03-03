@@ -71,6 +71,12 @@ class MarketplaceInstance(BaseModel):
     # Priority for multi-marketplace support
     priority: int = Field(1, description="Priority for agent discovery (lower = higher priority)")
 
+    # Skill override declarations
+    overrides: List["SkillOverrideDeclaration"] = Field(
+        default_factory=list,
+        description="Skill override/extend declarations"
+    )
+
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "marketplace_id": "marketplace-001",
@@ -97,6 +103,22 @@ class MarketplaceInstance(BaseModel):
     })
 
 
+class SkillOverrideDeclaration(BaseModel):
+    """Declaration of how a marketplace's skills relate to another marketplace's skills."""
+    target_marketplace_id: Optional[str] = Field(
+        None,
+        description="Marketplace whose skills are overridden (None = ROOT)"
+    )
+    mode: str = Field(
+        "override",
+        description="Override mode: 'override' replaces skill entirely, 'extend' merges instructions"
+    )
+    skill_pattern: Optional[str] = Field(
+        None,
+        description="Optional glob pattern to limit which skills are affected (e.g., 'acme-*')"
+    )
+
+
 class MarketplaceRegistrationRequest(BaseModel):
     """Request to register a marketplace."""
     marketplace_id: Optional[str] = Field(None, description="Unique ID (auto-generated if not provided)")
@@ -109,6 +131,10 @@ class MarketplaceRegistrationRequest(BaseModel):
     version: str = Field(default_factory=get_version)
     heartbeat_interval: int = Field(60, description="Desired heartbeat interval")
     priority: int = Field(1, description="Marketplace priority")
+    overrides: List[SkillOverrideDeclaration] = Field(
+        default_factory=list,
+        description="Skill override/extend declarations for this marketplace"
+    )
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
