@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query, Depends, Header, Request, status
@@ -536,6 +536,53 @@ async def receive_compute_event(
         instance_id=event.compute_id,
         metadata=metadata_update
     )
+
+    # Record SDK timing telemetry
+    if event.event.value == "claude_code_completed":
+        try:
+            from services.timing_service import get_timing_service
+            from models.timing import TimingPhase
+            timing_svc = get_timing_service()
+            now = datetime.now(timezone.utc)
+
+            # Record API_INFERENCE phase (LLM time)
+            if event.duration_api_ms and event.duration_api_ms > 0:
+                api_start = now - timedelta(milliseconds=event.duration_api_ms)
+                await timing_svc.record_phase(
+                    work_id=event.task_id,
+                    instance_id=event.compute_id,
+                    phase=TimingPhase.API_INFERENCE,
+                    start=api_start,
+                    end=now,
+                )
+
+            # Record SDK_EXECUTION phase (total compute wall time)
+            if event.duration_ms and event.duration_ms > 0:
+                sdk_start = now - timedelta(milliseconds=event.duration_ms)
+                await timing_svc.record_phase(
+                    work_id=event.task_id,
+                    instance_id=event.compute_id,
+                    phase=TimingPhase.SDK_EXECUTION,
+                    start=sdk_start,
+                    end=now,
+                )
+
+            # Update session-level metrics
+            if any([event.cost_usd, event.input_tokens, event.output_tokens,
+                    event.num_turns, event.session_id]):
+                await timing_svc.update_session_metrics(
+                    work_id=event.task_id,
+                    instance_id=event.compute_id,
+                    cost_usd=event.cost_usd,
+                    input_tokens=event.input_tokens,
+                    output_tokens=event.output_tokens,
+                    cache_read_tokens=event.cache_read_tokens,
+                    cache_creation_tokens=event.cache_creation_tokens,
+                    num_turns=event.num_turns,
+                    session_id=event.session_id,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to record SDK timing telemetry: {e}")
 
     # Update work item status and trigger dependency cascade
     # Skip for rejected events — re-dispatch handles the task lifecycle

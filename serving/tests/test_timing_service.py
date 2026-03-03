@@ -236,3 +236,53 @@ class TestEnrichDirectiveContext:
         # Should not raise
         await service._enrich_directive_context(item, goal_service, None)
         assert item.directive_id is None
+
+
+class TestUpdateSessionMetrics:
+    """Tests for update_session_metrics method."""
+
+    @pytest.fixture
+    def service(self):
+        return TimingService(redis_client=None)
+
+    @pytest.mark.asyncio
+    async def test_creates_record_if_not_exists(self, service):
+        await service.update_session_metrics(
+            work_id="w1", instance_id="c1",
+            cost_usd=0.47, input_tokens=142000, output_tokens=18000,
+            num_turns=12, session_id="sess-abc",
+        )
+        timing = await service.get_work_item_timing("w1", "c1")
+        assert timing is not None
+        assert timing.total_cost_usd == 0.47
+        assert timing.input_tokens == 142000
+        assert timing.output_tokens == 18000
+        assert timing.num_turns == 12
+        assert timing.session_id == "sess-abc"
+
+    @pytest.mark.asyncio
+    async def test_updates_existing_record(self, service):
+        # Create a record with an entry first
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.SDK_LAUNCH, 100.0),
+        )
+        await service.update_session_metrics(
+            work_id="w1", instance_id="c1",
+            cost_usd=0.25, num_turns=5,
+        )
+        timing = await service.get_work_item_timing("w1", "c1")
+        assert timing.total_cost_usd == 0.25
+        assert timing.num_turns == 5
+        assert len(timing.entries) == 1  # Existing entry preserved
+
+    @pytest.mark.asyncio
+    async def test_partial_update(self, service):
+        await service.update_session_metrics(
+            work_id="w1", instance_id="c1",
+            cost_usd=0.10,
+        )
+        timing = await service.get_work_item_timing("w1", "c1")
+        assert timing.total_cost_usd == 0.10
+        assert timing.input_tokens is None
+        assert timing.num_turns is None

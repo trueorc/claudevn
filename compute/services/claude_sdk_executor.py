@@ -69,6 +69,12 @@ class ExecutionResult:
     cost_usd: Optional[float] = None
     error: Optional[str] = None
     tool_calls: List[str] = field(default_factory=list)
+    duration_api_ms: int = 0
+    num_turns: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 def build_mcp_servers(
@@ -217,6 +223,12 @@ async def execute_task(
             cost_usd=result_message.total_cost_usd,
             error=result_message.result if result_message.is_error else None,
             tool_calls=tool_calls,
+            duration_api_ms=getattr(result_message, "duration_api_ms", 0) or 0,
+            num_turns=getattr(result_message, "num_turns", 0) or 0,
+            input_tokens=getattr(result_message, "input_tokens", 0) or 0,
+            output_tokens=getattr(result_message, "output_tokens", 0) or 0,
+            cache_read_tokens=getattr(result_message, "cache_read_tokens", 0) or 0,
+            cache_creation_tokens=getattr(result_message, "cache_creation_tokens", 0) or 0,
         )
 
     except Exception as e:
