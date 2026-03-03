@@ -467,3 +467,146 @@ class TestGlobalInstance:
             client = get_marketplace_client()
 
             assert client.base_url == "http://localhost:8003"
+
+
+# =============================================================================
+# Multi-Marketplace Resolution Tests
+# =============================================================================
+
+class TestMultiMarketplaceResolution:
+    """Test tier-based skill resolution across multiple marketplaces."""
+
+    @pytest.fixture
+    def multi_client(self):
+        """Create a client with multiple marketplace endpoints."""
+        return MarketplaceClient(
+            base_url="http://root-marketplace:8003",
+            cache_ttl=0,
+            additional_marketplaces=[
+                {"url": "http://team-marketplace:8003", "tier": "team", "name": "team-mp"},
+                {"url": "http://user-marketplace:8003", "tier": "user", "name": "user-mp"},
+            ],
+        )
+
+    def test_marketplace_endpoints_initialized(self, multi_client):
+        """Test that additional marketplaces are registered."""
+        assert len(multi_client._marketplace_endpoints) == 3
+        assert multi_client._marketplace_endpoints[0] == (
+            "http://root-marketplace:8003", "root", "primary"
+        )
+        assert multi_client._marketplace_endpoints[1] == (
+            "http://team-marketplace:8003", "team", "team-mp"
+        )
+        assert multi_client._marketplace_endpoints[2] == (
+            "http://user-marketplace:8003", "user", "user-mp"
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_most_specific_tier_wins(self, multi_client):
+        """Test that the most specific tier (user > team > root) wins."""
+        root_skill = {"id": "code-writer", "name": "Root Code Writer", "marketplace_tier": "root"}
+        team_skill = {"id": "code-writer", "name": "Team Code Writer", "marketplace_tier": "team"}
+
+        async def mock_fetch(url, tier, name, skill_id):
+            if "root" in url:
+                return {**root_skill, "marketplace_tier": tier, "marketplace_name": name}
+            if "team" in url:
+                return {**team_skill, "marketplace_tier": tier, "marketplace_name": name}
+            return None
+
+        with patch.object(multi_client, "_fetch_skill_from_endpoint", side_effect=mock_fetch):
+            result = await multi_client.resolve_skill("code-writer")
+
+        assert result is not None
+        assert result["marketplace_tier"] == "team"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_user_beats_team(self, multi_client):
+        """Test that user tier takes precedence over team tier."""
+        async def mock_fetch(url, tier, name, skill_id):
+            if "user" in url:
+                return {"id": skill_id, "name": "User Skill", "marketplace_tier": tier}
+            if "team" in url:
+                return {"id": skill_id, "name": "Team Skill", "marketplace_tier": tier}
+            return None
+
+        with patch.object(multi_client, "_fetch_skill_from_endpoint", side_effect=mock_fetch):
+            result = await multi_client.resolve_skill("code-writer")
+
+        assert result["marketplace_tier"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_falls_back_to_root(self, multi_client):
+        """Test fallback to root when skill only exists there."""
+        async def mock_fetch(url, tier, name, skill_id):
+            if "root" in url:
+                return {"id": skill_id, "name": "Root Skill", "marketplace_tier": tier}
+            return None
+
+        with patch.object(multi_client, "_fetch_skill_from_endpoint", side_effect=mock_fetch):
+            result = await multi_client.resolve_skill("code-writer")
+
+        assert result is not None
+        assert result["marketplace_tier"] == "root"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_returns_none_when_not_found(self, multi_client):
+        """Test resolve returns None when no marketplace has the skill."""
+        async def mock_fetch(url, tier, name, skill_id):
+            return None
+
+        with patch.object(multi_client, "_fetch_skill_from_endpoint", side_effect=mock_fetch):
+            result = await multi_client.resolve_skill("nonexistent")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_resolve_skills_bulk(self, multi_client):
+        """Test bulk skill resolution."""
+        async def mock_fetch(url, tier, name, skill_id):
+            if skill_id == "code-writer" and "root" in url:
+                return {"id": skill_id, "name": "Root Writer", "marketplace_tier": tier}
+            if skill_id == "test-writer" and "team" in url:
+                return {"id": skill_id, "name": "Team Tester", "marketplace_tier": tier}
+            return None
+
+        with patch.object(multi_client, "_fetch_skill_from_endpoint", side_effect=mock_fetch):
+            result = await multi_client.resolve_skills(["code-writer", "test-writer"])
+
+        assert result["code-writer"]["name"] == "Root Writer"
+        assert result["test-writer"]["name"] == "Team Tester"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skills_empty_list(self, multi_client):
+        """Test resolve_skills with empty list."""
+        result = await multi_client.resolve_skills([])
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_single_marketplace_uses_get_skill(self):
+        """Test that single-marketplace client delegates to get_skill."""
+        client = MarketplaceClient(base_url="http://localhost:8003", cache_ttl=0)
+        assert len(client._marketplace_endpoints) == 1
+
+        with patch.object(client, "get_skill", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = {"id": "code-writer", "name": "Writer"}
+            result = await client.resolve_skill("code-writer")
+
+        assert result["name"] == "Writer"
+        mock_get.assert_called_once_with("code-writer")
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_handles_endpoint_errors(self, multi_client):
+        """Test resolve handles individual endpoint failures gracefully."""
+        async def mock_fetch(url, tier, name, skill_id):
+            if "team" in url:
+                raise Exception("Connection refused")
+            if "root" in url:
+                return {"id": skill_id, "name": "Root Skill", "marketplace_tier": tier}
+            return None
+
+        with patch.object(multi_client, "_fetch_skill_from_endpoint", side_effect=mock_fetch):
+            result = await multi_client.resolve_skill("code-writer")
+
+        # Should fall back to root despite team error
+        assert result["marketplace_tier"] == "root"

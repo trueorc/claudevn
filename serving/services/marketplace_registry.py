@@ -1,20 +1,34 @@
 """Marketplace registry service."""
 
+import asyncio
 import logging
 import uuid
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from collections import defaultdict
+
+import httpx
 
 from models.marketplace import (
     MarketplaceInstance,
     MarketplaceStatus,
+    MarketplaceTier,
     AggregatedMarketplaceStats,
 )
 from storage.registry_storage import RegistryStorage
 from storage.cache_backend import CacheBackend, get_cache_backend
 
 logger = logging.getLogger(__name__)
+
+# Tier priority: more specific (user) wins over more general (root)
+# Higher tier = more specific = wins on conflict
+TIER_PRIORITY = {
+    MarketplaceTier.USER: 0,      # Highest priority (most specific)
+    MarketplaceTier.PROJECT: 1,
+    MarketplaceTier.TEAM: 2,
+    MarketplaceTier.ENTERPRISE: 3,
+    MarketplaceTier.ROOT: 4,      # Lowest priority (most general)
+}
 
 
 class MarketplaceRegistry:
@@ -413,12 +427,12 @@ class MarketplaceRegistry:
         preferred_marketplace_id: Optional[str] = None
     ) -> Optional[MarketplaceInstance]:
         """Get the best marketplace for an agent query.
-        
+
         Uses priority and health status to select marketplace.
-        
+
         Args:
             preferred_marketplace_id: Optional preferred marketplace ID
-            
+
         Returns:
             Selected marketplace or None if none available
         """
@@ -427,20 +441,149 @@ class MarketplaceRegistry:
             marketplace = self._marketplaces.get(preferred_marketplace_id)
             if marketplace and marketplace.status == MarketplaceStatus.HEALTHY:
                 return marketplace
-        
+
         # Get all healthy marketplaces sorted by priority
         healthy = await self.list_marketplaces(status=MarketplaceStatus.HEALTHY)
-        
+
         if healthy:
             return healthy[0]  # Return highest priority
-        
+
         # Fallback to degraded if no healthy marketplaces
         degraded = await self.list_marketplaces(status=MarketplaceStatus.DEGRADED)
         if degraded:
             logger.warning("No healthy marketplaces, using degraded marketplace")
             return degraded[0]
-        
+
         return None
+
+    async def _fetch_skill_from_marketplace(
+        self, marketplace: MarketplaceInstance, skill_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a skill from a specific marketplace.
+
+        Args:
+            marketplace: Marketplace instance to query
+            skill_id: Skill ID to fetch
+
+        Returns:
+            Skill data dict with marketplace metadata, or None if not found
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{marketplace.endpoint}/api/v1/skills/{skill_id}",
+                    timeout=10.0,
+                )
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                skill = response.json()
+                # Enrich with marketplace source metadata
+                skill["marketplace_id"] = marketplace.marketplace_id
+                skill["marketplace_name"] = marketplace.name
+                skill["marketplace_tier"] = marketplace.tier.value
+                return skill
+        except httpx.HTTPStatusError:
+            return None
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch skill '{skill_id}' from "
+                f"{marketplace.marketplace_id}: {e}"
+            )
+            return None
+
+    async def resolve_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a skill across all marketplaces using tier-based priority.
+
+        Queries all healthy marketplaces concurrently for the given skill ID.
+        When the same skill exists in multiple marketplaces, the most specific
+        tier wins: USER > PROJECT > TEAM > ENTERPRISE > ROOT.
+
+        Args:
+            skill_id: Skill ID to resolve
+
+        Returns:
+            Skill data from the highest-priority tier, or None if not found
+        """
+        marketplaces = await self.list_marketplaces(status=MarketplaceStatus.HEALTHY)
+        if not marketplaces:
+            # Try degraded
+            marketplaces = await self.list_marketplaces(status=MarketplaceStatus.DEGRADED)
+        if not marketplaces:
+            return None
+
+        # Fetch from all marketplaces concurrently
+        tasks = [
+            self._fetch_skill_from_marketplace(mp, skill_id)
+            for mp in marketplaces
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Select by tier priority (most specific wins)
+        best: Optional[Dict[str, Any]] = None
+        best_priority = 999
+
+        for result in results:
+            if isinstance(result, Exception) or result is None:
+                continue
+            tier_str = result.get("marketplace_tier", "root")
+            try:
+                tier = MarketplaceTier(tier_str)
+            except ValueError:
+                tier = MarketplaceTier.ROOT
+            priority = TIER_PRIORITY.get(tier, 4)
+            if priority < best_priority:
+                best = result
+                best_priority = priority
+
+        return best
+
+    async def resolve_skills(
+        self, skill_ids: List[str]
+    ) -> Dict[str, Optional[Dict[str, Any]]]:
+        """Resolve multiple skills across all marketplaces.
+
+        Queries all healthy marketplaces for each skill ID, applying
+        tier-based override semantics.
+
+        Args:
+            skill_ids: List of skill IDs to resolve
+
+        Returns:
+            Dict mapping skill_id to resolved skill data (or None if not found)
+        """
+        if not skill_ids:
+            return {}
+
+        # Resolve each skill concurrently
+        tasks = [self.resolve_skill(sid) for sid in skill_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        resolved = {}
+        for skill_id, result in zip(skill_ids, results):
+            if isinstance(result, Exception):
+                logger.warning(f"Error resolving skill '{skill_id}': {result}")
+                resolved[skill_id] = None
+            else:
+                resolved[skill_id] = result
+
+        return resolved
+
+    def get_marketplaces_by_tier(
+        self, tier: MarketplaceTier
+    ) -> List[MarketplaceInstance]:
+        """Get all marketplaces at a specific tier.
+
+        Args:
+            tier: Marketplace tier to filter by
+
+        Returns:
+            List of marketplaces at the given tier, sorted by priority
+        """
+        return sorted(
+            [m for m in self._marketplaces.values() if m.tier == tier],
+            key=lambda m: (m.priority, m.registered_at),
+        )
 
 
 # Global registry instance
