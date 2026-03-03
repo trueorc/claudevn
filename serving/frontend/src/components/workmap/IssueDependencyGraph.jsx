@@ -279,7 +279,7 @@ function IssueDependencyGraph({ graphData, loading }) {
                   className="idg-node-number"
                   fill={color}
                 >
-                  #{node.number ?? node.id?.slice(0, 8)}
+                  #{node.number ?? node.id}
                 </text>
                 <text
                   x="10"

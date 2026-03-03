@@ -31,7 +31,7 @@ function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
         <div className="instance-meta">
           <span className="meta-item">
             <span className="meta-label">ID:</span>
-            <span className="meta-value mono">{instance_id?.slice(0, 12)}</span>
+            <span className="meta-value mono">{instance_id}</span>
           </span>
           <span className="meta-item">
             <span className="meta-label">Agents:</span>

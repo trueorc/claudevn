@@ -355,7 +355,7 @@ function IssueFormModal({ isOpen, onClose, issue, onSuccess, projectId }) {
                     checked={formData.depends_on.includes(dep.issue_id)}
                     onChange={() => handleDependencyChange(dep.issue_id)}
                   />
-                  <span className="dependency-id">#{dep.issue_id.slice(0, 8)}</span>
+                  <span className="dependency-id">#{dep.issue_id}</span>
                   <span className="dependency-title">{dep.title}</span>
                 </label>
               ))

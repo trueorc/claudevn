@@ -157,7 +157,7 @@ function WorkColumn({ title, icon: Icon, iconClass, items, emptyMessage, onItemC
 
 function WorkItem({ item, onClick, onTracesClick, bucketEntries, showBlockers, showTiming }) {
   const { title, priority, assigned_to, depends_on, started_at, completed_at } = item
-  const displayId = item.number ? `#${item.number}` : item.issue_id?.slice(0, 8)
+  const displayId = item.number ? `#${item.number}` : item.issue_id
   const duration = showTiming ? formatDuration(started_at, completed_at) : null
 
   return (
@@ -184,7 +184,7 @@ function WorkItem({ item, onClick, onTracesClick, bucketEntries, showBlockers, s
         <BucketBadges entries={bucketEntries} />
         {assigned_to && (
           <span className="plan-work-item-assignee" title={assigned_to}>
-            {assigned_to.slice(0, 12)}
+            {assigned_to}
           </span>
         )}
         {showBlockers && depends_on?.length > 0 && (

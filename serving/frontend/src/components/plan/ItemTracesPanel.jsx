@@ -37,7 +37,7 @@ function formatTimeAgo(isoString) {
 
 function ItemTracesPanel({ projectId, item, onClose }) {
   const { traces, loading, error } = useItemTraces(projectId, item?.issue_id)
-  const displayId = item?.number ? `#${item.number}` : item?.issue_id?.slice(0, 8)
+  const displayId = item?.number ? `#${item.number}` : item?.issue_id
 
   return (
     <div className="plan-item-traces-panel">
