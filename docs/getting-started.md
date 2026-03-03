@@ -46,7 +46,6 @@ This command starts:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| **site** | 3000 | Marketing site (optional) |
 | **redis** | 6379 | Redis for PR queue and branch management |
 | **marketplace** | 8003 | Skill catalog and composition service |
 | **serving** | 8002 | Coordination hub, API, and monitoring UI |
