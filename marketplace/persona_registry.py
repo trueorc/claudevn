@@ -206,8 +206,40 @@ class PersonaRegistry:
         # Load version history
         await self._load_version_history()
 
+        # Eagerly generate merged_instructions for personas that reference skills
+        # but have empty merged_instructions (e.g., system personas loaded from YAML)
+        if self._skill_registry:
+            await self._eagerly_merge_instructions()
+
         self._initialized = True
         logger.info(f"Persona registry initialized: {len(self.personas)} personas")
+
+    async def _eagerly_merge_instructions(self) -> None:
+        """Eagerly generate merged_instructions for personas with references_skills.
+
+        Called during initialize() to ensure no persona has empty
+        merged_instructions when the referenced skills are available.
+        This prevents cold-start issues where a YAML file has
+        merged_instructions: "" and the lazy regeneration hasn't triggered yet.
+        """
+        generated = 0
+        for persona in self.personas.values():
+            if persona.references_skills and not persona.merged_instructions:
+                skills, missing = self._get_skills_for_persona(persona.references_skills)
+                if skills:
+                    persona.merged_instructions = self._generate_merged_instructions(
+                        persona.name, persona.instructions, skills, persona.constraints
+                    )
+                    generated += 1
+                    if missing:
+                        logger.warning(
+                            f"Persona '{persona.id}' missing skills: {missing}"
+                        )
+
+        if generated:
+            logger.info(
+                f"Eagerly generated merged_instructions for {generated} personas"
+            )
 
     async def _load_personas_from_directory(self, directory: Path, author_prefix: str) -> None:
         """Load persona definitions from a local directory."""
