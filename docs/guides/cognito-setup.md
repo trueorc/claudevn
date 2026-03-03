@@ -55,7 +55,43 @@ This returns:
 
 ## Configure Serving
 
-Set these environment variables in your serving `.env` file:
+Configuration depends on which deployment mode you are using.
+
+### Remote Serving Hub (`docker-compose.serving.yml`)
+
+Copy the example file and fill in the values from the stack outputs:
+
+```bash
+cp .env.serving.example .env.serving
+```
+
+```bash
+# .env.serving
+AUTH_MODE=cognito
+COGNITO_USER_POOL_ID=us-east-1_xxxxxxxxx
+COGNITO_APP_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
+COGNITO_REGION=us-east-1
+```
+
+`AUTH_MODE` is always `cognito` in this configuration.
+
+### Full Local Stack (`docker-compose.yml`)
+
+The full local stack defaults to `AUTH_MODE=bypass` so no Cognito setup is required for local development. To enable Cognito, create a `.env` file in the project root:
+
+```bash
+# .env
+AUTH_MODE=cognito
+COGNITO_USER_POOL_ID=us-east-1_xxxxxxxxx
+COGNITO_APP_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
+COGNITO_REGION=us-east-1
+```
+
+In bypass mode, all API requests are treated as authenticated with a development user.
+
+### Non-Docker Deployments
+
+Set the variables directly in the serving environment or in `serving/.env`:
 
 ```bash
 AUTH_MODE=cognito
@@ -63,14 +99,6 @@ COGNITO_USER_POOL_ID=us-east-1_xxxxxxxxx
 COGNITO_APP_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
 COGNITO_REGION=us-east-1
 ```
-
-For local development without Cognito:
-
-```bash
-AUTH_MODE=bypass
-```
-
-In bypass mode, all API requests are treated as authenticated with a development user. No Cognito configuration is required.
 
 ## Create the First User
 
@@ -80,7 +108,7 @@ After deploying the pool, create the initial admin user via AWS CLI:
 aws cognito-idp admin-create-user \
   --user-pool-id us-east-1_xxxxxxxxx \
   --username admin@example.com \
-  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --user-attributes '[{"Name":"email","Value":"admin@example.com"},{"Name":"email_verified","Value":"true"}]' \
   --desired-delivery-mediums EMAIL
 ```
 

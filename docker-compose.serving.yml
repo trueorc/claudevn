@@ -1,0 +1,160 @@
+# ClaudeVN Platform - Remote Serving Hub Configuration
+# Deploys Serving + Marketplace + Redis with Cognito authentication enabled.
+# No compute instances — remote computes connect using docker-compose.compute.yml.
+#
+# Usage:
+#   cp .env.serving.example .env.serving   # Create environment file
+#   vim .env.serving                       # Configure Cognito + registration token
+#   docker compose -f docker-compose.serving.yml up -d
+#   docker compose -f docker-compose.serving.yml down
+#   docker compose -f docker-compose.serving.yml logs -f
+#
+# Prerequisites:
+#   - AWS Cognito User Pool deployed (see docs/guides/cognito-setup.md)
+#   - At least one Cognito user created (admin-invite only)
+#   - .env.serving configured with pool/client IDs and registration token
+#
+# Authentication:
+#   AUTH_MODE is always 'cognito' in this file. All UI API routes require
+#   a valid Cognito JWT. Compute registration requires a pre-shared token
+#   (COMPUTE_REGISTRATION_TOKEN in .env.serving).
+#
+# Counterpart:
+#   Remote compute instances use docker-compose.compute.yml + .env.compute
+#   Set CLAUDEVN_API_KEY in .env.compute to match COMPUTE_REGISTRATION_TOKEN here.
+#
+# For local development without auth, use docker-compose.yml instead.
+
+services:
+  # Redis - Required for Git PR queue management
+  redis:
+    image: redis:7-alpine
+    container_name: claudevn-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - claudevn-network
+    restart: unless-stopped
+
+  # Skill Marketplace - Standalone skill catalog
+  marketplace:
+    build:
+      context: .
+      dockerfile: marketplace/Dockerfile
+    container_name: claudevn-marketplace
+    ports:
+      - "8003:8003"
+    environment:
+      - MARKETPLACE_HOST=0.0.0.0
+      - MARKETPLACE_PORT=8003
+      - SKILLS_PATH=/app/skills
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+      - API_VERSION=v1
+      # Authentication enabled for remote network
+      - MARKETPLACE_REQUIRE_AUTH=true
+      # Registration with Serving
+      - SERVING_URL=http://serving:8002
+      - REGISTER_ON_STARTUP=true
+      - HEARTBEAT_INTERVAL=60
+      - MARKETPLACE_NAME=ClaudeVN-Marketplace
+    volumes:
+      - marketplace_skills:/app/skills
+    networks:
+      - claudevn-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Serving Component - Central Orchestration Hub (Cognito auth enforced)
+  serving:
+    build:
+      context: .
+      dockerfile: serving/Dockerfile
+    container_name: claudevn-serving
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env.serving
+    environment:
+      # Server
+      - SERVING_HOST=0.0.0.0
+      - SERVING_PORT=8002
+      - CORS_ORIGINS=*
+      - API_VERSION=v1
+      # Storage
+      - STORAGE_PATH=/app/data/serving
+      # Health monitoring
+      - HEALTH_CHECK_INTERVAL=30
+      - DEGRADED_THRESHOLD=60
+      - OFFLINE_THRESHOLD=90
+      - MAX_FAILED_CHECKS=3
+      - AUTO_DEREGISTER=false
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - "REDIS_KEY_PREFIX=claudevn:"
+      # Git infrastructure
+      - GIT_REPOS_PATH=/app/data/repos
+      - GIT_SSH_KEYS_PATH=/app/data/ssh_keys
+      - GIT_HOOK_REDIS_NOTIFY=true
+      # Marketplace service
+      - MARKETPLACE_URL=http://marketplace:8003
+      # Rate limiting
+      - RATE_LIMIT_ENABLED=true
+      # Claude authentication credentials path
+      - CLAUDE_CREDENTIALS_PATH=/app/data/serving/claude-credentials
+      # Cognito auth - always enabled in this compose file
+      - AUTH_MODE=cognito
+      # COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, COGNITO_REGION,
+      # COGNITO_ADMIN_ENABLED, COMPUTE_REGISTRATION_TOKEN, MAX_COMPUTE_INSTANCES
+      # are loaded from .env.serving via env_file above.
+      # Compute spawner
+      - WORKSPACES_PATH=/app/data/workspaces
+      - SERVING_PUBLIC_URL=http://serving:8002
+    volumes:
+      - serving_data:/app/data
+      - serving_logs:/app/logs
+    networks:
+      - claudevn-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      marketplace:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+# Named volumes for data persistence
+volumes:
+  redis_data:
+    driver: local
+  serving_data:
+    driver: local
+  serving_logs:
+    driver: local
+  marketplace_skills:
+    driver: local
+
+# Network for inter-service communication
+networks:
+  claudevn-network:
+    driver: bridge

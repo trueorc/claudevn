@@ -205,23 +205,15 @@ External compute nodes run on different hosts. They can either fetch credentials
 
 ### Option A: Fetch from Remote Serving
 
-```yaml
-# docker-compose.override.yml on external host
-services:
-  compute-external:
-    build:
-      context: .
-      dockerfile: compute/Dockerfile
-    container_name: claudevn-compute-external
-    environment:
-      - COMPUTE_INSTANCE_ID=compute-ext-001
-      - COMPUTE_INSTANCE_NAME=Compute-External
-      - SERVING_URL=http://<serving-host>:8002
-      - COMPUTE_AUTH_MODE=serving
-      - CLAUDEVN_SERVING_AUTH_URL=http://<serving-host>:8002/api/v1/auth
-      - COMPUTE_SKILLS=code-writer
-      - COMPUTE_CAPABILITIES=python
+Use the dedicated remote compute compose file:
+
+```bash
+cp .env.compute.example .env.compute
+# Edit .env.compute: set CLAUDEVN_SERVING_URL, CLAUDEVN_API_KEY, etc.
+docker compose -f docker-compose.compute.yml up -d
 ```
+
+See `.env.compute.example` for all configuration options.
 
 ### Option B: Own Credentials (External Mode)
 
@@ -248,6 +240,8 @@ External nodes must reach the Serving component. Options:
 - **Tailscale/WireGuard**: Private overlay network
 - **Public endpoint with TLS**: Reverse proxy (nginx/Caddy) in front of Serving
 - **Docker Swarm**: Overlay network for multi-host Docker deployments
+
+For the Serving hub side, use `docker-compose.serving.yml` with Cognito authentication. See `docs/guides/cognito-setup.md` for setup.
 
 ---
 

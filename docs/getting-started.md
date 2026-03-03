@@ -38,6 +38,7 @@ cd claudevn
 ### 2. Start All Services
 
 ```bash
+# Starts all services in bypass auth mode (no login required for local dev)
 docker compose up -d
 ```
 
@@ -239,59 +240,29 @@ docker compose up -d
 
 ## Adding External Compute Nodes
 
-External compute nodes can join from other hosts (different machines, cloud VMs, etc.).
+External compute nodes can join from other hosts (different machines, cloud VMs, etc.). Dedicated compose files handle the two primary deployment scenarios.
 
-### Same-Host External Node
+### Remote Serving Hub (with Cognito auth)
 
-Create `docker-compose.override.yml`:
-
-```yaml
-services:
-  compute-external:
-    build:
-      context: .
-      dockerfile: compute/Dockerfile
-    container_name: claudevn-compute-external
-    environment:
-      - COMPUTE_INSTANCE_ID=compute-ext-001
-      - COMPUTE_INSTANCE_NAME=Compute-External
-      - SERVING_URL=http://serving:8002
-      - COMPUTE_AUTH_MODE=serving  # Fetch credentials from Serving
-      - COMPUTE_SKILLS=code-writer
-      - COMPUTE_CAPABILITIES=python,javascript
-    networks:
-      - claudevn-network
-```
-
-### Multi-Host Deployment
-
-For compute nodes on different physical hosts, you have several options:
-
-#### Option 1: Docker Swarm Overlay Network
+Use `docker-compose.serving.yml` with `.env.serving` for a production serving hub with Cognito authentication enabled:
 
 ```bash
-# Initialize swarm on Serving host
-docker swarm init
-
-# Join worker nodes
-docker swarm join --token <token> <serving-host>:2377
-
-# Deploy stack with overlay network
-docker stack deploy -c docker-compose.yml claudevn
+cp .env.serving.example .env.serving
+# Edit .env.serving with your Cognito and environment settings
+docker compose -f docker-compose.serving.yml up -d
 ```
 
-#### Option 2: VPN (Tailscale/WireGuard)
+### Remote Compute Node
 
-1. Set up a VPN between hosts
-2. Use VPN IPs in `SERVING_URL` environment variable
-3. External nodes connect via VPN network
+Use `docker-compose.compute.yml` with `.env.compute` to connect a compute node to a remote serving hub:
 
-#### Option 3: Public Serving Endpoint
+```bash
+cp .env.compute.example .env.compute
+# Edit .env.compute with your SERVING_URL and credentials
+docker compose -f docker-compose.compute.yml up -d
+```
 
-1. Expose Serving publicly with TLS
-2. Configure firewall rules
-3. External nodes connect via public URL
-4. Use `COMPUTE_AUTH_MODE=external` with their own API keys
+See `.env.serving.example` and `.env.compute.example` for all available configuration options, and [Distributed Deployment Guide](guides/distributed-deployment.md) for full setup instructions.
 
 ### External Node Authentication Modes
 
@@ -313,6 +284,7 @@ MARKETPLACE_URL=http://...     # Marketplace service
 GIT_ENABLE_SSH=true            # Enable SSH Git server
 SSH_GIT_PORT=2222              # SSH server port
 CLAUDE_CREDENTIALS_PATH=...    # Auth credentials path
+AUTH_MODE=bypass               # 'bypass' for local dev, 'cognito' for production
 ```
 
 ### Compute Configuration

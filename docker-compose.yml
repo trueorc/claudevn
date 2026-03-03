@@ -1,8 +1,8 @@
-# ClaudeVN Platform - Docker Compose Configuration
+# ClaudeVN Platform - Full Local Stack
 # v1.0 Architecture: Serving + Marketplace + Redis + Compute Instances + Site
 #
 # Usage:
-#   docker compose up -d          # Start all services (including marketing site)
+#   docker compose up -d          # Start all services (bypass auth, no login)
 #   docker compose down           # Stop services
 #   docker compose logs -f        # View logs
 #   docker compose build          # Rebuild after changes
@@ -15,9 +15,19 @@
 #   redis        → Redis at localhost:6379
 #   compute-1/2/3 → Compute agents
 #
-# Authentication (serving-centric):
-#   The Serving container owns Claude OAuth credentials. It runs `claude login`
-#   headless and stores credentials on a persistent volume. Compute containers
+# Authentication:
+#   Default: AUTH_MODE=bypass (no login required, dev user assumed)
+#   Cognito: Create a .env file with AUTH_MODE=cognito + Cognito vars:
+#     AUTH_MODE=cognito
+#     COGNITO_USER_POOL_ID=us-east-1_XXXXXXXXX
+#     COGNITO_APP_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
+#     COGNITO_REGION=us-east-1
+#     COGNITO_ADMIN_ENABLED=true
+#
+#   For remote/production deployments with Cognito, use docker-compose.serving.yml instead.
+#
+# Claude Credentials (serving-centric):
+#   The Serving container owns Claude OAuth credentials. Compute containers
 #   fetch credentials from Serving's /auth/credentials endpoint at startup
 #   and refresh them via SSE credentials_refresh events.
 #   External VCN nodes can still bring their own credentials (COMPUTE_AUTH_MODE=external).
@@ -129,6 +139,12 @@ services:
       - RATE_LIMIT_ENABLED=false
       # Claude authentication credentials path
       - CLAUDE_CREDENTIALS_PATH=/app/data/serving/claude-credentials
+      # Authentication - bypass for local dev (set in .env to override)
+      - AUTH_MODE=${AUTH_MODE:-bypass}
+      - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID:-}
+      - COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID:-}
+      - COGNITO_REGION=${COGNITO_REGION:-us-east-1}
+      - COGNITO_ADMIN_ENABLED=${COGNITO_ADMIN_ENABLED:-false}
       # Compute spawner
       - WORKSPACES_PATH=/app/data/workspaces
       - SERVING_PUBLIC_URL=http://serving:8002
@@ -285,32 +301,11 @@ networks:
     driver: bridge
 
 # =============================================================================
-# External VCN Node Template (for nodes joining from other hosts/subscriptions)
+# Remote Deployments
 # =============================================================================
-# External compute nodes can bring their own Claude OAuth credentials,
-# or use COMPUTE_AUTH_MODE=serving to fetch from a remote Serving instance.
-# To add an external node:
+# For remote/production deployments:
+#   - Serving hub (Cognito):  docker-compose.serving.yml + .env.serving
+#   - Remote compute:         docker-compose.compute.yml + .env.compute
 #
-# 1. Create a docker-compose.override.yml with:
-#
-#   services:
-#     compute-external:
-#       build:
-#         context: .
-#         dockerfile: compute/Dockerfile
-#       container_name: claudevn-compute-external
-#       environment:
-#         - COMPUTE_INSTANCE_ID=compute-ext-001
-#         - COMPUTE_INSTANCE_NAME=Compute-External
-#         - SERVING_URL=http://<serving-host>:8002
-#         - COMPUTE_AUTH_MODE=serving  # or "external" with own credentials
-#         - CLAUDEVN_SERVING_AUTH_URL=http://<serving-host>:8002/api/v1/auth
-#         - COMPUTE_SKILLS=code-writer
-#         - COMPUTE_CAPABILITIES=python
-#       # Network: Must be able to reach Serving (e.g., via VPN, public IP, or overlay network)
-#
-# 3. For multi-host deployment, consider:
-#    - Docker Swarm overlay network
-#    - Tailscale/WireGuard VPN
-#    - Public Serving endpoint with TLS
+# See .env.serving.example and .env.compute.example for configuration templates.
 # =============================================================================
