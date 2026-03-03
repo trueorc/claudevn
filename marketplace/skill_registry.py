@@ -52,7 +52,8 @@ class SkillRegistry:
         git_storage: Optional["MarketplaceGitStorage"] = None,
         marketplace_id: Optional[str] = None,
         marketplace_name: Optional[str] = None,
-        marketplace_tier: Optional[MarketplaceTier] = None
+        marketplace_tier: Optional[MarketplaceTier] = None,
+        namespace: Optional[str] = None,
     ):
         """Initialize the skill registry.
 
@@ -62,6 +63,10 @@ class SkillRegistry:
             marketplace_id: ID of this marketplace instance
             marketplace_name: Human-readable name of this marketplace
             marketplace_tier: Hierarchy tier of this marketplace
+            namespace: Optional namespace prefix for non-ROOT skills.
+                When set, user skills are stored under namespaced IDs
+                (e.g., "acme:code-writer") to prevent collisions across
+                marketplaces. ROOT-tier skills are never namespaced.
         """
         self.skills_path = Path(skills_path)
         self.skills: Dict[str, Skill] = {}
@@ -74,6 +79,7 @@ class SkillRegistry:
         self._marketplace_id = marketplace_id
         self._marketplace_name = marketplace_name
         self._marketplace_tier = marketplace_tier
+        self._namespace = namespace
 
     def set_git_storage(self, git_storage: "MarketplaceGitStorage") -> None:
         """Set the Git storage instance for user skills."""
@@ -203,6 +209,15 @@ class SkillRegistry:
                 else:
                     data["marketplace_tier"] = self._marketplace_tier or MarketplaceTier.USER
 
+                # Apply namespace for non-ROOT skills when configured
+                if self._namespace and author_prefix != "system":
+                    data["namespace"] = self._namespace
+                    # Store under namespaced key to prevent flat-dict collisions
+                    original_id = data.get("id", "")
+                    if original_id and ":" not in original_id:
+                        namespaced_id = f"{self._namespace}:{original_id}"
+                        data["id"] = namespaced_id
+
                 skill = Skill(**data)
                 self.skills[skill.id] = skill
                 self._register_skill_tools(skill)
@@ -239,6 +254,13 @@ class SkillRegistry:
                 data["marketplace_id"] = self._marketplace_id
                 data["marketplace_name"] = self._marketplace_name
                 data["marketplace_tier"] = self._marketplace_tier or MarketplaceTier.USER
+
+                # Apply namespace for non-ROOT user skills
+                if self._namespace:
+                    data["namespace"] = self._namespace
+                    original_id = data.get("id", "")
+                    if original_id and ":" not in original_id:
+                        data["id"] = f"{self._namespace}:{original_id}"
 
                 skill = Skill(**data)
                 self.skills[skill.id] = skill
@@ -399,8 +421,37 @@ class SkillRegistry:
         return result
 
     def get_skill(self, skill_id: str) -> Optional[Skill]:
-        """Get a skill by ID."""
-        return self.skills.get(skill_id)
+        """Get a skill by ID, supporting both namespaced and bare lookups.
+
+        Lookup order:
+        1. Exact match (e.g., "acme:code-writer" or "code-writer")
+        2. If bare ID and namespace is configured, try "namespace:skill_id"
+        3. If namespaced ID, try the bare part as fallback
+
+        Args:
+            skill_id: Skill ID, optionally namespace-qualified (e.g., "acme:code-writer")
+
+        Returns:
+            Matching Skill or None
+        """
+        # 1. Exact match
+        skill = self.skills.get(skill_id)
+        if skill is not None:
+            return skill
+
+        # 2. Bare ID → try with namespace prefix
+        if ":" not in skill_id and self._namespace:
+            namespaced = f"{self._namespace}:{skill_id}"
+            skill = self.skills.get(namespaced)
+            if skill is not None:
+                return skill
+
+        # 3. Namespaced ID → try bare part as fallback
+        if ":" in skill_id:
+            _, bare_id = skill_id.split(":", 1)
+            return self.skills.get(bare_id)
+
+        return None
 
     def search_by_capabilities(self, capabilities: List[str]) -> List[Skill]:
         """Search skills that match required capabilities (tags)."""
