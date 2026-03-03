@@ -16,6 +16,7 @@ import ProfilePage from './pages/ProfilePage'
 import SSHKeysPage from './pages/SSHKeysPage'
 import AuthSetupPage from './pages/AuthSetupPage'
 import TimingPage from './pages/TimingPage'
+import NotificationsPage from './pages/NotificationsPage'
 import UserManagementPage from './pages/UserManagementPage'
 import LoginPage from './pages/LoginPage'
 import SetPasswordPage from './pages/SetPasswordPage'
@@ -44,6 +45,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             <Route path="/marketplace" element={<SkillsPage />} />
             <Route path="/network" element={<NetworkHealthPage />} />
             <Route path="/timing" element={<TimingPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
             <Route path="/settings/users" element={<UserManagementPage />} />

@@ -1,5 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { getNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
+import {
+  getNotifications,
+  getUnreadCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+  dismissNotification,
+  dismissAllNotifications,
+} from '../api/notifications'
 
 const POLL_INTERVAL_MS = 15000
 
@@ -7,10 +14,10 @@ const POLL_INTERVAL_MS = 15000
  * Hook for notification data with polling.
  *
  * @param {string} projectId - Active project ID
- * @param {Object} options - { pollInterval }
+ * @param {Object} options - { pollInterval, category, unreadOnly }
  */
 function useNotifications(projectId, options = {}) {
-  const { pollInterval = POLL_INTERVAL_MS } = options
+  const { pollInterval = POLL_INTERVAL_MS, category = null, unreadOnly = false } = options
 
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -20,7 +27,11 @@ function useNotifications(projectId, options = {}) {
   const fetchNotifications = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await getNotifications(projectId, { limit: 30 })
+      const data = await getNotifications(projectId, {
+        limit: 100,
+        category: category || undefined,
+        unreadOnly,
+      })
       setNotifications(data.items || [])
       setUnreadCount(data.unread_count || 0)
     } catch {
@@ -28,7 +39,7 @@ function useNotifications(projectId, options = {}) {
     } finally {
       setLoading(false)
     }
-  }, [projectId])
+  }, [projectId, category, unreadOnly])
 
   const fetchUnreadCount = useCallback(async () => {
     try {
@@ -61,6 +72,31 @@ function useNotifications(projectId, options = {}) {
     }
   }, [projectId])
 
+  const dismiss = useCallback(async (notificationId) => {
+    try {
+      await dismissNotification(notificationId)
+      setNotifications(prev => {
+        const removed = prev.find(n => n.notification_id === notificationId)
+        const next = prev.filter(n => n.notification_id !== notificationId)
+        if (removed && !removed.read) {
+          setUnreadCount(c => Math.max(0, c - 1))
+        }
+        return next
+      })
+    } catch {
+      // Silently handle
+    }
+  }, [])
+
+  const dismissAll = useCallback(async () => {
+    try {
+      await dismissAllNotifications(projectId)
+      setNotifications(prev => prev.filter(n => !n.read))
+    } catch {
+      // Silently handle
+    }
+  }, [projectId])
+
   useEffect(() => {
     fetchNotifications()
 
@@ -77,6 +113,8 @@ function useNotifications(projectId, options = {}) {
     refresh: fetchNotifications,
     markRead,
     markAllRead,
+    dismiss,
+    dismissAll,
   }
 }
 

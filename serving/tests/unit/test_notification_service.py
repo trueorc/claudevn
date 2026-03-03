@@ -163,6 +163,49 @@ class TestUnreadCount:
 
 
 # =============================================================================
+# Dismiss
+# =============================================================================
+
+
+class TestDismiss:
+    def test_dismiss_removes_notification(self, service):
+        n = service.emit(title="Bye")
+        assert service.dismiss(n.notification_id) is True
+        result = service.list_notifications()
+        assert result.total == 0
+
+    def test_dismiss_not_found(self, service):
+        assert service.dismiss("nonexistent") is False
+
+    def test_dismiss_updates_unread_count(self, service):
+        n = service.emit(title="Unread")
+        assert service.get_unread_count() == 1
+        service.dismiss(n.notification_id)
+        assert service.get_unread_count() == 0
+
+    def test_dismiss_all_removes_read_only(self, service):
+        n1 = service.emit(title="Read me")
+        service.emit(title="Still unread")
+        service.mark_read(n1.notification_id)
+        count = service.dismiss_all()
+        assert count == 1
+        result = service.list_notifications()
+        assert result.total == 1
+        assert result.items[0].title == "Still unread"
+
+    def test_dismiss_all_by_project(self, service):
+        n1 = service.emit(title="P1", project_id="proj_1")
+        n2 = service.emit(title="P2", project_id="proj_2")
+        service.mark_read(n1.notification_id)
+        service.mark_read(n2.notification_id)
+        count = service.dismiss_all(project_id="proj_1")
+        assert count == 1
+        result = service.list_notifications()
+        assert result.total == 1
+        assert result.items[0].title == "P2"
+
+
+# =============================================================================
 # Bounded Deque
 # =============================================================================
 
