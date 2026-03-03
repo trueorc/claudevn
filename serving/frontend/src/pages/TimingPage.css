@@ -191,6 +191,13 @@
   white-space: nowrap;
 }
 
+.issue-group-subtitle {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .issue-group-no-issue {
   font-size: 0.82rem;
   color: var(--text-muted);

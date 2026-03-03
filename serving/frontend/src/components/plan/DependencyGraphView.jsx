@@ -86,7 +86,7 @@ function DirectiveSection({ directive, issues, expanded, onToggle }) {
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
         <span className="directive-name">
-          {directive.name || `Directive ${directive.goal_id.slice(0, 8)}`}
+          {directive.name || `Directive ${directive.goal_id}`}
         </span>
         <span className="directive-issue-count">
           {issues.length} issue{issues.length !== 1 ? 's' : ''}

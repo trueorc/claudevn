@@ -484,7 +484,7 @@ class TimingService:
             # Could resolve goal but not directive — still mark as directive-level
             if goal_id:
                 item.directive_id = f"goal:{goal_id}"
-                item.directive_title = f"Goal {goal_id[:8]}..."
+                item.directive_title = f"Goal {goal_id}"
         except Exception:
             logger.debug(f"Could not trace directive for work_id={work_id}")
 

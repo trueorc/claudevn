@@ -533,7 +533,7 @@ function NetworkMap({ onSelectCompute, onSelectMarketplace }) {
             >
               {isOnline && <circle r="6" className="node-halo" />}
               <circle r="4.5" className="node-circle" fill={`url(#${gradientId})`} />
-              <text x="-7" className="node-label node-label-left">{node.data.name || node.id.slice(0, 8)}</text>
+              <text x="-7" className="node-label node-label-left">{node.data.name || node.id}</text>
               {port && <text x="-7" y="3" className="node-sublabel node-label-left">:{port}</text>}
               {(caps.agents > 0 || caps.tools > 0) && (
                 <text x="-7" y="6" className="node-caps node-label-left">
@@ -566,7 +566,7 @@ function NetworkMap({ onSelectCompute, onSelectMarketplace }) {
             >
               {isOnline && <circle r="6" className="node-halo" />}
               <circle r="4.5" className="node-circle" fill={`url(#${gradientId})`} />
-              <text x="7" className="node-label node-label-right">{node.data.name || node.id.slice(0, 8)}</text>
+              <text x="7" className="node-label node-label-right">{node.data.name || node.id}</text>
               {port && <text x="7" y="3" className="node-sublabel node-label-right">:{port}</text>}
               {(caps.agents > 0 || caps.tools > 0) && (
                 <text x="7" y="6" className="node-caps node-label-right">
@@ -594,7 +594,7 @@ function NetworkMap({ onSelectCompute, onSelectMarketplace }) {
           </div>
           <div className="tooltip-row">
             <span className="tooltip-label">ID:</span>
-            <span className="tooltip-value">{hoveredNode.id.slice(0, 12)}...</span>
+            <span className="tooltip-value">{hoveredNode.id}</span>
           </div>
           <div className="tooltip-row">
             <span className="tooltip-label">Endpoint:</span>

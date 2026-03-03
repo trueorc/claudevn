@@ -262,6 +262,7 @@
   align-items: center;
   gap: var(--space-sm);
   margin-bottom: 4px;
+  min-width: 0;
 }
 
 .plan-work-item-id {

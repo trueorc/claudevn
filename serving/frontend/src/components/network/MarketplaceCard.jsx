@@ -43,7 +43,7 @@ function MarketplaceCard({ marketplace, onClick }) {
         <div className="instance-meta">
           <span className="meta-item">
             <span className="meta-label">ID:</span>
-            <span className="meta-value mono">{marketplace_id?.slice(0, 12)}</span>
+            <span className="meta-value mono">{marketplace_id}</span>
           </span>
           <span className="meta-item">
             <span className="meta-label">Skills:</span>

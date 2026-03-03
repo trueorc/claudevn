@@ -123,7 +123,7 @@ function IssueDetailModal({ isOpen, onClose, issue, onEdit, onSuccess, viewOnly 
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Issue #${issue.issue_id?.slice(0, 8) || issue.id}`}
+      title={`Issue #${issue.issue_id || issue.id}`}
       width="600px"
     >
       <div className="issue-detail">
@@ -170,7 +170,7 @@ function IssueDetailModal({ isOpen, onClose, issue, onEdit, onSuccess, viewOnly 
           {issue.release_id && (
             <Badge variant="info">
               <Calendar size={10} style={{ marginRight: '4px' }} />
-              {issue.release_name || issue.release_id.slice(0, 8)}
+              {issue.release_name || issue.release_id}
             </Badge>
           )}
         </div>
@@ -250,7 +250,7 @@ function IssueDetailModal({ isOpen, onClose, issue, onEdit, onSuccess, viewOnly 
             <label className="detail-label">Dependencies</label>
             <div className="detail-dependencies">
               {issue.depends_on.map(depId => (
-                <span key={depId} className="dep-badge">#{depId.slice(0, 8)}</span>
+                <span key={depId} className="dep-badge">#{depId}</span>
               ))}
             </div>
           </div>
@@ -261,7 +261,7 @@ function IssueDetailModal({ isOpen, onClose, issue, onEdit, onSuccess, viewOnly 
             <label className="detail-label">Blocks</label>
             <div className="detail-dependencies">
               {issue.blocks.map(blockId => (
-                <span key={blockId} className="dep-badge blocked">#{blockId.slice(0, 8)}</span>
+                <span key={blockId} className="dep-badge blocked">#{blockId}</span>
               ))}
             </div>
           </div>

@@ -788,12 +788,10 @@ function OntologyTagsDisplay({ tags }) {
   )
 }
 
-// Strips the 'issue_' prefix and returns the first 8 hex chars for display
+// Display full issue ID (including prefix) for consistency across all screens
 const formatIssueId = (issueId) => {
   if (!issueId) return ''
-  const prefix = 'issue_'
-  const hash = issueId.startsWith(prefix) ? issueId.slice(prefix.length) : issueId
-  return hash.slice(0, 8)
+  return issueId
 }
 
 // Bucket rank color mapping (rank 1 = most prominent)
@@ -868,7 +866,7 @@ function BacklogItem({ issue, viewMode, characterization, bucketEntries, onClick
           {assigned_compute_id && (
             <span className="detail-chip">
               <User size={12} />
-              {assigned_compute_id.slice(0, 8)}
+              {assigned_compute_id}
             </span>
           )}
           {hasDependencies && (
@@ -919,7 +917,7 @@ function BacklogItem({ issue, viewMode, characterization, bucketEntries, onClick
         {assigned_compute_id && (
           <span className="detail-chip">
             <User size={12} />
-            <span className="mono">{assigned_compute_id.slice(0, 12)}</span>
+            <span className="mono">{assigned_compute_id}</span>
           </span>
         )}
       </div>

@@ -309,7 +309,7 @@ function WorkMapBacklog({ issuesByGoal, loading, filters, onFilterChange, onIssu
                               </div>
                               <div className="issue-content">
                                 <div className="issue-header">
-                                  <div className="issue-id">#{issue.number || issueId?.slice(0, 8)}</div>
+                                  <div className="issue-id">#{issue.number || issueId}</div>
                                   <h4 className="issue-title">{issue.title}</h4>
                                 </div>
 
@@ -326,7 +326,7 @@ function WorkMapBacklog({ issuesByGoal, loading, filters, onFilterChange, onIssu
                                   {issue.release_id && (
                                     <Badge variant="info">
                                       <Calendar size={10} style={{ marginRight: '4px' }} />
-                                      {issue.release_name || releases.find(r => r.release_id === issue.release_id)?.name || issue.release_id.slice(0, 8)}
+                                      {issue.release_name || releases.find(r => r.release_id === issue.release_id)?.name || issue.release_id}
                                     </Badge>
                                   )}
                                 </div>
@@ -363,7 +363,7 @@ function WorkMapBacklog({ issuesByGoal, loading, filters, onFilterChange, onIssu
                                     <span className="dep-label">Depends on:</span>
                                     <div className="dep-list">
                                       {issue.depends_on.map(dep => (
-                                        <span key={dep} className="dep-item">#{dep.slice(0, 8)}</span>
+                                        <span key={dep} className="dep-item">#{dep}</span>
                                       ))}
                                     </div>
                                   </div>
