@@ -64,6 +64,7 @@ from api import feedback
 from api import auth
 from api import cognito_users
 from api import network_capacity
+from api import provisioner
 from api import timing
 # MCP server for compute communication
 from mcp import get_router
@@ -1104,6 +1105,7 @@ app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
 app.include_router(cognito_users.router, prefix=api_prefix)
 app.include_router(network_capacity.router, prefix=api_prefix)
+app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix

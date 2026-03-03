@@ -1479,6 +1479,29 @@ class WorkOrchestrator:
                 project_id=work.project_id,
             )
 
+            # Try auto-provisioning via the provisioner registry
+            try:
+                from services.compute_provisioner import get_provisioner_registry, ProvisioningRequest
+                registry = get_provisioner_registry()
+                if registry.list_providers():
+                    prov_request = ProvisioningRequest(
+                        required_tools=work.required_tools or [],
+                        required_labels=work.required_labels or [],
+                        required_capabilities=work.required_capabilities or [],
+                        project_id=work.project_id or "",
+                        triggered_by_work_id=work_id,
+                    )
+                    result = await registry.provision(prov_request)
+                    if result.success:
+                        logger.info(
+                            f"Provisioner '{result.provider}' handling gap for {work_id} "
+                            f"(instance={result.instance_id}, ETA={result.estimated_ready_seconds}s)"
+                        )
+                    else:
+                        logger.debug(f"No provisioner could handle gap for {work_id}: {result.error}")
+            except Exception as e:
+                logger.debug(f"Provisioner integration unavailable: {e}")
+
     async def _on_compute_connected(self, compute_id: str) -> None:
         """Handle a new compute instance connecting via SSE.
 
