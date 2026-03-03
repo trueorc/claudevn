@@ -292,6 +292,22 @@
   align-items: center;
 }
 
+.runtime-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.runtime-tag {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-2, #1e293b);
+  color: var(--text-secondary, #94a3b8);
+  font-family: var(--font-mono, monospace);
+}
+
 .lifecycle-badge {
   font-size: 0.65rem;
   padding: 1px 6px;

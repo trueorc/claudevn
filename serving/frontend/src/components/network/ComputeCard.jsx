@@ -9,6 +9,7 @@ function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
 
   const agentCount = capabilities?.agents?.length || 0
   const toolCount = capabilities?.tools?.length || 0
+  const runtimes = (capabilities?.tools_available || []).filter(t => t.startsWith('runtime:'))
   const isDraining = status === 'draining'
   const isBenched = !isDraining && (!project_ids || project_ids.length === 0)
   const isAllProjects = project_ids?.includes('*')
@@ -46,6 +47,13 @@ function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
             </span>
           </span>
         </div>
+        {runtimes.length > 0 && (
+          <div className="runtime-tags">
+            {runtimes.map(rt => (
+              <span key={rt} className="runtime-tag">{rt.replace('runtime:', '')}</span>
+            ))}
+          </div>
+        )}
         {last_heartbeat && (
           <div className="last-seen">
             Last seen: {new Date(last_heartbeat).toLocaleTimeString()}
