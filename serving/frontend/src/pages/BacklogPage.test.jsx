@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { formatIssueId } from './BacklogPage'
 
 describe('formatIssueId', () => {
-  it('strips issue_ prefix and returns first 8 chars of hash', () => {
-    expect(formatIssueId('issue_a9bc15c574b8')).toBe('a9bc15c5')
+  it('returns the full issue ID unchanged', () => {
+    expect(formatIssueId('issue_a9bc15c574b8')).toBe('issue_a9bc15c574b8')
   })
 
-  it('returns first 8 chars when no issue_ prefix', () => {
-    expect(formatIssueId('a9bc15c574b8deadbeef')).toBe('a9bc15c5')
+  it('returns full ID when no issue_ prefix', () => {
+    expect(formatIssueId('a9bc15c574b8deadbeef')).toBe('a9bc15c574b8deadbeef')
   })
 
   it('returns empty string for null', () => {
@@ -22,11 +22,11 @@ describe('formatIssueId', () => {
     expect(formatIssueId('')).toBe('')
   })
 
-  it('handles short IDs without truncation issues', () => {
-    expect(formatIssueId('issue_abc')).toBe('abc')
+  it('returns full ID including prefix for short IDs', () => {
+    expect(formatIssueId('issue_abc')).toBe('issue_abc')
   })
 
-  it('handles ID that is exactly the prefix with no hash', () => {
-    expect(formatIssueId('issue_')).toBe('')
+  it('returns issue_ prefix as-is', () => {
+    expect(formatIssueId('issue_')).toBe('issue_')
   })
 })

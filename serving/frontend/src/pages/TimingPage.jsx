@@ -352,7 +352,7 @@ function classifyWorkItems(workItems) {
         issueGroups.set(key, {
           key,
           label: item.issue_title || item.issue_id,
-          sublabel: null,
+          sublabel: item.issue_id,
           items: []
         })
       }

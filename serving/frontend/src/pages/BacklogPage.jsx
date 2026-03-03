@@ -788,11 +788,10 @@ function OntologyTagsDisplay({ tags }) {
   )
 }
 
-// Strips the 'issue_' prefix for display
+// Display full issue ID (including prefix) for consistency across all screens
 const formatIssueId = (issueId) => {
   if (!issueId) return ''
-  const prefix = 'issue_'
-  return issueId.startsWith(prefix) ? issueId.slice(prefix.length) : issueId
+  return issueId
 }
 
 // Bucket rank color mapping (rank 1 = most prominent)
