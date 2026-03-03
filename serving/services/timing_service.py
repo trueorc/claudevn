@@ -280,13 +280,13 @@ class TimingService:
         timings = await self.get_recent_timings(limit)
 
         # Collect durations by (phase, tool_name) where tool_name is set
-        # only for MCP tool calls.
+        # for MCP tool calls and TOOL_USE entries.
         by_key: Dict[tuple, List[float]] = {}
         for timing in timings:
             for entry in timing.entries:
                 if entry.duration_ms is None:
                     continue
-                if entry.phase == TimingPhase.MCP_TOOL_CALL:
+                if entry.phase in (TimingPhase.MCP_TOOL_CALL, TimingPhase.TOOL_USE):
                     raw_name = (entry.metadata or {}).get("tool_name", "")
                     tool_name = self._clean_tool_name(raw_name) if raw_name else "unknown"
                     key = (entry.phase, tool_name)
@@ -295,14 +295,24 @@ class TimingService:
                 by_key.setdefault(key, []).append(entry.duration_ms)
 
         results = []
-        # Non-MCP phases first (in enum order), then MCP tools sorted by name
+        # Non-tool-breakdown phases first (in enum order)
         for phase in TimingPhase:
-            if phase == TimingPhase.MCP_TOOL_CALL:
+            if phase in (TimingPhase.MCP_TOOL_CALL, TimingPhase.TOOL_USE):
                 continue
             durations = by_key.get((phase, None), [])
             if not durations:
                 continue
             results.append(self._make_aggregate(phase, None, durations))
+
+        # TOOL_USE entries sorted alphabetically by tool name
+        tool_use_keys = sorted(
+            (k for k in by_key if k[0] == TimingPhase.TOOL_USE),
+            key=lambda k: k[1] or "",
+        )
+        for key in tool_use_keys:
+            phase, tool_name = key
+            durations = by_key[key]
+            results.append(self._make_aggregate(phase, tool_name, durations))
 
         # MCP tool calls sorted alphabetically by tool name
         mcp_keys = sorted(

@@ -611,6 +611,7 @@ class ComputeEventRequest(BaseModel):
     output_tokens: Optional[int] = Field(None, description="Total output tokens")
     cache_read_tokens: Optional[int] = Field(None, description="Cache read tokens")
     cache_creation_tokens: Optional[int] = Field(None, description="Cache creation tokens")
+    tool_timings: Optional[List[Dict[str, Any]]] = Field(None, description="Per-tool execution timing from SDK hooks")
 
 
 class ComputeEventResponse(BaseModel):

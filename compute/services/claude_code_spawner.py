@@ -1274,6 +1274,7 @@ sys.exit(1)
                         output_tokens=result.output_tokens if result.output_tokens > 0 else None,
                         cache_read_tokens=result.cache_read_tokens if result.cache_read_tokens > 0 else None,
                         cache_creation_tokens=result.cache_creation_tokens if result.cache_creation_tokens > 0 else None,
+                        tool_timings=result.tool_timings if result.tool_timings else None,
                     )
             else:
                 error_msg = result.error or f"SDK execution failed with exit code {result.exit_code}"
@@ -1819,6 +1820,7 @@ sys.exit(1)
         output_tokens: Optional[int] = None,
         cache_read_tokens: Optional[int] = None,
         cache_creation_tokens: Optional[int] = None,
+        tool_timings: Optional[list] = None,
     ) -> None:
         """Send claude_code_completed event to Serving.
 
@@ -1837,6 +1839,7 @@ sys.exit(1)
             output_tokens: Total output tokens
             cache_read_tokens: Cache read tokens
             cache_creation_tokens: Cache creation tokens
+            tool_timings: Per-tool execution timing from SDK hooks
         """
         event = {
             "event": "claude_code_completed",
@@ -1867,6 +1870,8 @@ sys.exit(1)
             event["cache_read_tokens"] = cache_read_tokens
         if cache_creation_tokens is not None:
             event["cache_creation_tokens"] = cache_creation_tokens
+        if tool_timings:
+            event["tool_timings"] = tool_timings
 
         await self._send_event(event)
 
