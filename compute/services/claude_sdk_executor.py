@@ -12,6 +12,7 @@ internally.
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -25,6 +26,12 @@ from claude_agent_sdk import (
     ToolUseBlock,
     query,
 )
+
+try:
+    from claude_agent_sdk import PreToolUse, PostToolUse
+except ImportError:
+    PreToolUse = None
+    PostToolUse = None
 import claude_agent_sdk._internal.message_parser as _message_parser
 
 # Patch: SDK 0.1.39 doesn't handle `rate_limit_event` messages emitted by the
@@ -75,6 +82,7 @@ class ExecutionResult:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    tool_timings: List[Dict[str, Any]] = field(default_factory=list)
 
 
 def build_mcp_servers(
@@ -183,6 +191,8 @@ async def execute_task(
     output_parts: List[str] = []
     tool_calls: List[str] = []
     result_message: Optional[ResultMessage] = None
+    tool_start_times: Dict[str, float] = {}
+    tool_timings: List[Dict[str, Any]] = []
 
     try:
         async for message in query(prompt=prompt, options=options):
@@ -197,6 +207,18 @@ async def execute_task(
                         tool_calls.append(block.name)
                         logger.debug(f"[sdk] tool call: {block.name}")
 
+            elif PreToolUse is not None and isinstance(message, PreToolUse):
+                tool_start_times[message.tool_use_id] = time.monotonic()
+
+            elif PostToolUse is not None and isinstance(message, PostToolUse):
+                start_time = tool_start_times.pop(message.tool_use_id, None)
+                if start_time is not None:
+                    elapsed_ms = (time.monotonic() - start_time) * 1000
+                    tool_timings.append({
+                        "tool_name": message.tool_name,
+                        "duration_ms": round(elapsed_ms, 1),
+                    })
+
             elif isinstance(message, ResultMessage):
                 result_message = message
 
@@ -207,6 +229,7 @@ async def execute_task(
                 error="No ResultMessage received from SDK",
                 output="\n".join(output_parts),
                 tool_calls=tool_calls,
+                tool_timings=tool_timings,
             )
 
         full_output = "\n".join(output_parts)
@@ -229,6 +252,7 @@ async def execute_task(
             output_tokens=getattr(result_message, "output_tokens", 0) or 0,
             cache_read_tokens=getattr(result_message, "cache_read_tokens", 0) or 0,
             cache_creation_tokens=getattr(result_message, "cache_creation_tokens", 0) or 0,
+            tool_timings=tool_timings,
         )
 
     except Exception as e:
@@ -242,4 +266,5 @@ async def execute_task(
             output="\n".join(output_parts),
             error=error_msg,
             tool_calls=tool_calls,
+            tool_timings=tool_timings,
         )

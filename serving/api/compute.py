@@ -567,6 +567,23 @@ async def receive_compute_event(
                     end=now,
                 )
 
+            # Record per-tool timing from SDK hooks
+            if event.tool_timings:
+                for tool_timing in event.tool_timings:
+                    tool_name = tool_timing.get("tool_name", "unknown")
+                    tool_duration_ms = tool_timing.get("duration_ms", 0)
+                    if tool_duration_ms > 0:
+                        tool_end = now
+                        tool_start = now - timedelta(milliseconds=tool_duration_ms)
+                        await timing_svc.record_phase(
+                            work_id=event.task_id,
+                            instance_id=event.compute_id,
+                            phase=TimingPhase.TOOL_USE,
+                            start=tool_start,
+                            end=tool_end,
+                            metadata={"tool_name": tool_name},
+                        )
+
             # Update session-level metrics
             if any([event.cost_usd, event.input_tokens, event.output_tokens,
                     event.num_turns, event.session_id]):

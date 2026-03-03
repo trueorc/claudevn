@@ -155,6 +155,77 @@ class TestGetAggregateStats:
         assert tool_names == ["get_context", "report_progress"]
 
 
+class TestToolUseAggregateStats:
+    """Tests for TOOL_USE per-tool aggregate breakdown."""
+
+    @pytest.fixture
+    def service(self):
+        return TimingService(redis_client=None)
+
+    @pytest.mark.asyncio
+    async def test_tool_use_broken_out_by_tool_name(self, service):
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 50.0, "Read"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 100.0, "Read"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 4200.0, "Bash"),
+        )
+
+        stats = await service.get_aggregate_stats(limit=10)
+        tool_stats = [s for s in stats if s.phase == TimingPhase.TOOL_USE]
+        assert len(tool_stats) == 2
+
+        bash_stat = next(s for s in tool_stats if s.tool_name == "Bash")
+        assert bash_stat.count == 1
+        assert bash_stat.avg_ms == 4200.0
+
+        read_stat = next(s for s in tool_stats if s.tool_name == "Read")
+        assert read_stat.count == 2
+        assert read_stat.avg_ms == 75.0
+
+    @pytest.mark.asyncio
+    async def test_tool_use_appears_before_mcp_in_results(self, service):
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 50.0, "Read"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.MCP_TOOL_CALL, 200.0, "claudevn_get_context"),
+        )
+
+        stats = await service.get_aggregate_stats(limit=10)
+        phases = [s.phase for s in stats]
+        tool_use_idx = phases.index(TimingPhase.TOOL_USE)
+        mcp_idx = phases.index(TimingPhase.MCP_TOOL_CALL)
+        assert tool_use_idx < mcp_idx
+
+    @pytest.mark.asyncio
+    async def test_tool_use_sorted_alphabetically(self, service):
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 100.0, "Write"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 50.0, "Bash"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 75.0, "Read"),
+        )
+
+        stats = await service.get_aggregate_stats(limit=10)
+        tool_names = [s.tool_name for s in stats if s.phase == TimingPhase.TOOL_USE]
+        assert tool_names == ["Bash", "Read", "Write"]
+
+
 class TestEnrichDirectiveContext:
     """Tests for directive-level work item enrichment."""
 

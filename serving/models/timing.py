@@ -12,6 +12,7 @@ class TimingPhase(str, Enum):
     REPO_CLONE = "repo_clone"
     SDK_LAUNCH = "sdk_launch"
     MCP_TOOL_CALL = "mcp_tool_call"
+    TOOL_USE = "tool_use"
     API_INFERENCE = "api_inference"
     SDK_EXECUTION = "sdk_execution"
     GIT_PUSH = "git_push"
