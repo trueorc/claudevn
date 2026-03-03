@@ -9,7 +9,9 @@ const PHASE_LABELS = {
   repo_clone: 'Repo Clone',
   sdk_launch: 'SDK Launch',
   mcp_tool_call: 'MCP Tool Call',
+  tool_use: 'Tool Use',
   api_inference: 'API Inference',
+  sdk_execution: 'SDK Execution',
   git_push: 'Git Push',
   total_wall_time: 'Total Wall Time'
 }
@@ -19,7 +21,9 @@ const PHASE_COLORS = {
   repo_clone: '#8b5cf6',
   sdk_launch: '#f59e0b',
   mcp_tool_call: '#10b981',
+  tool_use: '#14b8a6',
   api_inference: '#ef4444',
+  sdk_execution: '#f97316',
   git_push: '#6366f1',
   total_wall_time: '#64748b'
 }
@@ -29,7 +33,9 @@ const PHASE_BG_COLORS = {
   repo_clone: 'rgba(139, 92, 246, 0.15)',
   sdk_launch: 'rgba(245, 158, 11, 0.15)',
   mcp_tool_call: 'rgba(16, 185, 129, 0.15)',
+  tool_use: 'rgba(20, 184, 166, 0.15)',
   api_inference: 'rgba(239, 68, 68, 0.15)',
+  sdk_execution: 'rgba(249, 115, 22, 0.15)',
   git_push: 'rgba(99, 102, 241, 0.15)',
   total_wall_time: 'rgba(100, 116, 139, 0.15)'
 }
@@ -47,6 +53,18 @@ function formatTimestamp(ts) {
   if (!ts) return '-'
   const d = new Date(ts)
   return d.toLocaleTimeString()
+}
+
+function formatTokens(n) {
+  if (n == null || n === 0) return null
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(0)}K`
+  return `${n}`
+}
+
+function formatCost(usd) {
+  if (usd == null || usd === 0) return null
+  return `$${usd.toFixed(2)}`
 }
 
 /** Strip common prefixes from MCP tool names (e.g. "claudevn_get_context" -> "get_context") */
@@ -157,6 +175,17 @@ function ProjectSummary({ workItems, totalWorkItems }) {
     workItems.filter(i => i.issue_id).map(i => i.issue_id)
   ).size
 
+  const totalTokens = workItems.reduce((sum, item) => {
+    return sum + (item.input_tokens || 0) + (item.output_tokens || 0)
+  }, 0)
+
+  const totalCost = workItems.reduce((sum, item) => {
+    return sum + (item.total_cost_usd || 0)
+  }, 0)
+
+  const tokensFormatted = formatTokens(totalTokens)
+  const costFormatted = formatCost(totalCost)
+
   return (
     <div className="timing-project-summary">
       <div className="timing-project-stat">
@@ -173,6 +202,24 @@ function ProjectSummary({ workItems, totalWorkItems }) {
         <span className="timing-project-stat-label">Work Items</span>
         <span className="timing-project-stat-value">{totalWorkItems}</span>
       </div>
+      {tokensFormatted && (
+        <>
+          <div className="timing-project-divider" />
+          <div className="timing-project-stat">
+            <span className="timing-project-stat-label">Tokens</span>
+            <span className="timing-project-stat-value">{tokensFormatted}</span>
+          </div>
+        </>
+      )}
+      {costFormatted && (
+        <>
+          <div className="timing-project-divider" />
+          <div className="timing-project-stat">
+            <span className="timing-project-stat-label">Cost</span>
+            <span className="timing-project-stat-value">{costFormatted}</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -243,6 +290,17 @@ function WorkItemGroup({ groupKey, label, sublabel, items }) {
       }, 0)
     : null
 
+  const groupTokens = items.reduce((sum, item) => {
+    return sum + (item.input_tokens || 0) + (item.output_tokens || 0)
+  }, 0)
+
+  const groupCost = items.reduce((sum, item) => {
+    return sum + (item.total_cost_usd || 0)
+  }, 0)
+
+  const groupTokensFormatted = formatTokens(groupTokens)
+  const groupCostFormatted = formatCost(groupCost)
+
   return (
     <div className="issue-group">
       <div className="issue-group-header" onClick={() => setExpanded(!expanded)}>
@@ -256,6 +314,12 @@ function WorkItemGroup({ groupKey, label, sublabel, items }) {
         <div className="issue-group-stats">
           <span className="issue-group-calls">{allEntries.length} calls</span>
           <span className="issue-group-duration">{formatDuration(totalDuration)}</span>
+          {groupTokensFormatted && (
+            <span className="issue-group-tokens">{groupTokensFormatted}</span>
+          )}
+          {groupCostFormatted && (
+            <span className="issue-group-cost">{groupCostFormatted}</span>
+          )}
           {latestTime && (
             <span className="issue-group-time">{formatTimestamp(new Date(latestTime).toISOString())}</span>
           )}
@@ -472,4 +536,4 @@ function TimingPage() {
 }
 
 export default TimingPage
-export { formatDuration, cleanToolName, classifyWorkItems, sumEntryDurations, LONG_RUNNING_THRESHOLD_MS }
+export { formatDuration, cleanToolName, classifyWorkItems, sumEntryDurations, formatTokens, formatCost, LONG_RUNNING_THRESHOLD_MS }

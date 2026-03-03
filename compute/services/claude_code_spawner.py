@@ -1265,6 +1265,16 @@ sys.exit(1)
                         exit_code=result.exit_code,
                         duration_seconds=int(duration),
                         branch_name=branch_name,
+                        duration_ms=result.duration_ms,
+                        session_id=result.session_id,
+                        cost_usd=result.cost_usd,
+                        duration_api_ms=result.duration_api_ms if result.duration_api_ms > 0 else None,
+                        num_turns=result.num_turns if result.num_turns > 0 else None,
+                        input_tokens=result.input_tokens if result.input_tokens > 0 else None,
+                        output_tokens=result.output_tokens if result.output_tokens > 0 else None,
+                        cache_read_tokens=result.cache_read_tokens if result.cache_read_tokens > 0 else None,
+                        cache_creation_tokens=result.cache_creation_tokens if result.cache_creation_tokens > 0 else None,
+                        tool_timings=result.tool_timings if result.tool_timings else None,
                     )
             else:
                 error_msg = result.error or f"SDK execution failed with exit code {result.exit_code}"
@@ -1800,7 +1810,17 @@ sys.exit(1)
         instance_id: str,
         exit_code: int,
         duration_seconds: int,
-        branch_name: Optional[str] = None
+        branch_name: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+        session_id: Optional[str] = None,
+        cost_usd: Optional[float] = None,
+        duration_api_ms: Optional[int] = None,
+        num_turns: Optional[int] = None,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        cache_read_tokens: Optional[int] = None,
+        cache_creation_tokens: Optional[int] = None,
+        tool_timings: Optional[list] = None,
     ) -> None:
         """Send claude_code_completed event to Serving.
 
@@ -1810,6 +1830,16 @@ sys.exit(1)
             exit_code: Process exit code
             duration_seconds: Duration in seconds
             branch_name: Git branch name with the work's commits
+            duration_ms: Total SDK execution time in milliseconds
+            session_id: SDK session ID
+            cost_usd: Total cost in USD
+            duration_api_ms: LLM API inference time in milliseconds
+            num_turns: Number of conversation turns
+            input_tokens: Total input tokens
+            output_tokens: Total output tokens
+            cache_read_tokens: Cache read tokens
+            cache_creation_tokens: Cache creation tokens
+            tool_timings: Per-tool execution timing from SDK hooks
         """
         event = {
             "event": "claude_code_completed",
@@ -1820,8 +1850,28 @@ sys.exit(1)
             "duration_seconds": duration_seconds,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        if branch_name:
+        if branch_name is not None:
             event["branch_name"] = branch_name
+        if duration_ms is not None:
+            event["duration_ms"] = duration_ms
+        if session_id is not None:
+            event["session_id"] = session_id
+        if cost_usd is not None:
+            event["cost_usd"] = cost_usd
+        if duration_api_ms is not None:
+            event["duration_api_ms"] = duration_api_ms
+        if num_turns is not None:
+            event["num_turns"] = num_turns
+        if input_tokens is not None:
+            event["input_tokens"] = input_tokens
+        if output_tokens is not None:
+            event["output_tokens"] = output_tokens
+        if cache_read_tokens is not None:
+            event["cache_read_tokens"] = cache_read_tokens
+        if cache_creation_tokens is not None:
+            event["cache_creation_tokens"] = cache_creation_tokens
+        if tool_timings:
+            event["tool_timings"] = tool_timings
 
         await self._send_event(event)
 

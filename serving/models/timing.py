@@ -12,7 +12,9 @@ class TimingPhase(str, Enum):
     REPO_CLONE = "repo_clone"
     SDK_LAUNCH = "sdk_launch"
     MCP_TOOL_CALL = "mcp_tool_call"
+    TOOL_USE = "tool_use"
     API_INFERENCE = "api_inference"
+    SDK_EXECUTION = "sdk_execution"
     GIT_PUSH = "git_push"
     TOTAL_WALL_TIME = "total_wall_time"
 
@@ -39,6 +41,13 @@ class WorkItemTiming(BaseModel):
     issue_title: Optional[str] = Field(None, description="Associated issue title")
     directive_id: Optional[str] = Field(None, description="Associated directive identifier")
     directive_title: Optional[str] = Field(None, description="Associated directive title")
+    total_cost_usd: Optional[float] = Field(None, description="Total cost in USD")
+    input_tokens: Optional[int] = Field(None, description="Total input tokens")
+    output_tokens: Optional[int] = Field(None, description="Total output tokens")
+    cache_read_tokens: Optional[int] = Field(None, description="Cache read tokens")
+    cache_creation_tokens: Optional[int] = Field(None, description="Cache creation tokens")
+    num_turns: Optional[int] = Field(None, description="Number of conversation turns")
+    session_id: Optional[str] = Field(None, description="SDK session ID")
 
 
 class AggregateStats(BaseModel):

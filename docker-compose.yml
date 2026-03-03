@@ -1,5 +1,5 @@
 # ClaudeVN Platform - Full Local Stack
-# v1.0 Architecture: Serving + Marketplace + Redis + Compute Instances + Site
+# v1.0 Architecture: Serving + Marketplace + Redis + Compute Instances
 #
 # Usage:
 #   docker compose up -d          # Start all services (bypass auth, no login)
@@ -9,7 +9,6 @@
 #   docker compose up -d --scale compute=3  # Scale compute instances
 #
 # Services:
-#   site         → Marketing site at http://localhost:3000
 #   serving      → Coordination hub at http://localhost:8002
 #   marketplace  → Skill marketplace at http://localhost:8003
 #   redis        → Redis at localhost:6379
@@ -39,16 +38,6 @@
 # Note: Start Docker Desktop first!
 
 services:
-  # Marketing Site - Static React/Vite site served by Nginx
-  site:
-    build: ./site
-    container_name: claudevn-site
-    ports:
-      - "3000:80"
-    networks:
-      - claudevn-network
-    restart: unless-stopped
-
   # Redis - Required for Git PR queue management
   redis:
     image: redis:7-alpine

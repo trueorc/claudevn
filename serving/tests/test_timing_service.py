@@ -155,6 +155,77 @@ class TestGetAggregateStats:
         assert tool_names == ["get_context", "report_progress"]
 
 
+class TestToolUseAggregateStats:
+    """Tests for TOOL_USE per-tool aggregate breakdown."""
+
+    @pytest.fixture
+    def service(self):
+        return TimingService(redis_client=None)
+
+    @pytest.mark.asyncio
+    async def test_tool_use_broken_out_by_tool_name(self, service):
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 50.0, "Read"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 100.0, "Read"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 4200.0, "Bash"),
+        )
+
+        stats = await service.get_aggregate_stats(limit=10)
+        tool_stats = [s for s in stats if s.phase == TimingPhase.TOOL_USE]
+        assert len(tool_stats) == 2
+
+        bash_stat = next(s for s in tool_stats if s.tool_name == "Bash")
+        assert bash_stat.count == 1
+        assert bash_stat.avg_ms == 4200.0
+
+        read_stat = next(s for s in tool_stats if s.tool_name == "Read")
+        assert read_stat.count == 2
+        assert read_stat.avg_ms == 75.0
+
+    @pytest.mark.asyncio
+    async def test_tool_use_appears_before_mcp_in_results(self, service):
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 50.0, "Read"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.MCP_TOOL_CALL, 200.0, "claudevn_get_context"),
+        )
+
+        stats = await service.get_aggregate_stats(limit=10)
+        phases = [s.phase for s in stats]
+        tool_use_idx = phases.index(TimingPhase.TOOL_USE)
+        mcp_idx = phases.index(TimingPhase.MCP_TOOL_CALL)
+        assert tool_use_idx < mcp_idx
+
+    @pytest.mark.asyncio
+    async def test_tool_use_sorted_alphabetically(self, service):
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 100.0, "Write"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 50.0, "Bash"),
+        )
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.TOOL_USE, 75.0, "Read"),
+        )
+
+        stats = await service.get_aggregate_stats(limit=10)
+        tool_names = [s.tool_name for s in stats if s.phase == TimingPhase.TOOL_USE]
+        assert tool_names == ["Bash", "Read", "Write"]
+
+
 class TestEnrichDirectiveContext:
     """Tests for directive-level work item enrichment."""
 
@@ -236,3 +307,53 @@ class TestEnrichDirectiveContext:
         # Should not raise
         await service._enrich_directive_context(item, goal_service, None)
         assert item.directive_id is None
+
+
+class TestUpdateSessionMetrics:
+    """Tests for update_session_metrics method."""
+
+    @pytest.fixture
+    def service(self):
+        return TimingService(redis_client=None)
+
+    @pytest.mark.asyncio
+    async def test_creates_record_if_not_exists(self, service):
+        await service.update_session_metrics(
+            work_id="w1", instance_id="c1",
+            cost_usd=0.47, input_tokens=142000, output_tokens=18000,
+            num_turns=12, session_id="sess-abc",
+        )
+        timing = await service.get_work_item_timing("w1", "c1")
+        assert timing is not None
+        assert timing.total_cost_usd == 0.47
+        assert timing.input_tokens == 142000
+        assert timing.output_tokens == 18000
+        assert timing.num_turns == 12
+        assert timing.session_id == "sess-abc"
+
+    @pytest.mark.asyncio
+    async def test_updates_existing_record(self, service):
+        # Create a record with an entry first
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.SDK_LAUNCH, 100.0),
+        )
+        await service.update_session_metrics(
+            work_id="w1", instance_id="c1",
+            cost_usd=0.25, num_turns=5,
+        )
+        timing = await service.get_work_item_timing("w1", "c1")
+        assert timing.total_cost_usd == 0.25
+        assert timing.num_turns == 5
+        assert len(timing.entries) == 1  # Existing entry preserved
+
+    @pytest.mark.asyncio
+    async def test_partial_update(self, service):
+        await service.update_session_metrics(
+            work_id="w1", instance_id="c1",
+            cost_usd=0.10,
+        )
+        timing = await service.get_work_item_timing("w1", "c1")
+        assert timing.total_cost_usd == 0.10
+        assert timing.input_tokens is None
+        assert timing.num_turns is None

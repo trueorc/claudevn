@@ -602,6 +602,16 @@ class ComputeEventRequest(BaseModel):
     duration_seconds: Optional[int] = Field(None, description="Duration in seconds (for completed/failed)")
     error: Optional[str] = Field(None, description="Error message (for failed)")
     branch_name: Optional[str] = Field(None, description="Git branch name with work commits (for completed)")
+    session_id: Optional[str] = Field(None, description="SDK session ID")
+    cost_usd: Optional[float] = Field(None, description="Total cost in USD")
+    duration_api_ms: Optional[int] = Field(None, description="LLM API inference time in ms")
+    duration_ms: Optional[int] = Field(None, description="Total SDK execution time in ms")
+    num_turns: Optional[int] = Field(None, description="Number of conversation turns")
+    input_tokens: Optional[int] = Field(None, description="Total input tokens")
+    output_tokens: Optional[int] = Field(None, description="Total output tokens")
+    cache_read_tokens: Optional[int] = Field(None, description="Cache read tokens")
+    cache_creation_tokens: Optional[int] = Field(None, description="Cache creation tokens")
+    tool_timings: Optional[List[Dict[str, Any]]] = Field(None, description="Per-tool execution timing from SDK hooks")
 
 
 class ComputeEventResponse(BaseModel):
