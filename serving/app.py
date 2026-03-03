@@ -949,6 +949,14 @@ async def lifespan(app: FastAPI):
                 logger.info("Registered ManualProvisioner (fallback)")
             except Exception as e:
                 logger.warning(f"Could not register provisioners: {e}")
+
+            # Start auto-drain lifecycle service for managed instances
+            try:
+                from services.compute_lifecycle_service import get_lifecycle_service
+                lifecycle_svc = get_lifecycle_service()
+                await lifecycle_svc.start()
+            except Exception as e:
+                logger.warning(f"Could not start auto-drain lifecycle service: {e}")
         else:
             logger.info("Work orchestrator disabled via ORCHESTRATOR_ENABLED=false")
     except Exception as e:
@@ -964,6 +972,14 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Serving component...")
+
+    # Stop auto-drain lifecycle service
+    try:
+        from services.compute_lifecycle_service import get_lifecycle_service
+        await get_lifecycle_service().stop()
+        logger.info("Auto-drain lifecycle service stopped")
+    except Exception as e:
+        logger.debug(f"Auto-drain lifecycle service cleanup: {e}")
 
     # Stop reconciliation manager
     try:

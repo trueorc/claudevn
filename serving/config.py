@@ -107,6 +107,13 @@ class CognitoConfig(BaseModel):
     admin_enabled: bool = Field(default=False, description="Enable admin user management endpoints")
 
 
+class AutoDrainConfig(BaseModel):
+    """Auto-drain configuration for idle managed compute instances."""
+    enabled: bool = Field(default=True, description="Enable auto-drain of idle managed instances")
+    check_interval_seconds: int = Field(default=60, description="Seconds between idle checks")
+    idle_grace_period_minutes: int = Field(default=5, description="Minutes idle before drain starts")
+
+
 class DockerImageMapping(BaseModel):
     """Maps a Docker image to the capabilities it provides."""
     image: str = Field(..., description="Docker image name:tag")
@@ -165,6 +172,7 @@ class ServingConfig(BaseModel):
     network_capacity: NetworkCapacityConfig = Field(default_factory=NetworkCapacityConfig)
     cognito: CognitoConfig = Field(default_factory=CognitoConfig)
     docker_provisioner: DockerProvisionerConfig = Field(default_factory=DockerProvisionerConfig)
+    auto_drain: AutoDrainConfig = Field(default_factory=AutoDrainConfig)
     demo_mode: bool = Field(default=False, description="Demo mode - blocks real compute execution")
 
     @classmethod
@@ -295,6 +303,13 @@ class ServingConfig(BaseModel):
             default_image=os.getenv("DOCKER_PROVISIONER_DEFAULT_IMAGE", "trueorc/compute-base:latest"),
         )
 
+        # Auto-drain config
+        auto_drain = AutoDrainConfig(
+            enabled=os.getenv("AUTO_DRAIN_ENABLED", "true").lower() == "true",
+            check_interval_seconds=int(os.getenv("AUTO_DRAIN_CHECK_INTERVAL", "60")),
+            idle_grace_period_minutes=int(os.getenv("AUTO_DRAIN_GRACE_PERIOD", "5")),
+        )
+
         return cls(
             server=server,
             storage=storage,
@@ -308,6 +323,7 @@ class ServingConfig(BaseModel):
             network_capacity=network_capacity,
             cognito=cognito,
             docker_provisioner=docker_provisioner,
+            auto_drain=auto_drain,
             demo_mode=demo_mode
         )
 
