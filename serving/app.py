@@ -930,6 +930,16 @@ async def lifespan(app: FastAPI):
                 f"max_spawns={orchestrator_max_spawns}, "
                 f"{timeout_status})"
             )
+
+            # Register compute provisioners
+            try:
+                from services.compute_provisioner import get_provisioner_registry
+                from services.providers.manual_provisioner import ManualProvisioner
+                prov_registry = get_provisioner_registry()
+                prov_registry.register(ManualProvisioner(), priority=999, enabled=True)
+                logger.info("Registered ManualProvisioner (fallback)")
+            except Exception as e:
+                logger.warning(f"Could not register provisioners: {e}")
         else:
             logger.info("Work orchestrator disabled via ORCHESTRATOR_ENABLED=false")
     except Exception as e:
