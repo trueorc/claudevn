@@ -473,6 +473,89 @@ class TestGlobalInstance:
 # Multi-Marketplace Resolution Tests
 # =============================================================================
 
+# =============================================================================
+# Test: Fallback Normalization
+# =============================================================================
+
+class TestFallbackNormalization:
+    """Test that fallback persona data is normalized to Skill model shape."""
+
+    def test_normalize_to_skill_adds_missing_fields(self):
+        """Test normalization adds missing Skill model fields."""
+        persona = {"id": "test", "name": "Test Persona", "instructions": "Do stuff."}
+        normalized = MarketplaceClient._normalize_to_skill(persona)
+
+        assert normalized["specialized_tools"] == []
+        assert normalized["tags"] == []
+        assert normalized["conflicts_with"] == []
+        assert normalized["constraints"] == []
+        assert normalized["dependencies"] == []
+        assert normalized["instructions"] == "Do stuff."
+        assert normalized["id"] == "test"
+
+    def test_normalize_to_skill_preserves_existing_fields(self):
+        """Test normalization doesn't overwrite existing fields."""
+        persona = {
+            "id": "test",
+            "name": "Test",
+            "specialized_tools": ["tool-a"],
+            "constraints": ["No refactoring"],
+            "dependencies": ["dep-1"],
+        }
+        normalized = MarketplaceClient._normalize_to_skill(persona)
+
+        assert normalized["specialized_tools"] == ["tool-a"]
+        assert normalized["constraints"] == ["No refactoring"]
+        assert normalized["dependencies"] == ["dep-1"]
+
+    def test_get_fallback_skill_returns_normalized(self):
+        """Test _get_fallback_skill returns normalized dict with all Skill fields."""
+        client = MarketplaceClient(base_url="http://localhost:8003", cache_ttl=0)
+        # Simulate a minimal persona loaded from YAML
+        client._fallback_personas["test-skill"] = {
+            "id": "test-skill",
+            "name": "Test",
+            "instructions": "Test instructions.",
+        }
+
+        result = client._get_fallback_skill("test-skill")
+
+        assert result is not None
+        assert result["id"] == "test-skill"
+        assert result["instructions"] == "Test instructions."
+        assert result["specialized_tools"] == []
+        assert result["dependencies"] == []
+        assert result["constraints"] == []
+        assert result["conflicts_with"] == []
+        assert result["source"] == "fallback"
+        assert result["fallback_mode"] is True
+
+    def test_get_fallback_skill_missing_returns_none(self):
+        """Test _get_fallback_skill returns None for unknown skill."""
+        client = MarketplaceClient(base_url="http://localhost:8003", cache_ttl=0)
+        assert client._get_fallback_skill("nonexistent") is None
+
+    def test_get_fallback_skills_list_normalized(self):
+        """Test _get_fallback_skills_list normalizes all skills."""
+        client = MarketplaceClient(
+            base_url="http://localhost:8003", cache_ttl=0,
+            fallback_personas_path="/nonexistent"
+        )
+        client._fallback_personas = {
+            "s1": {"id": "s1", "name": "Skill 1"},
+            "s2": {"id": "s2", "name": "Skill 2"},
+        }
+
+        result = client._get_fallback_skills_list()
+
+        assert result["total"] == 2
+        for skill in result["skills"]:
+            assert "dependencies" in skill
+            assert "specialized_tools" in skill
+            assert "constraints" in skill
+            assert skill["fallback_mode"] is True
+
+
 class TestMultiMarketplaceResolution:
     """Test tier-based skill resolution across multiple marketplaces."""
 
