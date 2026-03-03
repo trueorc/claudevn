@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from claudevn_shared.version import get_version
 
 
+class LifecycleMode(str, Enum):
+    """Lifecycle management mode for a compute instance."""
+    MANAGED = "managed"        # Provisioned by serving; serving controls start/stop/drain
+    UNMANAGED = "unmanaged"    # User-registered (BYOC); serving only routes work
+
+
 class InstanceStatus(str, Enum):
     """Status of a compute instance."""
     PENDING = "pending"
@@ -145,6 +151,7 @@ class ComputeInstance(BaseModel):
     drain_started_at: Optional[datetime] = Field(None, description="Timestamp when drain was initiated")
     owner_id: Optional[str] = Field(None, description="User ID of the component owner")
     claimed_at: Optional[datetime] = Field(None, description="When ownership was claimed")
+    lifecycle_mode: LifecycleMode = Field(default=LifecycleMode.UNMANAGED, description="Lifecycle management mode: managed (serving controls) or unmanaged (BYOC)")
     auth_status: ComputeAuthStatus = Field(default=ComputeAuthStatus.UNAUTHORIZED, description="Authentication status")
     auth_expires_at: Optional[datetime] = Field(None, description="When the auth token expires")
     auth_authorized_at: Optional[datetime] = Field(None, description="When the auth token was submitted")
@@ -213,6 +220,7 @@ class RegistrationRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     version: str = Field(default_factory=get_version, description="Compute component version")
     heartbeat_interval: int = Field(default=30, ge=10, le=300, description="Preferred heartbeat interval in seconds")
+    lifecycle_mode: LifecycleMode = Field(default=LifecycleMode.UNMANAGED, description="Lifecycle management mode")
 
 
 class RegistrationResponse(BaseModel):

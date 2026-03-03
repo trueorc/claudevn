@@ -1935,6 +1935,7 @@ async def register_instance(
             metadata=request.metadata,
             version=request.version,
             heartbeat_interval=request.heartbeat_interval,
+            lifecycle_mode=request.lifecycle_mode,
         )
 
         # Register instance
