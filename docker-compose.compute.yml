@@ -15,6 +15,10 @@
 #   - Network connectivity to Serving (HTTPS outbound only)
 #   - Full repository checkout (for build context)
 #
+# Counterpart:
+#   The Serving hub is deployed using docker-compose.serving.yml + .env.serving
+#   Set CLAUDEVN_API_KEY here to match COMPUTE_REGISTRATION_TOKEN on the Serving side.
+#
 # Authentication Modes:
 #   serving  - Fetch Claude credentials from remote Serving instance (default)
 #   external - Use own Claude credentials (mount volume or configure separately)

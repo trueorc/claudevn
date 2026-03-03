@@ -35,6 +35,7 @@ from services.reconciliation_manager import (
     start_reconciliation_manager, stop_reconciliation_manager
 )
 from api import compute
+from api import compute_approval
 from api import marketplaces
 from api import skills
 from api import agents
@@ -61,6 +62,8 @@ from api import notifications
 from api import unified_directives
 from api import feedback
 from api import auth
+from api import cognito_users
+from api import network_capacity
 from api import timing
 # MCP server for compute communication
 from mcp import get_router
@@ -1060,12 +1063,17 @@ app.add_middleware(
 # Add rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
 
+# Add Cognito auth middleware (after rate limiting, so rate limits apply first)
+from middleware.cognito_middleware import CognitoAuthMiddleware
+app.add_middleware(CognitoAuthMiddleware)
+
 
 # Include routers with /api/v1 prefix
 API_VERSION = os.getenv('API_VERSION', 'v1')
 api_prefix = f"/api/{API_VERSION}"
 
 app.include_router(compute.router, prefix=api_prefix)
+app.include_router(compute_approval.router, prefix=api_prefix)
 app.include_router(marketplaces.router, prefix=api_prefix)
 app.include_router(skills.router, prefix=api_prefix)
 app.include_router(agents.router, prefix=api_prefix)
@@ -1094,6 +1102,8 @@ app.include_router(profile_presets.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
+app.include_router(cognito_users.router, prefix=api_prefix)
+app.include_router(network_capacity.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix

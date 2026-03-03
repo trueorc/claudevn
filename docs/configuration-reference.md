@@ -109,6 +109,28 @@ The Serving component is the central coordination hub. Configuration is loaded v
 |----------|---------|------|-------------|
 | `CLAUDE_CREDENTIALS_PATH` | `{STORAGE_PATH}/claude-credentials` | string | Credentials storage path |
 
+### Authentication (Cognito)
+
+| Variable | Default | Type | Description |
+|----------|---------|------|-------------|
+| `AUTH_MODE` | `bypass` | string | Auth mode: `bypass` (no login, dev user) or `cognito` (Cognito JWT required) |
+| `COGNITO_USER_POOL_ID` | (none) | string | AWS Cognito User Pool ID (required when AUTH_MODE=cognito) |
+| `COGNITO_APP_CLIENT_ID` | (none) | string | Cognito App Client ID (required when AUTH_MODE=cognito) |
+| `COGNITO_REGION` | `us-east-1` | string | AWS region for Cognito User Pool |
+| `COGNITO_ADMIN_ENABLED` | `false` | bool | Enable admin user management endpoints (invite, list, remove) |
+
+### Compute Registration
+
+| Variable | Default | Type | Description |
+|----------|---------|------|-------------|
+| `COMPUTE_REGISTRATION_TOKEN` | (none) | string | Pre-shared token compute instances must present to register. Open registration if not set. |
+
+### Network Capacity
+
+| Variable | Default | Type | Description |
+|----------|---------|------|-------------|
+| `MAX_COMPUTE_INSTANCES` | `0` | int | Maximum compute instances allowed (0 = unlimited) |
+
 ### Compute Spawner
 
 | Variable | Default | Type | Description |
@@ -326,6 +348,7 @@ services:
       - REDIS_HOST=redis
       - RATE_LIMIT_ENABLED=false  # Disable for development
       - STORAGE_PATH=/app/data/serving
+      - AUTH_MODE=bypass
     volumes:
       - ./data/serving:/app/data/serving
     depends_on:
@@ -356,88 +379,21 @@ services:
       - serving
 ```
 
-### Production Environment
+### Deployment Modes
 
-Secure configuration for production:
+ClaudeVN provides three Docker Compose files for different deployment scenarios:
 
-```yaml
-services:
-  redis:
-    image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
-    volumes:
-      - redis_data:/data
-    networks:
-      - internal
+| File | Purpose | Auth Mode |
+|------|---------|-----------|
+| `docker-compose.yml` | Full local stack (serving + marketplace + redis + computes) | bypass (default), cognito via `.env` |
+| `docker-compose.serving.yml` | Remote serving hub (serving + marketplace + redis, no computes) | cognito (always) |
+| `docker-compose.compute.yml` | Remote compute instance (connects to remote serving) | N/A (uses serving's auth) |
 
-  serving:
-    build: ./serving
-    ports:
-      - "8002:8002"
-      - "2222:2222"
-    environment:
-      - SERVING_HOST=0.0.0.0
-      - SERVING_PORT=8002
-      - LOG_LEVEL=INFO
-      - REDIS_HOST=redis
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - RATE_LIMIT_ENABLED=true
-      - RATE_LIMIT_DEFAULT_RPM=60
-      - STORAGE_PATH=/app/data/serving
-      - CLAUDE_CREDENTIALS_PATH=/app/data/serving/claude-credentials
-      - AUTO_DEREGISTER=true  # Auto-cleanup failed instances
-      - MARKETPLACE_URL=http://marketplace:8003
-      - MARKETPLACE_API_KEY=${MARKETPLACE_API_KEY}
-    volumes:
-      - serving_data:/app/data
-      - serving_logs:/app/logs
-    networks:
-      - internal
-      - external
-    depends_on:
-      - redis
+**Configuration templates:**
+- `.env.serving.example` — Cognito + registration token for remote serving
+- `.env.compute.example` — Serving URL + registration token for remote compute
 
-  marketplace:
-    build: ./marketplace
-    environment:
-      - MARKETPLACE_PORT=8003
-      - MARKETPLACE_REQUIRE_AUTH=true
-      - MARKETPLACE_API_KEY=${MARKETPLACE_API_KEY}
-      - SERVING_URL=http://serving:8002
-      - SERVING_API_KEY=${SERVING_API_KEY}
-    volumes:
-      - marketplace_skills:/app/skills
-    networks:
-      - internal
-
-  compute:
-    build: ./compute
-    environment:
-      - COMPUTE_PORT=8010
-      - SERVING_URL=http://serving:8002
-      - COMPUTE_AUTH_MODE=serving
-      - COMPUTE_SKILLS=code-writer,debugger
-      - LOG_LEVEL=INFO
-    volumes:
-      - compute_data:/app/data
-    networks:
-      - internal
-    depends_on:
-      - serving
-
-volumes:
-  redis_data:
-  serving_data:
-  serving_logs:
-  marketplace_skills:
-  compute_data:
-
-networks:
-  internal:
-    driver: bridge
-  external:
-    driver: bridge
-```
+For remote deployments, use `docker-compose.serving.yml` on the hub host and `docker-compose.compute.yml` on each compute host. See [Remote Compute Guide](guides/remote-compute.md) for step-by-step instructions.
 
 ### Multi-Compute Scaling
 

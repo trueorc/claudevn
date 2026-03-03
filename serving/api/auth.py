@@ -18,6 +18,7 @@ from models.auth import (
     SystemAuthStatusResponse,
 )
 from services.claude_auth_service import get_claude_auth_service
+from config import get_config
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -29,6 +30,22 @@ def _get_service():
     if service is None:
         raise HTTPException(status_code=503, detail="Auth service not enabled")
     return service
+
+
+@router.get("/cognito-config")
+async def get_cognito_config():
+    """Return Cognito configuration for the frontend.
+
+    Returns auth_mode and (if cognito) pool ID and client ID.
+    This endpoint is always public — the frontend needs it before authentication.
+    """
+    config = get_config().cognito
+    result = {"auth_mode": config.auth_mode}
+    if config.auth_mode == "cognito":
+        result["user_pool_id"] = config.user_pool_id
+        result["app_client_id"] = config.app_client_id
+        result["region"] = config.region
+    return result
 
 
 @router.get("/status")

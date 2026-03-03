@@ -61,7 +61,13 @@ SERVING_PUBLIC_URL=https://claudevn.example.com
 ### Start services
 
 ```bash
+# Without Cognito (bypass auth):
 docker compose -f docker-compose.yml -f deploy/cloud/docker-compose.cloud.yml up -d
+
+# With Cognito authentication:
+cp .env.serving.example .env.serving
+# Edit .env.serving with Cognito values
+docker compose -f docker-compose.serving.yml -f deploy/cloud/docker-compose.cloud.yml up -d
 ```
 
 Caddy will automatically provision a Let's Encrypt TLS certificate on the first

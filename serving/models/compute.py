@@ -9,6 +9,7 @@ from claudevn_shared.version import get_version
 
 class InstanceStatus(str, Enum):
     """Status of a compute instance."""
+    PENDING = "pending"
     ONLINE = "online"
     OFFLINE = "offline"
     DEGRADED = "degraded"
@@ -148,27 +149,31 @@ class ComputeInstance(BaseModel):
     auth_expires_at: Optional[datetime] = Field(None, description="When the auth token expires")
     auth_authorized_at: Optional[datetime] = Field(None, description="When the auth token was submitted")
     
+    pending_since: Optional[datetime] = Field(None, description="When instance entered PENDING state")
+
     def is_healthy(self, max_heartbeat_age: int = 90) -> bool:
         """Check if instance is healthy based on last heartbeat.
-        
+
         Args:
             max_heartbeat_age: Maximum seconds since last heartbeat
-            
+
         Returns:
             True if healthy, False otherwise
         """
-        if self.status == InstanceStatus.OFFLINE:
+        if self.status in (InstanceStatus.OFFLINE, InstanceStatus.PENDING):
             return False
-        
+
         age = (datetime.now(timezone.utc) - self.last_heartbeat).total_seconds()
         return age <= max_heartbeat_age
-    
+
     def is_authorized(self) -> bool:
         """Check if instance has valid auth credentials."""
         return self.auth_status == ComputeAuthStatus.AUTHORIZED
 
     def is_work_eligible(self, max_heartbeat_age: int = 90) -> bool:
-        """Check if instance can be assigned work (healthy + authorized)."""
+        """Check if instance can be assigned work (healthy + authorized + not pending)."""
+        if self.status == InstanceStatus.PENDING:
+            return False
         return self.is_healthy(max_heartbeat_age) and self.is_authorized()
 
     def update_heartbeat(self):

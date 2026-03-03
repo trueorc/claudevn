@@ -5,12 +5,14 @@ import HealthPanel, { HealthStatusBar, HealthBreakdown } from '../components/hea
 import ComputeList from '../components/network/ComputeList'
 import MarketplaceList from '../components/network/MarketplaceList'
 import NetworkMap from '../components/network/NetworkMap'
+import PendingConnections from '../components/network/PendingConnections'
 import ComputeDetailModal from '../components/network/ComputeDetailModal'
 import MarketplaceDetailModal from '../components/network/MarketplaceDetailModal'
 import AuthModal from '../components/auth/AuthModal'
 import Spinner from '../components/common/Spinner'
 import useSystemHealth from '../hooks/useSystemHealth'
 import useAuthTokens from '../hooks/useAuthTokens'
+import useNetworkCapacity from '../hooks/useNetworkCapacity'
 import './NetworkHealthPage.css'
 
 function NetworkHealthPage() {
@@ -18,6 +20,7 @@ function NetworkHealthPage() {
     pollInterval: 30000
   })
   const { systemStatus, getComponentAuth, refresh: refreshAuth } = useAuthTokens({ pollInterval: 30000 })
+  const { capacity, refresh: refreshCapacity } = useNetworkCapacity({ pollInterval: 30000 })
 
   const [viewMode, setViewMode] = useState('list') // 'list' or 'map'
   const [computeFilter, setComputeFilter] = useState(null)
@@ -91,7 +94,7 @@ function NetworkHealthPage() {
             </span>
           </div>
         </div>
-        <button onClick={() => { refresh(); refreshAuth() }} className="refresh-btn" disabled={loading}>
+        <button onClick={() => { refresh(); refreshAuth(); refreshCapacity() }} className="refresh-btn" disabled={loading}>
           <RefreshCw size={16} className={loading ? 'spinning' : ''} />
           Refresh
         </button>
@@ -102,6 +105,9 @@ function NetworkHealthPage() {
           {error}
         </div>
       )}
+
+      {/* Pending Connections - shown at top when pending exist */}
+      <PendingConnections />
 
       {/* Health Status Section - Always visible */}
       <section className="health-section">
@@ -152,7 +158,14 @@ function NetworkHealthPage() {
       {/* Network Section - With List/Map toggle */}
       <section className="network-section-unified">
         <header className="section-header">
-          <h2 className="section-title">Compute Instances</h2>
+          <h2 className="section-title">
+            Compute Instances
+            {capacity && capacity.max_compute_instances > 0 && (
+              <span className="capacity-badge" title="Network capacity limit">
+                {capacity.current_instances}/{capacity.max_compute_instances}
+              </span>
+            )}
+          </h2>
           <div className="view-toggle">
             <button
               className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
