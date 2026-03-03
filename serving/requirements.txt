@@ -27,6 +27,9 @@ aioredis>=2.0.1
 PyJWT>=2.8.0
 cryptography>=41.0.0
 
+# Docker (optional, for DockerProvisioner)
+docker>=7.0.0
+
 # Utilities
 python-json-logger>=2.0.0
 pyyaml>=6.0.0

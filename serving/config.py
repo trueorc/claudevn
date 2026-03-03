@@ -107,6 +107,23 @@ class CognitoConfig(BaseModel):
     admin_enabled: bool = Field(default=False, description="Enable admin user management endpoints")
 
 
+class DockerImageMapping(BaseModel):
+    """Maps a Docker image to the capabilities it provides."""
+    image: str = Field(..., description="Docker image name:tag")
+    capabilities: List[str] = Field(default_factory=list, description="Capabilities provided by this image")
+
+
+class DockerProvisionerConfig(BaseModel):
+    """Docker provisioner configuration."""
+    enabled: bool = Field(default=False, description="Enable Docker provisioner")
+    socket: str = Field(default="/var/run/docker.sock", description="Docker socket path")
+    network: str = Field(default="claudevn-network", description="Docker network for compute containers")
+    serving_url: str = Field(default="http://serving:8002", description="Serving URL for compute containers")
+    container_prefix: str = Field(default="claudevn-managed-", description="Prefix for managed container names")
+    image_mappings: List[DockerImageMapping] = Field(default_factory=list, description="Image-to-capability mappings")
+    default_image: str = Field(default="trueorc/compute-base:latest", description="Fallback image when no specific mapping matches")
+
+
 class NetworkCapacityConfig(BaseModel):
     """Network capacity configuration."""
     max_compute_instances: int = Field(
@@ -147,6 +164,7 @@ class ServingConfig(BaseModel):
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     network_capacity: NetworkCapacityConfig = Field(default_factory=NetworkCapacityConfig)
     cognito: CognitoConfig = Field(default_factory=CognitoConfig)
+    docker_provisioner: DockerProvisionerConfig = Field(default_factory=DockerProvisionerConfig)
     demo_mode: bool = Field(default=False, description="Demo mode - blocks real compute execution")
 
     @classmethod
@@ -255,6 +273,28 @@ class ServingConfig(BaseModel):
 
         demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
 
+        # Docker provisioner config
+        import json as _json
+        docker_image_mappings_raw = os.getenv("DOCKER_PROVISIONER_IMAGES", "")
+        docker_image_mappings = []
+        if docker_image_mappings_raw:
+            try:
+                docker_image_mappings = [
+                    DockerImageMapping(**m)
+                    for m in _json.loads(docker_image_mappings_raw)
+                ]
+            except Exception:
+                pass
+        docker_provisioner = DockerProvisionerConfig(
+            enabled=os.getenv("DOCKER_PROVISIONER_ENABLED", "false").lower() == "true",
+            socket=os.getenv("DOCKER_PROVISIONER_SOCKET", "/var/run/docker.sock"),
+            network=os.getenv("DOCKER_PROVISIONER_NETWORK", "claudevn-network"),
+            serving_url=os.getenv("SERVING_PUBLIC_URL", "http://serving:8002"),
+            container_prefix=os.getenv("DOCKER_PROVISIONER_PREFIX", "claudevn-managed-"),
+            image_mappings=docker_image_mappings,
+            default_image=os.getenv("DOCKER_PROVISIONER_DEFAULT_IMAGE", "trueorc/compute-base:latest"),
+        )
+
         return cls(
             server=server,
             storage=storage,
@@ -267,6 +307,7 @@ class ServingConfig(BaseModel):
             rate_limit=rate_limit,
             network_capacity=network_capacity,
             cognito=cognito,
+            docker_provisioner=docker_provisioner,
             demo_mode=demo_mode
         )
 

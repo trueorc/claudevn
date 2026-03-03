@@ -936,6 +936,15 @@ async def lifespan(app: FastAPI):
                 from services.compute_provisioner import get_provisioner_registry
                 from services.providers.manual_provisioner import ManualProvisioner
                 prov_registry = get_provisioner_registry()
+
+                # Docker provisioner (priority 10 — tried first when enabled)
+                if config.docker_provisioner.enabled:
+                    from services.providers.docker_provisioner import DockerProvisioner
+                    docker_prov = DockerProvisioner(config.docker_provisioner)
+                    prov_registry.register(docker_prov, priority=10, enabled=True)
+                    logger.info("Registered DockerProvisioner")
+
+                # Manual provisioner always registered as fallback
                 prov_registry.register(ManualProvisioner(), priority=999, enabled=True)
                 logger.info("Registered ManualProvisioner (fallback)")
             except Exception as e:
