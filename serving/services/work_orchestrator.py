@@ -125,6 +125,8 @@ class WorkOrchestrator:
         self._retry_after: Dict[str, datetime] = {}  # work_id -> retry after time
         self._failed_nodes: Dict[str, set] = {}  # work_id -> set of compute_ids that failed
         self._last_errors: Dict[str, str] = {}  # work_id -> last error message
+        self._failed_match_counts: Dict[str, int] = {}  # work_id -> consecutive no-match cycles
+        self._capability_block_threshold = 3  # cycles before creating capability_missing blocker
 
         # Skill content cache: {skill_id: (content_dict, expiry_timestamp)}
         self._skill_cache: Dict[str, tuple] = {}
@@ -164,6 +166,14 @@ class WorkOrchestrator:
 
         self._running = True
         self._task = asyncio.create_task(self._orchestration_loop())
+
+        # Register handler to auto-resolve capability blockers when new compute connects
+        try:
+            from services.sse_connection_manager import get_sse_connection_manager
+            sse_manager = get_sse_connection_manager()
+            sse_manager.on_connect(self._on_compute_connected)
+        except Exception as e:
+            logger.warning(f"Could not register compute connect handler: {e}")
 
         # Start timeout monitoring if enabled
         if self.timeout_enabled:
@@ -1038,15 +1048,34 @@ class WorkOrchestrator:
                 self._retry_counts.pop(work_id, None)
                 self._retry_after.pop(work_id, None)
                 self._last_errors.pop(work_id, None)
+                self._failed_match_counts.pop(work_id, None)
             else:
                 # Check if SSE computes exist but are all busy
                 # (reuse sse_manager from above)
                 if total_compute_count > 0:
-                    # Computes exist but are busy — don't fallback to spawner,
-                    # don't count as failure. Work stays PENDING for next poll.
-                    logger.info(
-                        f"All SSE computes busy for {work_id}, will retry next poll"
-                    )
+                    # Computes exist — check if the gap is capability mismatch vs just busy
+                    has_required = work.required_capabilities or work.required_labels or work.required_tools
+                    if has_required and not sse_manager.has_capable_connection(
+                        required_capabilities=work.required_capabilities if work.required_capabilities else None,
+                        required_labels=work.required_labels if work.required_labels else None,
+                        required_tools=work.required_tools if work.required_tools else None,
+                    ):
+                        # No compute in the network can satisfy these requirements
+                        count = self._failed_match_counts.get(work_id, 0) + 1
+                        self._failed_match_counts[work_id] = count
+                        logger.info(
+                            f"No capable compute for {work_id} "
+                            f"(attempt {count}/{self._capability_block_threshold})"
+                        )
+                        if count >= self._capability_block_threshold:
+                            await self._block_for_missing_capabilities(work, sse_manager)
+                            self._failed_match_counts.pop(work_id, None)
+                    else:
+                        # Computes exist and can match, just busy — retry next poll
+                        self._failed_match_counts.pop(work_id, None)
+                        logger.info(
+                            f"All SSE computes busy for {work_id}, will retry next poll"
+                        )
                 else:
                     # No SSE computes at all — fall back to direct spawning
                     logger.info(f"No SSE compute available, spawning new instance for {work_id}")
@@ -1396,6 +1425,107 @@ class WorkOrchestrator:
 
         work_type = work.work_type.lower() if work.work_type else "feature"
         return default_skills.get(work_type, ["code-writer"])
+
+    async def _block_for_missing_capabilities(self, work, sse_manager) -> None:
+        """Create a CAPABILITY_MISSING blocker on a work item.
+
+        Called after repeated failed attempts to match a compute with the
+        required capabilities.
+        """
+        from models.work_map import BlockerType
+        from services.assignment_service import get_assignment_service
+
+        work_id = work.work_id
+        available = sse_manager.describe_available_capabilities()
+
+        # Build a human-readable description of the gap
+        missing_parts = []
+        if work.required_capabilities:
+            unmet = [c for c in work.required_capabilities if c not in available["capabilities"]]
+            if unmet:
+                missing_parts.append(f"capabilities: {', '.join(unmet)}")
+        if work.required_labels:
+            unmet = [l for l in work.required_labels if l not in available["labels"]]
+            if unmet:
+                missing_parts.append(f"labels: {', '.join(unmet)}")
+        if work.required_tools:
+            unmet = [t for t in work.required_tools if t not in available["tools"]]
+            if unmet:
+                missing_parts.append(f"tools: {', '.join(unmet)}")
+
+        description = (
+            f"No compute instance has the required {'; '.join(missing_parts)}. "
+            f"Available in network — capabilities: {sorted(available['capabilities']) or 'none'}, "
+            f"labels: {sorted(available['labels']) or 'none'}, "
+            f"tools: {sorted(available['tools']) or 'none'}."
+        )
+
+        assignment_service = get_assignment_service()
+        blocker = await assignment_service.add_blocker(
+            work_id=work_id,
+            blocker_type=BlockerType.CAPABILITY_MISSING,
+            description=description,
+        )
+
+        if blocker:
+            logger.warning(
+                f"Blocked work {work_id} for missing capabilities: {description}"
+            )
+            # Emit notification to frontend
+            _emit_failure_notification(
+                work_id=work_id,
+                title=work.title,
+                error=description,
+                project_id=work.project_id,
+            )
+
+    async def _on_compute_connected(self, compute_id: str) -> None:
+        """Handle a new compute instance connecting via SSE.
+
+        Checks all BLOCKED work items for CAPABILITY_MISSING blockers that
+        may now be satisfiable and resolves them.
+        """
+        from models.work_map import BlockerType, WorkStatus
+        from services.assignment_service import get_assignment_service
+        from services.sse_connection_manager import get_sse_connection_manager
+
+        try:
+            sse_manager = get_sse_connection_manager()
+            assignment_service = get_assignment_service()
+
+            # Iterate over blocked work items
+            blocked_items = [
+                w for w in assignment_service._work_items.values()
+                if w.status == WorkStatus.BLOCKED
+            ]
+
+            for work in blocked_items:
+                capability_blockers = [
+                    b for b in work.active_blockers
+                    if b.blocker_type == BlockerType.CAPABILITY_MISSING
+                ]
+                if not capability_blockers:
+                    continue
+
+                # Check if new network state can satisfy the requirements
+                if sse_manager.has_capable_connection(
+                    required_capabilities=work.required_capabilities if work.required_capabilities else None,
+                    required_labels=work.required_labels if work.required_labels else None,
+                    required_tools=work.required_tools if work.required_tools else None,
+                ):
+                    for blocker in capability_blockers:
+                        await assignment_service.resolve_blocker(
+                            work_id=work.work_id,
+                            blocker_id=blocker.blocker_id,
+                            resolution_note=f"Compute {compute_id} registered with matching capabilities",
+                            resolved_by="system:orchestrator",
+                        )
+                    logger.info(
+                        f"Auto-resolved capability blocker(s) on work {work.work_id} "
+                        f"after compute {compute_id} connected"
+                    )
+        except Exception as e:
+            logger.error(f"Error resolving capability blockers on connect: {e}")
 
     def _handle_spawn_failure(self, work_id: str, error: str) -> None:
         """Handle a spawn failure.
