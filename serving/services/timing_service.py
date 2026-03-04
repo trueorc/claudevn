@@ -278,7 +278,19 @@ class TimingService:
             List of AggregateStats, one per (phase, tool_name) combination
         """
         timings = await self.get_recent_timings(limit)
+        return self._compute_aggregates(timings)
 
+    def _compute_aggregates(
+        self, timings: List[WorkItemTiming]
+    ) -> List[AggregateStats]:
+        """Compute aggregate stats from a list of work item timings.
+
+        Args:
+            timings: Work item timings to aggregate over
+
+        Returns:
+            List of AggregateStats, one per (phase, tool_name) combination
+        """
         # Collect durations by (phase, tool_name) where tool_name is set
         # for MCP tool calls and TOOL_USE entries.
         by_key: Dict[tuple, List[float]] = {}
@@ -344,26 +356,43 @@ class TimingService:
             max_ms=round(durations_sorted[-1], 1),
         )
 
-    async def get_dashboard(self, limit: int = 20) -> TimingDashboardResponse:
+    async def get_dashboard(
+        self, limit: int = 20, project_id: Optional[str] = None
+    ) -> TimingDashboardResponse:
         """Get dashboard data combining recent timings and aggregates.
 
         Enriches work items with issue context from the work map service
-        when available.
+        when available.  When ``project_id`` is provided, results are
+        filtered to only include work items belonging to that project.
 
         Args:
             limit: Number of recent work items to show
+            project_id: Optional project ID to filter by
 
         Returns:
             TimingDashboardResponse
         """
-        work_items = await self.get_recent_timings(limit)
-        aggregates = await self.get_aggregate_stats(100)
+        # Fetch more items than requested so we have enough after filtering
+        fetch_limit = limit * 3 if project_id else limit
+        work_items = await self.get_recent_timings(fetch_limit)
 
-        # Enrich work items with issue context
+        # Enrich work items with issue and project context
         await self._enrich_issue_context(work_items)
 
+        # Filter by project if requested
+        if project_id:
+            work_items = [w for w in work_items if w.project_id == project_id]
+
+        # Trim to requested limit
+        work_items = work_items[:limit]
+
+        # Compute aggregates from the (possibly filtered) work items
+        aggregates = self._compute_aggregates(work_items)
+
         # Count total work items
-        if self._redis:
+        if project_id:
+            total = len(work_items)
+        elif self._redis:
             total = await self._redis_count()
         else:
             total = len(self._memory)
@@ -406,13 +435,16 @@ class TimingService:
             pass
 
         for item in work_items:
-            # Enrich issue context from work map
-            if not item.issue_id and wm_service:
+            # Enrich issue and project context from work map
+            if wm_service and (not item.issue_id or not item.project_id):
                 try:
                     work = await wm_service.get_work(item.work_id)
-                    if work and work.issue_id:
-                        item.issue_id = work.issue_id
-                        item.issue_title = work.title
+                    if work:
+                        if work.issue_id and not item.issue_id:
+                            item.issue_id = work.issue_id
+                            item.issue_title = work.title
+                        if getattr(work, 'project_id', None) and not item.project_id:
+                            item.project_id = work.project_id
                 except Exception:
                     logger.debug(f"Could not look up issue for work_id={item.work_id}")
 
