@@ -23,11 +23,26 @@
   flex-shrink: 0;
 }
 
+.sidebar-brand-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .sidebar-brand-text {
   font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.sidebar-brand-version {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1;
 }
 
 .sidebar-divider {
