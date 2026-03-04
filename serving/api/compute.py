@@ -436,10 +436,11 @@ async def connect_sse(
                 await event_bus.emit_event(event)
                 logger.debug(f"Emitted compute_registered event for {compute_id}")
         else:
-            # Instance was pre-registered via POST /register
-            # Update heartbeat to mark it as online
+            # Instance was pre-registered via POST /register — preserve PENDING status.
+            # update_heartbeat() only updates the timestamp; it does NOT promote
+            # PENDING → ONLINE. Only explicit approval via POST /{id}/approve does that.
             await registry.update_heartbeat(compute_id, metadata={"sse_connected": True})
-            logger.info(f"Compute {compute_id} pre-registered, updated heartbeat via SSE connection")
+            logger.info(f"Compute {compute_id} pre-registered (PENDING preserved), SSE connected")
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2064,11 +2065,11 @@ async def register_instance(
             logger.debug(f"Emitted compute_registered event for {registered.instance_id}")
 
         return RegistrationResponse(
-            status="registered",
+            status="pending",
             instance_id=registered.instance_id,
             heartbeat_interval=registered.heartbeat_interval,
             heartbeat_endpoint=f"/api/v1/compute/{registered.instance_id}/health",
-            message=f"Successfully registered compute instance {registered.instance_id}"
+            message=f"Instance {registered.instance_id} registered as PENDING — awaiting approval"
         )
 
     except ValueError as e:

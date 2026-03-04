@@ -109,15 +109,15 @@ class TestApproveInstance:
 
     @pytest.mark.asyncio
     async def test_approve_transitions_to_online(self):
+        from collections import defaultdict
         from services.registry_service import ComputeRegistry
 
         registry = ComputeRegistry.__new__(ComputeRegistry)
         registry._instances = {}
-        registry._project_index = {}
+        registry._project_index = defaultdict(list)
+        registry._capability_index = defaultdict(list)
         registry._storage = None
-        registry._lock = MagicMock()
-        registry._lock.__aenter__ = AsyncMock()
-        registry._lock.__aexit__ = AsyncMock()
+        registry._event_queues = {}
 
         instance = _make_instance(
             status=InstanceStatus.PENDING,
@@ -142,7 +142,7 @@ class TestApproveInstance:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_approve_non_pending_returns_unchanged(self):
+    async def test_approve_non_pending_raises_error(self):
         from services.registry_service import ComputeRegistry
 
         registry = ComputeRegistry.__new__(ComputeRegistry)
@@ -151,8 +151,8 @@ class TestApproveInstance:
         instance = _make_instance(status=InstanceStatus.ONLINE)
         registry._instances["test-001"] = instance
 
-        result = await registry.approve_instance("test-001")
-        assert result.status == InstanceStatus.ONLINE
+        with pytest.raises(ValueError, match="not pending"):
+            await registry.approve_instance("test-001")
 
 
 class TestRejectInstance:
@@ -166,14 +166,11 @@ class TestRejectInstance:
         registry._instances = {}
         registry._project_index = {}
         registry._storage = None
-        registry._lock = MagicMock()
-        registry._lock.__aenter__ = AsyncMock()
-        registry._lock.__aexit__ = AsyncMock()
 
         instance = _make_instance(status=InstanceStatus.PENDING)
         registry._instances["test-001"] = instance
 
-        with patch.object(registry, "remove_instance", new_callable=AsyncMock) as mock_remove:
+        with patch.object(registry, "remove_instance", new_callable=AsyncMock, return_value=True) as mock_remove:
             result = await registry.reject_instance("test-001")
 
         assert result is True
