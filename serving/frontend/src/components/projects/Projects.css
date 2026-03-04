@@ -291,10 +291,28 @@
   font-size: var(--font-size-xs);
 }
 
+/* Project form two-column layout */
+.project-form-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+}
+
+.project-form-left,
+.project-form-right {
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .project-form-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Icon picker */
 .icon-picker {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
   gap: var(--space-xs);
   padding: var(--space-sm);
   background: var(--bg);

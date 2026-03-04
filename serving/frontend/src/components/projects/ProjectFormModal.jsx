@@ -396,52 +396,59 @@ function ProjectFormModal({ isOpen, onClose, onSuccess, project = null }) {
       isOpen={isOpen}
       onClose={onClose}
       title={isEditing ? 'Edit Project' : 'New Project'}
+      width="680px"
     >
       <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label className="form-label" htmlFor="project-name">
-            Name
-          </label>
-          <input
-            id="project-name"
-            type="text"
-            className="form-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My Project"
-            autoFocus
-          />
-        </div>
+        <div className="project-form-columns">
+          <div className="project-form-left">
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-name">
+                Name
+              </label>
+              <input
+                id="project-name"
+                type="text"
+                className="form-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My Project"
+                autoFocus
+              />
+            </div>
 
-        <div className="form-group">
-          <label className="form-label" htmlFor="project-description">
-            Description
-          </label>
-          <textarea
-            id="project-description"
-            className="form-textarea"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description..."
-          />
-        </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-description">
+                Description
+              </label>
+              <textarea
+                id="project-description"
+                className="form-textarea"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description..."
+              />
+            </div>
 
-        <div className="form-group">
-          <label className="form-label">Icon</label>
-          <IconPicker selectedIcon={icon} onSelect={setIcon} />
-        </div>
+            <div className="form-group">
+              <label className="form-label">Labels</label>
+              <LabelsInput labels={labels} onChange={setLabels} />
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>
+                Press Enter or comma to add a label
+              </p>
+            </div>
+          </div>
 
-        <div className="form-group">
-          <label className="form-label">Icon Color</label>
-          <ColorPicker selectedColor={iconColor} onSelect={setIconColor} />
-        </div>
+          <div className="project-form-right">
+            <div className="form-group">
+              <label className="form-label">Icon</label>
+              <IconPicker selectedIcon={icon} onSelect={setIcon} />
+            </div>
 
-        <div className="form-group">
-          <label className="form-label">Labels</label>
-          <LabelsInput labels={labels} onChange={setLabels} />
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>
-            Press Enter or comma to add a label
-          </p>
+            <div className="form-group">
+              <label className="form-label">Icon Color</label>
+              <ColorPicker selectedColor={iconColor} onSelect={setIconColor} />
+            </div>
+          </div>
         </div>
 
         {!isEditing && (
