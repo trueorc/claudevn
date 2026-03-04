@@ -12,8 +12,8 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Tier priority: more specific wins (lower value = higher priority)
-_TIER_PRIORITY = {"user": 0, "project": 1, "team": 2, "enterprise": 3, "root": 4}
+# Tier priority: extended (specialized) wins over root (lower value = higher priority)
+_TIER_PRIORITY = {"extended": 0, "root": 1}
 
 
 class MarketplaceClient:

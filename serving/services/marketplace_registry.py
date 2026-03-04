@@ -20,14 +20,10 @@ from storage.cache_backend import CacheBackend, get_cache_backend
 
 logger = logging.getLogger(__name__)
 
-# Tier priority: more specific (user) wins over more general (root)
-# Higher tier = more specific = wins on conflict
+# Tier priority: extended (specialized) wins over root (core)
 TIER_PRIORITY = {
-    MarketplaceTier.USER: 0,      # Highest priority (most specific)
-    MarketplaceTier.PROJECT: 1,
-    MarketplaceTier.TEAM: 2,
-    MarketplaceTier.ENTERPRISE: 3,
-    MarketplaceTier.ROOT: 4,      # Lowest priority (most general)
+    MarketplaceTier.EXTENDED: 0,  # Specialized add-on (wins on conflict)
+    MarketplaceTier.ROOT: 1,      # Core platform skills
 }
 
 

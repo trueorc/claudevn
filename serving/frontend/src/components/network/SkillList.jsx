@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Zap, Edit2, Filter, LayoutGrid, List, Store } from 'lucide-react'
-import useSkills from '../../hooks/useSkills'
 import { getMarketplaces } from '../../api/marketplace'
 import { getAggregatedSkills } from '../../api/skills'
 import SkillCard from './SkillCard'
@@ -11,18 +10,13 @@ import EmptyState from '../common/EmptyState'
 import './Network.css'
 
 // Tier display order and labels
-const TIER_ORDER = ['root', 'enterprise', 'team', 'project', 'user']
+const TIER_ORDER = ['root', 'extended']
 const TIER_LABELS = {
-  root: 'Root',
-  enterprise: 'Enterprise',
-  team: 'Team',
-  project: 'Project',
-  user: 'User'
+  root: 'Core',
+  extended: 'Extended'
 }
 
 function SkillList({ authorFilter, onFilterChange }) {
-  const { skills: defaultSkills, stats, loading, error, refresh } = useSkills({ filter: authorFilter ? { author: authorFilter } : null })
-
   const [selectedSkill, setSelectedSkill] = useState(null)
   const [editingSkill, setEditingSkill] = useState(null)
   const [marketplaces, setMarketplaces] = useState([])
@@ -30,8 +24,9 @@ function SkillList({ authorFilter, onFilterChange }) {
   const [tierFilter, setTierFilter] = useState(null)
   const [viewMode, setViewMode] = useState('grid') // 'grid' or 'grouped'
   const [showFilters, setShowFilters] = useState(false)
-  const [aggregatedSkills, setAggregatedSkills] = useState(null)
-  const [aggregatedLoading, setAggregatedLoading] = useState(false)
+  const [aggregatedData, setAggregatedData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   // Load marketplaces for filter dropdown
   useEffect(() => {
@@ -40,34 +35,45 @@ function SkillList({ authorFilter, onFilterChange }) {
       .catch(() => setMarketplaces([]))
   }, [])
 
-  // Load aggregated skills when filters change
-  useEffect(() => {
-    if (marketplaceFilter || tierFilter) {
-      setAggregatedLoading(true)
-      getAggregatedSkills({
-        marketplace_id: marketplaceFilter,
-        tier: tierFilter
+  // Always load aggregated skills (includes all marketplaces)
+  const loadSkills = () => {
+    setLoading(true)
+    getAggregatedSkills({
+      marketplace_id: marketplaceFilter,
+      tier: tierFilter
+    })
+      .then(data => {
+        setAggregatedData(data)
+        setError(null)
       })
-        .then(data => {
-          setAggregatedSkills(data)
-          setAggregatedLoading(false)
-        })
-        .catch(() => {
-          setAggregatedSkills(null)
-          setAggregatedLoading(false)
-        })
-    } else {
-      setAggregatedSkills(null)
-    }
+      .catch(err => {
+        setError(err.message || 'Failed to load skills')
+        setAggregatedData(null)
+      })
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadSkills()
   }, [marketplaceFilter, tierFilter])
 
-  // Use aggregated skills when filtered, otherwise use default
+  // Apply client-side author filter
   const skills = useMemo(() => {
-    if (aggregatedSkills) {
-      return aggregatedSkills.skills || []
-    }
-    return defaultSkills
-  }, [aggregatedSkills, defaultSkills])
+    const allSkills = aggregatedData?.skills || []
+    if (!authorFilter) return allSkills
+    return allSkills.filter(s => {
+      if (authorFilter === 'system') return s.author === 'system'
+      return s.author !== 'system'
+    })
+  }, [aggregatedData, authorFilter])
+
+  const stats = useMemo(() => {
+    const allSkills = aggregatedData?.skills || []
+    const total = allSkills.length
+    const system = allSkills.filter(s => s.author === 'system').length
+    const user = total - system
+    return { total, by_author: { system, user } }
+  }, [aggregatedData])
 
   // Group skills by marketplace when in grouped view
   const groupedSkills = useMemo(() => {
@@ -78,16 +84,16 @@ function SkillList({ authorFilter, onFilterChange }) {
       const key = skill.marketplace_id || 'default'
       const name = skill.marketplace_name || 'Default'
       if (!groups[key]) {
-        groups[key] = { name, tier: skill.marketplace_tier, skills: [] }
+        groups[key] = { name, tier: skill.marketplace_tier || 'root', skills: [] }
       }
       groups[key].skills.push(skill)
     })
 
-    // Sort by tier order
+    // Sort: root first, then extended
     return Object.entries(groups).sort((a, b) => {
-      const tierA = TIER_ORDER.indexOf(a[1].tier || 'user')
-      const tierB = TIER_ORDER.indexOf(b[1].tier || 'user')
-      return tierA - tierB
+      const tierA = TIER_ORDER.indexOf(a[1].tier)
+      const tierB = TIER_ORDER.indexOf(b[1].tier)
+      return (tierA === -1 ? 99 : tierA) - (tierB === -1 ? 99 : tierB)
     })
   }, [skills, viewMode])
 
@@ -96,12 +102,12 @@ function SkillList({ authorFilter, onFilterChange }) {
   }
 
   const handleSkillUpdated = () => {
-    refresh()
+    loadSkills()
     setEditingSkill(null)
   }
 
   const handleSkillDeleted = () => {
-    refresh()
+    loadSkills()
     setEditingSkill(null)
   }
 
@@ -113,7 +119,7 @@ function SkillList({ authorFilter, onFilterChange }) {
 
   const hasActiveFilters = marketplaceFilter || tierFilter || authorFilter
 
-  if ((loading || aggregatedLoading) && !skills.length) {
+  if (loading && !skills.length) {
     return (
       <div className="loading-state">
         <Spinner />
@@ -134,64 +140,55 @@ function SkillList({ authorFilter, onFilterChange }) {
   return (
     <div className="network-section">
       {/* Stats bar with author filters */}
-      {stats && (
-        <div className="stats-bar">
-          <button
-            className={`stat stat-clickable ${authorFilter === null ? 'stat-active' : ''}`}
-            onClick={() => onFilterChange(null)}
-          >
-            <span className="stat-value">{aggregatedSkills?.total || stats.total || 0}</span>
-            <span className="stat-label">Total</span>
-          </button>
-          <button
-            className={`stat stat-clickable ${authorFilter === 'system' ? 'stat-active' : ''}`}
-            onClick={() => handleFilterClick('system')}
-          >
-            <span className="stat-value stat-online">{aggregatedSkills?.by_author?.system || stats.by_author?.system || 0}</span>
-            <span className="stat-label">System</span>
-          </button>
-          {(stats.by_author || aggregatedSkills?.by_author) && (
-            <button
-              className={`stat stat-clickable ${authorFilter && authorFilter !== 'system' ? 'stat-active' : ''}`}
-              onClick={() => {
-                const userAuthor = Object.keys(stats.by_author || {}).find(a => a !== 'system')
-                handleFilterClick(userAuthor || 'user')
-              }}
-            >
-              <span className="stat-value">{aggregatedSkills?.by_author?.user || Object.keys(stats.by_author || {}).reduce((sum, author) => {
-                return author !== 'system' ? sum + (stats.by_author[author] || 0) : sum
-              }, 0)}</span>
-              <span className="stat-label">User</span>
-            </button>
-          )}
+      <div className="stats-bar">
+        <button
+          className={`stat stat-clickable ${authorFilter === null ? 'stat-active' : ''}`}
+          onClick={() => onFilterChange(null)}
+        >
+          <span className="stat-value">{stats.total}</span>
+          <span className="stat-label">Total</span>
+        </button>
+        <button
+          className={`stat stat-clickable ${authorFilter === 'system' ? 'stat-active' : ''}`}
+          onClick={() => handleFilterClick('system')}
+        >
+          <span className="stat-value stat-online">{stats.by_author.system}</span>
+          <span className="stat-label">System</span>
+        </button>
+        <button
+          className={`stat stat-clickable ${authorFilter === 'user' ? 'stat-active' : ''}`}
+          onClick={() => handleFilterClick('user')}
+        >
+          <span className="stat-value">{stats.by_author.user}</span>
+          <span className="stat-label">User</span>
+        </button>
 
-          {/* View mode and filter toggles */}
-          <div className="stats-actions">
-            <button
-              className={`icon-btn ${showFilters ? 'icon-btn-active' : ''}`}
-              onClick={() => setShowFilters(!showFilters)}
-              title="Toggle filters"
-            >
-              <Filter size={14} />
-              {hasActiveFilters && <span className="filter-badge" />}
-            </button>
-            <button
-              className={`icon-btn ${viewMode === 'grid' ? 'icon-btn-active' : ''}`}
-              onClick={() => setViewMode('grid')}
-              title="Grid view"
-            >
-              <LayoutGrid size={14} />
-            </button>
-            <button
-              className={`icon-btn ${viewMode === 'grouped' ? 'icon-btn-active' : ''}`}
-              onClick={() => setViewMode('grouped')}
-              title="Group by skill source"
-            >
-              <List size={14} />
-            </button>
-          </div>
+        {/* View mode and filter toggles */}
+        <div className="stats-actions">
+          <button
+            className={`icon-btn ${showFilters ? 'icon-btn-active' : ''}`}
+            onClick={() => setShowFilters(!showFilters)}
+            title="Toggle filters"
+          >
+            <Filter size={14} />
+            {hasActiveFilters && <span className="filter-badge" />}
+          </button>
+          <button
+            className={`icon-btn ${viewMode === 'grid' ? 'icon-btn-active' : ''}`}
+            onClick={() => setViewMode('grid')}
+            title="Grid view"
+          >
+            <LayoutGrid size={14} />
+          </button>
+          <button
+            className={`icon-btn ${viewMode === 'grouped' ? 'icon-btn-active' : ''}`}
+            onClick={() => setViewMode('grouped')}
+            title="Group by marketplace"
+          >
+            <List size={14} />
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Filter panel */}
       {showFilters && (
@@ -246,11 +243,9 @@ function SkillList({ authorFilter, onFilterChange }) {
               <div className="skill-group-header">
                 <Store size={14} />
                 <span className="skill-group-name">{group.name}</span>
-                {group.tier && (
-                  <span className={`badge badge-tier badge-tier-${group.tier}`}>
-                    {TIER_LABELS[group.tier]}
-                  </span>
-                )}
+                <span className={`badge badge-tier badge-tier-${group.tier}`}>
+                  {TIER_LABELS[group.tier] || group.tier}
+                </span>
                 <span className="skill-group-count">{group.skills.length} skills</span>
               </div>
               <div className="card-grid">

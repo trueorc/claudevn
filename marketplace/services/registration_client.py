@@ -19,7 +19,8 @@ class MarketplaceRegistrationClient:
         marketplace_name: str,
         endpoint: str,
         version: str = "1.0.0",
-        heartbeat_interval: int = 60
+        heartbeat_interval: int = 60,
+        tier: str = "root",
     ):
         """Initialize registration client.
 
@@ -30,6 +31,7 @@ class MarketplaceRegistrationClient:
             endpoint: This marketplace's API endpoint
             version: Marketplace version
             heartbeat_interval: Heartbeat interval in seconds
+            tier: Marketplace tier (root, enterprise, team, project, user)
         """
         self.serving_url = serving_url.rstrip('/')
         self.marketplace_id = marketplace_id
@@ -37,6 +39,7 @@ class MarketplaceRegistrationClient:
         self.endpoint = endpoint
         self.version = version
         self.heartbeat_interval = heartbeat_interval
+        self.tier = tier
         self.is_registered = False
         self.heartbeat_task: Optional[asyncio.Task] = None
         self.heartbeat_endpoint: Optional[str] = None
@@ -65,6 +68,7 @@ class MarketplaceRegistrationClient:
                 "endpoint": self.endpoint,
                 "version": self.version,
                 "heartbeat_interval": self.heartbeat_interval,
+                "tier": self.tier,
                 "capabilities": {
                     "agent_count": self.skill_count + self.persona_count,
                     "tool_count": self.tool_count,

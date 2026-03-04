@@ -203,11 +203,11 @@ class SkillRegistry:
                 # Set marketplace source fields
                 data["marketplace_id"] = self._marketplace_id
                 data["marketplace_name"] = self._marketplace_name
-                # System skills get root tier, user skills inherit marketplace tier or use user tier
+                # System skills get root tier, others inherit marketplace tier
                 if author_prefix == "system":
                     data["marketplace_tier"] = MarketplaceTier.ROOT
                 else:
-                    data["marketplace_tier"] = self._marketplace_tier or MarketplaceTier.USER
+                    data["marketplace_tier"] = self._marketplace_tier or MarketplaceTier.EXTENDED
 
                 # Apply namespace for non-ROOT skills when configured
                 if self._namespace and author_prefix != "system":
@@ -253,7 +253,7 @@ class SkillRegistry:
                 # Set marketplace source fields
                 data["marketplace_id"] = self._marketplace_id
                 data["marketplace_name"] = self._marketplace_name
-                data["marketplace_tier"] = self._marketplace_tier or MarketplaceTier.USER
+                data["marketplace_tier"] = self._marketplace_tier or MarketplaceTier.EXTENDED
 
                 # Apply namespace for non-ROOT user skills
                 if self._namespace:
@@ -584,7 +584,7 @@ class SkillRegistry:
         if author == "system":
             tier = MarketplaceTier.ROOT
         else:
-            tier = self._marketplace_tier or MarketplaceTier.USER
+            tier = self._marketplace_tier or MarketplaceTier.EXTENDED
 
         skill = Skill(
             id=request.id,

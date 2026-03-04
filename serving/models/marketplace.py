@@ -15,12 +15,14 @@ class MarketplaceStatus(str, Enum):
 
 
 class MarketplaceTier(str, Enum):
-    """Marketplace hierarchy tier."""
-    ROOT = "root"           # Default ClaudeVN skills shipped with the platform
-    ENTERPRISE = "enterprise"  # Organization-approved skill library
-    TEAM = "team"           # Team-specific skills and customizations
-    PROJECT = "project"     # Project-scoped skills
-    USER = "user"           # Individual user's custom skills
+    """Marketplace classification.
+
+    ROOT: The core marketplace bundled with ClaudeVN (standard skills).
+    EXTENDED: Any add-on marketplace providing specialized capabilities
+              (e.g., "Backoffice Skills", "Data Science Tools", "Security Ops").
+    """
+    ROOT = "root"
+    EXTENDED = "extended"
 
 
 class MarketplaceCapabilities(BaseModel):
@@ -48,7 +50,7 @@ class MarketplaceInstance(BaseModel):
     )
 
     tier: MarketplaceTier = Field(
-        default=MarketplaceTier.USER,
+        default=MarketplaceTier.EXTENDED,
         description="Marketplace hierarchy tier"
     )
 
@@ -125,7 +127,7 @@ class MarketplaceRegistrationRequest(BaseModel):
     name: str = Field(..., description="Marketplace name")
     endpoint: str = Field(..., description="API endpoint")
     public_endpoint: Optional[str] = Field(None, description="Public endpoint")
-    tier: MarketplaceTier = Field(default=MarketplaceTier.USER, description="Marketplace tier")
+    tier: MarketplaceTier = Field(default=MarketplaceTier.EXTENDED, description="Marketplace tier")
     capabilities: Optional[MarketplaceCapabilities] = Field(None)
     metadata: Dict = Field(default_factory=dict)
     version: str = Field(default_factory=get_version)
