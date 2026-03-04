@@ -292,6 +292,19 @@
   align-items: center;
 }
 
+.badge-source {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.marketplace-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
 .runtime-tags {
   display: flex;
   flex-wrap: wrap;
@@ -334,25 +347,9 @@
   color: white;
 }
 
-.badge-tier-enterprise {
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-  color: white;
-}
-
-.badge-tier-team {
+.badge-tier-extended {
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
-}
-
-.badge-tier-project {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: white;
-}
-
-.badge-tier-user {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
 }
 
 .badge-system {

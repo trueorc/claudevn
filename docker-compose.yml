@@ -79,6 +79,8 @@ services:
       - REGISTER_ON_STARTUP=true
       - HEARTBEAT_INTERVAL=60
       - MARKETPLACE_NAME=ClaudeVN-Marketplace
+      - MARKETPLACE_TIER=root
+      - MARKETPLACE_ENDPOINT=http://marketplace:8003
     volumes:
       - marketplace_skills:/app/skills
     networks:

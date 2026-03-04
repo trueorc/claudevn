@@ -198,11 +198,11 @@ async def get_aggregated_skills(
             if skill_id not in seen_ids:
                 seen_ids[skill_id] = skill
             else:
-                # Priority: root > enterprise > team > project > user
-                tier_priority = {"root": 0, "enterprise": 1, "team": 2, "project": 3, "user": 4}
-                existing_tier = seen_ids[skill_id].get("marketplace_tier", "user")
-                new_tier = skill.get("marketplace_tier", "user")
-                if tier_priority.get(new_tier, 5) < tier_priority.get(existing_tier, 5):
+                # Extended (specialized) wins over root (core)
+                tier_priority = {"extended": 0, "root": 1}
+                existing_tier = seen_ids[skill_id].get("marketplace_tier", "root")
+                new_tier = skill.get("marketplace_tier", "root")
+                if tier_priority.get(new_tier, 2) < tier_priority.get(existing_tier, 2):
                     seen_ids[skill_id] = skill
 
         # Convert to response format

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from skill_registry import SkillRegistry, set_skill_registry
+from models import MarketplaceTier
 from persona_registry import PersonaRegistry, set_persona_registry
 from config import get_config
 from api import router as skills_router, persona_router, tools_router, agents_router, audit_router
@@ -141,7 +142,13 @@ async def lifespan(app: FastAPI):
     # Initialize skill registry
     skills_path = os.getenv('SKILLS_PATH', './skills')
     try:
-        skill_registry = SkillRegistry(skills_path=skills_path)
+        skill_registry = SkillRegistry(
+            skills_path=skills_path,
+            marketplace_id=config.marketplace_id,
+            marketplace_name=config.marketplace_name,
+            marketplace_tier=MarketplaceTier(config.marketplace_tier),
+            namespace=config.marketplace_namespace or None,
+        )
         await skill_registry.initialize()
         set_skill_registry(skill_registry)
         stats = skill_registry.get_stats()
@@ -180,7 +187,8 @@ async def lifespan(app: FastAPI):
             marketplace_name=config.marketplace_name,
             endpoint=marketplace_endpoint,
             version="1.0.0",
-            heartbeat_interval=config.heartbeat_interval
+            heartbeat_interval=config.heartbeat_interval,
+            tier=config.marketplace_tier,
         )
 
         # Update capabilities from registries

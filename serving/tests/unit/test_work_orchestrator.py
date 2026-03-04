@@ -587,23 +587,54 @@ class TestOrchestratorSSEWorkAssignment:
             assert spawn_request.tools_available == ["deploy_prod", "db_migrate"]
 
     @pytest.mark.asyncio
-    async def test_compose_skills_for_sse(self, orchestrator):
-        """Test skill composition for SSE assignment."""
+    async def test_compose_skills_for_sse_uses_compose_endpoint(self, orchestrator):
+        """Test skill composition uses marketplace compose endpoint."""
         with patch("services.marketplace_client.get_marketplace_client") as mock_marketplace:
-            mock_marketplace.return_value.get_skill = AsyncMock(side_effect=[
-                {"name": "Code Writer", "instructions": "Write clean code."},
-                {"name": "Test Writer", "instructions": "Write tests."}
-            ])
+            mock_marketplace.return_value.compose_agent = AsyncMock(return_value={
+                "merged_instructions": "# Agent Configuration\n\n**Active Skills:** Code Writer, Test Writer\n\n## Skill Instructions\n\n### Code Writer\nWrite clean code.\n\n### Test Writer\nWrite tests.",
+                "tools": ["read", "write"],
+                "conflict_warnings": {"has_conflicts": False, "conflicts": [], "warnings": []}
+            })
 
             result = await orchestrator._compose_skills_for_sse(
                 ["code-writer", "test-writer"],
-                "compute-001"
+                "compute-001",
+                work_id="work-123",
+                task_description="Implement feature X"
             )
 
-            assert "# Code Writer" in result
-            assert "Write clean code." in result
-            assert "# Test Writer" in result
-            assert "Write tests." in result
+            assert "Agent Configuration" in result
+            assert "Code Writer" in result
+            assert "Test Writer" in result
+            mock_marketplace.return_value.compose_agent.assert_called_once_with(
+                task_id="work-123",
+                task_description="Implement feature X",
+                required_capabilities=[],
+                skill_ids=["code-writer", "test-writer"],
+            )
+
+    @pytest.mark.asyncio
+    async def test_compose_skills_for_sse_logs_conflicts(self, orchestrator):
+        """Test that conflict warnings from compose endpoint are logged."""
+        with patch("services.marketplace_client.get_marketplace_client") as mock_marketplace:
+            mock_marketplace.return_value.compose_agent = AsyncMock(return_value={
+                "merged_instructions": "# Config\nInstructions here.",
+                "conflict_warnings": {
+                    "has_conflicts": True,
+                    "conflicts": [{"skill_a": "a", "skill_b": "b", "reason": "test conflict"}],
+                    "warnings": ["Tool overlap warning"]
+                }
+            })
+
+            with patch("services.work_orchestrator.logger") as mock_logger:
+                result = await orchestrator._compose_skills_for_sse(
+                    ["skill-a", "skill-b"], "compute-001"
+                )
+
+                assert "Config" in result
+                # Verify conflict and warning logs
+                warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+                assert any("conflicts detected" in w.lower() or "conflict" in w.lower() for w in warning_calls)
 
     @pytest.mark.asyncio
     async def test_compose_skills_for_sse_empty(self, orchestrator):
@@ -613,30 +644,59 @@ class TestOrchestratorSSEWorkAssignment:
         assert "Execute the assigned work" in result
 
     @pytest.mark.asyncio
-    async def test_compose_skills_for_sse_error(self, orchestrator):
-        """Test skill composition handles errors gracefully."""
+    async def test_compose_skills_for_sse_fallback_on_compose_error(self, orchestrator):
+        """Test fallback to inline fetching when compose endpoint fails."""
         with patch("services.marketplace_client.get_marketplace_client") as mock_marketplace:
-            mock_marketplace.return_value.get_skill = AsyncMock(side_effect=Exception("API error"))
+            # Compose endpoint fails
+            mock_marketplace.return_value.compose_agent = AsyncMock(
+                side_effect=Exception("Compose API error")
+            )
+            # Fallback individual get_skill works
+            mock_marketplace.return_value.get_skill = AsyncMock(side_effect=[
+                {"name": "Code Writer", "instructions": "Write clean code."},
+            ])
 
             result = await orchestrator._compose_skills_for_sse(
-                ["code-writer"],
-                "compute-001"
+                ["code-writer"], "compute-001"
             )
 
-            # Should return fallback message on error
+            # Should use fallback inline approach
+            assert "# Code Writer" in result
+            assert "Write clean code." in result
+
+    @pytest.mark.asyncio
+    async def test_compose_skills_for_sse_full_fallback_on_all_errors(self, orchestrator):
+        """Test graceful degradation when both compose and individual fetch fail."""
+        with patch("services.marketplace_client.get_marketplace_client") as mock_marketplace:
+            mock_marketplace.return_value.compose_agent = AsyncMock(
+                side_effect=Exception("Compose API error")
+            )
+            mock_marketplace.return_value.get_skill = AsyncMock(
+                side_effect=Exception("Get skill error")
+            )
+
+            result = await orchestrator._compose_skills_for_sse(
+                ["code-writer"], "compute-001"
+            )
+
+            # Should return fallback message
             assert "Execute the assigned work" in result
 
     @pytest.mark.asyncio
-    async def test_compose_skills_uses_cache(self, orchestrator):
-        """Test that skill composition uses cached skill content."""
+    async def test_compose_skills_fallback_uses_cache(self, orchestrator):
+        """Test that fallback path uses cached skill content."""
         with patch("services.marketplace_client.get_marketplace_client") as mock_marketplace:
+            # Compose endpoint fails
+            mock_marketplace.return_value.compose_agent = AsyncMock(
+                side_effect=Exception("Compose unavailable")
+            )
             mock_get_skill = AsyncMock(return_value={
                 "name": "Cached Skill",
                 "instructions": "Cached instructions."
             })
             mock_marketplace.return_value.get_skill = mock_get_skill
 
-            # First call — fetches from marketplace
+            # First call — fetches from marketplace via fallback
             result1 = await orchestrator._compose_skills_for_sse(["skill-1"], "compute-001")
             assert "# Cached Skill" in result1
             assert mock_get_skill.call_count == 1
@@ -647,11 +707,14 @@ class TestOrchestratorSSEWorkAssignment:
             assert mock_get_skill.call_count == 1  # Still 1 — cache hit
 
     @pytest.mark.asyncio
-    async def test_compose_skills_cache_expires(self, orchestrator):
-        """Test that skill cache entries expire after TTL."""
+    async def test_compose_skills_fallback_cache_expires(self, orchestrator):
+        """Test that skill cache entries expire after TTL in fallback path."""
         orchestrator._skill_cache_ttl = 0  # Expire immediately
 
         with patch("services.marketplace_client.get_marketplace_client") as mock_marketplace:
+            mock_marketplace.return_value.compose_agent = AsyncMock(
+                side_effect=Exception("Compose unavailable")
+            )
             mock_get_skill = AsyncMock(return_value={
                 "name": "Expiring Skill",
                 "instructions": "Will expire."

@@ -56,6 +56,9 @@ class CompositionService:
         For example, if 'prod-deployment' depends on 'code-analysis', selecting
         'prod-deployment' will automatically include 'code-analysis'.
 
+        Supports namespace-qualified IDs (e.g., "acme:code-writer"). Both bare
+        and namespaced lookups are resolved transparently via get_skill().
+
         The order is preserved: original skill IDs maintain their order, with
         dependencies appended after the skills that require them.
 
@@ -63,8 +66,8 @@ class CompositionService:
             skill_ids: Initial list of skill IDs selected
 
         Returns:
-            Complete list of skill IDs including all dependencies (no duplicates),
-            with original order preserved and dependencies appended
+            Complete list of resolved skill IDs including all dependencies
+            (no duplicates), with original order preserved and dependencies appended
         """
         registry = get_skill_registry()
         seen = set()
@@ -80,17 +83,23 @@ class CompositionService:
             if skill is None:
                 continue
 
+            # Use the actual skill ID (may be namespaced) for dedup and result
+            resolved_id = skill.id
+            if resolved_id in seen:
+                continue
+
             seen.add(skill_id)
-            result.append(skill_id)
+            seen.add(resolved_id)
+            result.append(resolved_id)
 
             for dep_id in skill.dependencies:
                 if dep_id not in seen:
                     dep_skill = registry.get_skill(dep_id)
                     if dep_skill is not None:
-                        to_process.append(dep_id)
-                        logger.info(f"Added dependency '{dep_id}' for skill '{skill_id}'")
+                        to_process.append(dep_skill.id)
+                        logger.info(f"Added dependency '{dep_skill.id}' for skill '{resolved_id}'")
                     else:
-                        logger.warning(f"Dependency '{dep_id}' not found for skill '{skill_id}'")
+                        logger.warning(f"Dependency '{dep_id}' not found for skill '{resolved_id}'")
 
         return result
 

@@ -1,0 +1,70 @@
+# Extended Marketplace - Adds specialized skills to the core ClaudeVN stack
+#
+# ClaudeVN supports a core marketplace (bundled in docker-compose.yml) plus any
+# number of extended marketplaces that add specialized capabilities. Each extended
+# marketplace runs as a separate service with its own skill catalog.
+#
+# This file provides an example extended marketplace. Copy and customize it to
+# create domain-specific skill packs (e.g., data-science, security-ops, frontend).
+#
+# Usage:
+#   # Start base stack first, then add the extended marketplace:
+#   docker compose up -d
+#   docker compose -f docker-compose.marketplace.yml up -d
+#
+#   # Or start both together:
+#   docker compose -f docker-compose.yml -f docker-compose.marketplace.yml up -d
+#
+#   # View all registered marketplaces:
+#   curl http://localhost:8002/api/v1/marketplaces
+#
+#   # Access the extended marketplace directly:
+#   curl http://localhost:8004/api/v1/skills
+#
+#   # Stop extended marketplace only:
+#   docker compose -f docker-compose.marketplace.yml down
+
+services:
+  marketplace-extended:
+    build:
+      context: .
+      dockerfile: marketplace/Dockerfile
+    container_name: claudevn-marketplace-extended
+    ports:
+      - "8004:8003"
+    environment:
+      - MARKETPLACE_HOST=0.0.0.0
+      - MARKETPLACE_PORT=8003
+      - SKILLS_PATH=/app/skills
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+      - API_VERSION=v1
+      # Authentication (disabled for local dev)
+      - MARKETPLACE_REQUIRE_AUTH=false
+      # Identity - distinct from the core marketplace
+      - MARKETPLACE_ID=marketplace-extended
+      - MARKETPLACE_NAME=Extended Skills
+      - MARKETPLACE_TIER=extended
+      - MARKETPLACE_NAMESPACE=extended
+      # Registration with Serving
+      - SERVING_URL=http://serving:8002
+      - REGISTER_ON_STARTUP=true
+      - HEARTBEAT_INTERVAL=60
+      - MARKETPLACE_ENDPOINT=http://marketplace-extended:8003
+    volumes:
+      # Mount the extended skills directory — replace with your own skill pack
+      - ./marketplace/skills-extended:/app/skills
+    networks:
+      - claudevn-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  claudevn-network:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-claudevn}_claudevn-network

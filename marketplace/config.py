@@ -26,6 +26,8 @@ class Config:
         self.heartbeat_interval = int(os.getenv('HEARTBEAT_INTERVAL', '60'))
         self.marketplace_name = os.getenv('MARKETPLACE_NAME', 'ClaudeVN Marketplace')
         self.marketplace_id = os.getenv('MARKETPLACE_ID', f"marketplace-{uuid.uuid4().hex[:8]}")
+        self.marketplace_tier = os.getenv('MARKETPLACE_TIER', 'root')
+        self.marketplace_namespace = os.getenv('MARKETPLACE_NAMESPACE', '')
 
         # Agent cache settings
         self.agent_cache_max_size = int(os.getenv('AGENT_CACHE_MAX_SIZE', '10000'))

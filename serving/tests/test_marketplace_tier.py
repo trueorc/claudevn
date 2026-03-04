@@ -17,17 +17,18 @@ class TestMarketplaceTier:
     """Tests for MarketplaceTier enum in serving."""
 
     def test_tier_values(self):
-        """MarketplaceTier should have all expected values."""
+        """MarketplaceTier should have root and extended values."""
         assert MarketplaceTier.ROOT.value == "root"
-        assert MarketplaceTier.ENTERPRISE.value == "enterprise"
-        assert MarketplaceTier.TEAM.value == "team"
-        assert MarketplaceTier.PROJECT.value == "project"
-        assert MarketplaceTier.USER.value == "user"
+        assert MarketplaceTier.EXTENDED.value == "extended"
 
     def test_tier_from_string(self):
         """MarketplaceTier can be created from string value."""
         assert MarketplaceTier("root") == MarketplaceTier.ROOT
-        assert MarketplaceTier("user") == MarketplaceTier.USER
+        assert MarketplaceTier("extended") == MarketplaceTier.EXTENDED
+
+    def test_only_two_tiers(self):
+        """Only ROOT and EXTENDED tiers should exist."""
+        assert len(MarketplaceTier) == 2
 
 
 class TestMarketplaceCapabilities:
@@ -64,19 +65,19 @@ class TestMarketplaceInstance:
         assert hasattr(marketplace, "tier")
 
     def test_tier_default_value(self):
-        """tier should default to USER."""
+        """tier should default to EXTENDED."""
         marketplace = MarketplaceInstance(
             marketplace_id="mp-001",
             name="Test Marketplace",
             endpoint="http://localhost:8003"
         )
-        assert marketplace.tier == MarketplaceTier.USER
+        assert marketplace.tier == MarketplaceTier.EXTENDED
 
     def test_tier_can_be_set(self):
         """tier can be set to any MarketplaceTier value."""
         marketplace = MarketplaceInstance(
             marketplace_id="mp-001",
-            name="Root Marketplace",
+            name="Core Marketplace",
             endpoint="http://localhost:8003",
             tier=MarketplaceTier.ROOT
         )
@@ -86,15 +87,15 @@ class TestMarketplaceInstance:
         """Marketplace serialization should include tier field."""
         marketplace = MarketplaceInstance(
             marketplace_id="mp-001",
-            name="Enterprise Marketplace",
+            name="Backoffice Skills",
             endpoint="http://localhost:8003",
-            tier=MarketplaceTier.ENTERPRISE
+            tier=MarketplaceTier.EXTENDED
         )
 
         data = marketplace.model_dump()
 
         assert "tier" in data
-        assert data["tier"] == "enterprise"
+        assert data["tier"] == "extended"
 
 
 class TestMarketplaceRegistrationRequest:
@@ -103,19 +104,19 @@ class TestMarketplaceRegistrationRequest:
     def test_tier_in_registration(self):
         """Registration request should accept tier field."""
         request = MarketplaceRegistrationRequest(
-            name="My Marketplace",
+            name="Backoffice Skills",
             endpoint="http://localhost:8003",
-            tier=MarketplaceTier.TEAM
+            tier=MarketplaceTier.EXTENDED
         )
-        assert request.tier == MarketplaceTier.TEAM
+        assert request.tier == MarketplaceTier.EXTENDED
 
     def test_tier_default_in_registration(self):
-        """tier should default to USER in registration."""
+        """tier should default to EXTENDED in registration."""
         request = MarketplaceRegistrationRequest(
             name="My Marketplace",
             endpoint="http://localhost:8003"
         )
-        assert request.tier == MarketplaceTier.USER
+        assert request.tier == MarketplaceTier.EXTENDED
 
 
 class TestMarketplaceHeartbeatRequest:

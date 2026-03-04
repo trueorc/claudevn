@@ -1,22 +1,18 @@
-import { Zap, Building2, Users, FolderKanban, User } from 'lucide-react'
+import { Zap, Box, Puzzle } from 'lucide-react'
 import Card, { CardHeader, CardBody } from '../common/Card'
 import './Network.css'
 
-// Tier icons and colors
+// Tier badge styles
 const TIER_CONFIG = {
-  root: { icon: Zap, className: 'badge-tier-root', label: 'Root' },
-  enterprise: { icon: Building2, className: 'badge-tier-enterprise', label: 'Enterprise' },
-  team: { icon: Users, className: 'badge-tier-team', label: 'Team' },
-  project: { icon: FolderKanban, className: 'badge-tier-project', label: 'Project' },
-  user: { icon: User, className: 'badge-tier-user', label: 'User' }
+  root: { icon: Box, className: 'badge-tier-root', label: 'Core' },
+  extended: { icon: Puzzle, className: 'badge-tier-extended', label: 'Extended' }
 }
 
 function SkillCard({ skill, onClick }) {
   const { id, name, description, author, version, tags, marketplace_name, marketplace_tier } = skill
 
-  const isSystem = author === 'system'
-  const tier = marketplace_tier || (isSystem ? 'root' : 'user')
-  const tierConfig = TIER_CONFIG[tier] || TIER_CONFIG.user
+  const tier = marketplace_tier || 'root'
+  const tierConfig = TIER_CONFIG[tier] || TIER_CONFIG.root
   const TierIcon = tierConfig.icon
 
   return (
@@ -26,16 +22,14 @@ function SkillCard({ skill, onClick }) {
           <Zap size={16} className="instance-icon" />
           <span className="instance-name">{name || id}</span>
         </div>
-        <div className="badge-group">
-          {marketplace_name && (
-            <span className={`badge badge-tier ${tierConfig.className}`} title={`From: ${marketplace_name}`}>
-              <TierIcon size={10} />
-              {tierConfig.label}
-            </span>
-          )}
-          <span className={`badge ${isSystem ? 'badge-system' : 'badge-user'}`}>
-            {isSystem ? 'system' : 'user'}
+        <div className="badge-source">
+          <span className={`badge badge-tier ${tierConfig.className}`}>
+            <TierIcon size={10} />
+            {tierConfig.label}
           </span>
+          {marketplace_name && (
+            <span className="marketplace-label">{marketplace_name}</span>
+          )}
         </div>
       </CardHeader>
       <CardBody>

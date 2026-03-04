@@ -2,7 +2,7 @@
 
 import pytest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.marketplace_registry import (
     MarketplaceRegistry,
@@ -12,6 +12,7 @@ from services.marketplace_registry import (
 from models.marketplace import (
     MarketplaceInstance,
     MarketplaceStatus,
+    MarketplaceTier,
     MarketplaceCapabilities,
 )
 
@@ -674,3 +675,128 @@ class TestMarketplaceRegistryGlobals:
         set_marketplace_registry(None)
         with pytest.raises(RuntimeError, match="not initialized"):
             get_marketplace_registry()
+
+
+# =============================================================================
+# Multi-Marketplace Skill Resolution Tests
+# =============================================================================
+
+class TestMarketplaceRegistrySkillResolution:
+    """Test tier-based skill resolution across multiple marketplaces."""
+
+    @pytest.fixture
+    def registry_with_marketplaces(self, mock_storage, mock_cache):
+        """Create a registry with ROOT and EXTENDED marketplaces."""
+        registry = MarketplaceRegistry(
+            storage_backend=mock_storage,
+            cache_backend=mock_cache,
+        )
+        root_mp = MarketplaceInstance(
+            marketplace_id="root-mp",
+            name="Core Marketplace",
+            endpoint="http://root:8003",
+            tier=MarketplaceTier.ROOT,
+            status=MarketplaceStatus.HEALTHY,
+            priority=10,
+        )
+        extended_mp = MarketplaceInstance(
+            marketplace_id="extended-mp",
+            name="Backoffice Skills",
+            endpoint="http://extended:8003",
+            tier=MarketplaceTier.EXTENDED,
+            status=MarketplaceStatus.HEALTHY,
+            priority=5,
+        )
+        registry._marketplaces["root-mp"] = root_mp
+        registry._marketplaces["extended-mp"] = extended_mp
+        return registry
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_extended_overrides_root(self, registry_with_marketplaces):
+        """Test that extended marketplace skill overrides root."""
+        root_skill = {"id": "code-writer", "name": "Root Writer"}
+        extended_skill = {"id": "code-writer", "name": "Extended Writer"}
+
+        async def mock_fetch(mp, skill_id):
+            if mp.tier == MarketplaceTier.ROOT:
+                return {**root_skill, "marketplace_id": mp.marketplace_id,
+                        "marketplace_name": mp.name, "marketplace_tier": mp.tier.value}
+            if mp.tier == MarketplaceTier.EXTENDED:
+                return {**extended_skill, "marketplace_id": mp.marketplace_id,
+                        "marketplace_name": mp.name, "marketplace_tier": mp.tier.value}
+            return None
+
+        with patch.object(registry_with_marketplaces, "_fetch_skill_from_marketplace",
+                          side_effect=mock_fetch):
+            result = await registry_with_marketplaces.resolve_skill("code-writer")
+
+        assert result is not None
+        assert result["name"] == "Extended Writer"
+        assert result["marketplace_tier"] == "extended"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_root_fallback(self, registry_with_marketplaces):
+        """Test fallback to root when skill only exists in root."""
+        async def mock_fetch(mp, skill_id):
+            if mp.tier == MarketplaceTier.ROOT:
+                return {"id": skill_id, "name": "Root Only",
+                        "marketplace_id": mp.marketplace_id,
+                        "marketplace_name": mp.name, "marketplace_tier": mp.tier.value}
+            return None
+
+        with patch.object(registry_with_marketplaces, "_fetch_skill_from_marketplace",
+                          side_effect=mock_fetch):
+            result = await registry_with_marketplaces.resolve_skill("root-only-skill")
+
+        assert result is not None
+        assert result["marketplace_tier"] == "root"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_not_found(self, registry_with_marketplaces):
+        """Test resolve returns None when no marketplace has the skill."""
+        async def mock_fetch(mp, skill_id):
+            return None
+
+        with patch.object(registry_with_marketplaces, "_fetch_skill_from_marketplace",
+                          side_effect=mock_fetch):
+            result = await registry_with_marketplaces.resolve_skill("nonexistent")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_resolve_skills_bulk(self, registry_with_marketplaces):
+        """Test bulk resolution across marketplaces."""
+        async def mock_fetch(mp, skill_id):
+            if skill_id == "s1" and mp.tier == MarketplaceTier.EXTENDED:
+                return {"id": "s1", "name": "Extended S1", "marketplace_tier": "extended",
+                        "marketplace_id": mp.marketplace_id, "marketplace_name": mp.name}
+            if skill_id == "s2" and mp.tier == MarketplaceTier.ROOT:
+                return {"id": "s2", "name": "Root S2", "marketplace_tier": "root",
+                        "marketplace_id": mp.marketplace_id, "marketplace_name": mp.name}
+            return None
+
+        with patch.object(registry_with_marketplaces, "_fetch_skill_from_marketplace",
+                          side_effect=mock_fetch):
+            result = await registry_with_marketplaces.resolve_skills(["s1", "s2"])
+
+        assert result["s1"]["name"] == "Extended S1"
+        assert result["s2"]["name"] == "Root S2"
+
+    @pytest.mark.asyncio
+    async def test_resolve_skill_no_marketplaces(self, mock_storage, mock_cache):
+        """Test resolve returns None when no marketplaces are registered."""
+        registry = MarketplaceRegistry(
+            storage_backend=mock_storage, cache_backend=mock_cache
+        )
+        result = await registry.resolve_skill("any-skill")
+        assert result is None
+
+    def test_get_marketplaces_by_tier(self, registry_with_marketplaces):
+        """Test filtering marketplaces by tier."""
+        root_mps = registry_with_marketplaces.get_marketplaces_by_tier(MarketplaceTier.ROOT)
+        assert len(root_mps) == 1
+        assert root_mps[0].marketplace_id == "root-mp"
+
+        extended_mps = registry_with_marketplaces.get_marketplaces_by_tier(MarketplaceTier.EXTENDED)
+        assert len(extended_mps) == 1
+        assert extended_mps[0].marketplace_id == "extended-mp"

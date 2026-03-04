@@ -1,17 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Zap, Edit2, Building2, Users, FolderKanban, User } from 'lucide-react'
+import { Zap, Edit2, Box, Puzzle } from 'lucide-react'
 import Modal from '../common/Modal'
 import { getSkill } from '../../api/skills'
 import '../common/Modal.css'
 import './Network.css'
 
-// Tier icons and labels
+// Tier badge styles
 const TIER_CONFIG = {
-  root: { icon: Zap, className: 'badge-tier-root', label: 'Root' },
-  enterprise: { icon: Building2, className: 'badge-tier-enterprise', label: 'Enterprise' },
-  team: { icon: Users, className: 'badge-tier-team', label: 'Team' },
-  project: { icon: FolderKanban, className: 'badge-tier-project', label: 'Project' },
-  user: { icon: User, className: 'badge-tier-user', label: 'User' }
+  root: { icon: Box, className: 'badge-tier-root', label: 'Core' },
+  extended: { icon: Puzzle, className: 'badge-tier-extended', label: 'Extended' }
 }
 
 function SkillDetailModal({ isOpen, onClose, skillId, onEdit }) {
@@ -33,8 +30,8 @@ function SkillDetailModal({ isOpen, onClose, skillId, onEdit }) {
   if (!isOpen) return null
 
   const isSystem = skill?.author === 'system'
-  const tier = skill?.marketplace_tier || (isSystem ? 'root' : 'user')
-  const tierConfig = TIER_CONFIG[tier] || TIER_CONFIG.user
+  const tier = skill?.marketplace_tier || 'root'
+  const tierConfig = TIER_CONFIG[tier] || TIER_CONFIG.root
   const TierIcon = tierConfig.icon
 
   return (
@@ -56,7 +53,7 @@ function SkillDetailModal({ isOpen, onClose, skillId, onEdit }) {
               {skill.marketplace_name && (
                 <span className={`badge badge-tier ${tierConfig.className}`} title={`From: ${skill.marketplace_name}`}>
                   <TierIcon size={10} />
-                  {tierConfig.label}
+                  {skill.marketplace_name}
                 </span>
               )}
               <span className={`badge ${isSystem ? 'badge-system' : 'badge-user'}`}>
@@ -147,12 +144,12 @@ function SkillDetailModal({ isOpen, onClose, skillId, onEdit }) {
             <div className="detail-section">
               <h4 className="detail-section-title">Source</h4>
               <div className="detail-row">
-                <span className="detail-label">Source</span>
+                <span className="detail-label">Marketplace</span>
                 <span className="detail-value">{skill.marketplace_name}</span>
               </div>
               {skill.marketplace_id && (
                 <div className="detail-row">
-                  <span className="detail-label">Source ID</span>
+                  <span className="detail-label">Marketplace ID</span>
                   <span className="detail-value mono">{skill.marketplace_id}</span>
                 </div>
               )}

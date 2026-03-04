@@ -61,12 +61,14 @@ class PersonaVersion(BaseModel):
 
 
 class MarketplaceTier(str, Enum):
-    """Marketplace hierarchy tier."""
-    ROOT = "root"           # Default ClaudeVN skills shipped with the platform
-    ENTERPRISE = "enterprise"  # Organization-approved skill library
-    TEAM = "team"           # Team-specific skills and customizations
-    PROJECT = "project"     # Project-scoped skills
-    USER = "user"           # Individual user's custom skills
+    """Marketplace classification.
+
+    ROOT: The core marketplace bundled with ClaudeVN (standard skills).
+    EXTENDED: Any add-on marketplace providing specialized capabilities
+              (e.g., "Backoffice Skills", "Data Science Tools", "Security Ops").
+    """
+    ROOT = "root"
+    EXTENDED = "extended"
 
 
 class Skill(BaseModel):

@@ -63,8 +63,8 @@ class TestSkillMarketplaceFields:
             description="A test skill",
             instructions="# Test",
             marketplace_id="mp-001",
-            marketplace_name="Test Market",
-            marketplace_tier=MarketplaceTier.ENTERPRISE
+            marketplace_name="Backoffice Skills",
+            marketplace_tier=MarketplaceTier.EXTENDED
         )
 
         data = skill.model_dump()
@@ -74,40 +74,26 @@ class TestSkillMarketplaceFields:
         assert "marketplace_tier" in data
         assert "namespace" in data
         assert data["marketplace_id"] == "mp-001"
-        assert data["marketplace_name"] == "Test Market"
-        assert data["marketplace_tier"] == "enterprise"
+        assert data["marketplace_name"] == "Backoffice Skills"
+        assert data["marketplace_tier"] == "extended"
 
 
 class TestMarketplaceTierEnum:
     """Tests for MarketplaceTier enum."""
 
     def test_tier_values(self):
-        """MarketplaceTier should have all expected values."""
+        """MarketplaceTier should have root and extended values."""
         assert MarketplaceTier.ROOT.value == "root"
-        assert MarketplaceTier.ENTERPRISE.value == "enterprise"
-        assert MarketplaceTier.TEAM.value == "team"
-        assert MarketplaceTier.PROJECT.value == "project"
-        assert MarketplaceTier.USER.value == "user"
+        assert MarketplaceTier.EXTENDED.value == "extended"
 
     def test_tier_from_string(self):
         """MarketplaceTier can be created from string value."""
         assert MarketplaceTier("root") == MarketplaceTier.ROOT
-        assert MarketplaceTier("enterprise") == MarketplaceTier.ENTERPRISE
-        assert MarketplaceTier("team") == MarketplaceTier.TEAM
-        assert MarketplaceTier("project") == MarketplaceTier.PROJECT
-        assert MarketplaceTier("user") == MarketplaceTier.USER
+        assert MarketplaceTier("extended") == MarketplaceTier.EXTENDED
 
-    def test_tier_hierarchy_order(self):
-        """Tiers should have a logical hierarchy order."""
-        # Define expected priority (lower = higher priority)
-        priority = {
-            MarketplaceTier.ROOT: 0,
-            MarketplaceTier.ENTERPRISE: 1,
-            MarketplaceTier.TEAM: 2,
-            MarketplaceTier.PROJECT: 3,
-            MarketplaceTier.USER: 4
-        }
-
-        # Verify root has highest priority
-        assert priority[MarketplaceTier.ROOT] < priority[MarketplaceTier.USER]
-        assert priority[MarketplaceTier.ENTERPRISE] < priority[MarketplaceTier.TEAM]
+    def test_extended_is_specialized(self):
+        """Extended marketplaces provide specialized capabilities on top of root."""
+        # Both tiers exist
+        assert len(MarketplaceTier) == 2
+        # They are distinct
+        assert MarketplaceTier.ROOT != MarketplaceTier.EXTENDED

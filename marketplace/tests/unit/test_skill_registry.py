@@ -807,3 +807,142 @@ async def test_list_skill_versions_nonexistent_skill(registry):
     """Test listing versions for nonexistent skill."""
     versions = registry.list_skill_versions("nonexistent-skill")
     assert versions == []
+
+
+# =============================================================================
+# Test: Namespace-Qualified Skill Lookups
+# =============================================================================
+
+@pytest.fixture
+def namespaced_skills_path(tmp_path):
+    """Create a skills directory with namespace-testable skills."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "system").mkdir()
+    (skills_dir / "user").mkdir()
+
+    # System skill (should NOT get namespaced)
+    system_skill = skills_dir / "system" / "code-writer.yaml"
+    system_skill.write_text("""id: code-writer
+name: Code Writer
+description: Writes code
+version: "1.0.0"
+author: system
+instructions: Write code.
+specialized_tools: []
+tags: [coding]
+conflicts_with: []
+constraints: []
+dependencies: []
+""")
+
+    # User skill (SHOULD get namespaced)
+    user_skill = skills_dir / "user" / "custom-linter.yaml"
+    user_skill.write_text("""id: custom-linter
+name: Custom Linter
+description: Team linting rules
+version: "1.0.0"
+author: user:teamlead
+instructions: Apply linting rules.
+specialized_tools: []
+tags: [linting]
+conflicts_with: []
+constraints: []
+dependencies: []
+""")
+
+    return skills_dir
+
+
+@pytest.mark.asyncio
+async def test_namespace_applied_to_user_skills(namespaced_skills_path):
+    """Test that namespace prefix is applied to non-ROOT (user) skills."""
+    registry = SkillRegistry(
+        skills_path=str(namespaced_skills_path),
+        namespace="acme",
+    )
+    await registry.initialize()
+
+    # System skill should NOT be namespaced
+    assert "code-writer" in registry.skills
+    assert "acme:code-writer" not in registry.skills
+
+    # User skill SHOULD be namespaced
+    assert "acme:custom-linter" in registry.skills
+    assert "custom-linter" not in registry.skills
+
+
+@pytest.mark.asyncio
+async def test_get_skill_bare_lookup_resolves_namespaced(namespaced_skills_path):
+    """Test that bare ID lookup finds a namespaced skill."""
+    registry = SkillRegistry(
+        skills_path=str(namespaced_skills_path),
+        namespace="acme",
+    )
+    await registry.initialize()
+
+    # Bare lookup should find the namespaced skill
+    skill = registry.get_skill("custom-linter")
+    assert skill is not None
+    assert skill.id == "acme:custom-linter"
+    assert skill.namespace == "acme"
+
+
+@pytest.mark.asyncio
+async def test_get_skill_namespaced_lookup(namespaced_skills_path):
+    """Test that full namespaced ID lookup works."""
+    registry = SkillRegistry(
+        skills_path=str(namespaced_skills_path),
+        namespace="acme",
+    )
+    await registry.initialize()
+
+    skill = registry.get_skill("acme:custom-linter")
+    assert skill is not None
+    assert skill.id == "acme:custom-linter"
+
+
+@pytest.mark.asyncio
+async def test_get_skill_namespaced_fallback_to_bare(namespaced_skills_path):
+    """Test that namespaced lookup falls back to bare ID for system skills."""
+    registry = SkillRegistry(
+        skills_path=str(namespaced_skills_path),
+        namespace="acme",
+    )
+    await registry.initialize()
+
+    # "acme:code-writer" doesn't exist, but "code-writer" does (system skill)
+    skill = registry.get_skill("acme:code-writer")
+    assert skill is not None
+    assert skill.id == "code-writer"
+
+
+@pytest.mark.asyncio
+async def test_no_namespace_no_prefixing(namespaced_skills_path):
+    """Test that without namespace, no prefixing occurs."""
+    registry = SkillRegistry(
+        skills_path=str(namespaced_skills_path),
+    )
+    await registry.initialize()
+
+    # Both should be stored under bare IDs
+    assert "code-writer" in registry.skills
+    assert "custom-linter" in registry.skills
+    assert not any(":" in k for k in registry.skills.keys())
+
+
+@pytest.mark.asyncio
+async def test_namespace_set_on_skill_object(namespaced_skills_path):
+    """Test that the namespace field is set on the Skill object."""
+    registry = SkillRegistry(
+        skills_path=str(namespaced_skills_path),
+        namespace="acme",
+    )
+    await registry.initialize()
+
+    skill = registry.get_skill("acme:custom-linter")
+    assert skill.namespace == "acme"
+
+    # System skill should not have namespace
+    system_skill = registry.get_skill("code-writer")
+    assert system_skill.namespace is None

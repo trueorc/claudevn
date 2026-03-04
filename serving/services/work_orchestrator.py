@@ -1154,7 +1154,11 @@ class WorkOrchestrator:
                 return False
 
             # Compose skills into merged instructions
-            skills_content = await self._compose_skills_for_sse(skills, connection.compute_id)
+            skills_content = await self._compose_skills_for_sse(
+                skills, connection.compute_id,
+                work_id=work.work_id,
+                task_description=work.description or "",
+            )
 
             # Resolve repository details for linked repos
             repo_details = None
@@ -1262,15 +1266,21 @@ class WorkOrchestrator:
         """Store a skill in the in-memory cache with TTL."""
         self._skill_cache[skill_id] = (data, time.time() + self._skill_cache_ttl)
 
-    async def _compose_skills_for_sse(self, skill_ids: List[str], compute_id: str) -> str:
+    async def _compose_skills_for_sse(
+        self, skill_ids: List[str], compute_id: str,
+        work_id: str = "", task_description: str = ""
+    ) -> str:
         """Compose skills into merged instructions for SSE assignment.
 
-        Uses an in-memory cache to avoid repeated marketplace HTTP calls.
-        Skills rarely change, so a 5-minute TTL is sufficient.
+        Uses the marketplace compose endpoint for dependency resolution,
+        conflict detection, and structured CLAUDE.md generation. Falls back
+        to inline skill fetching if the compose endpoint is unavailable.
 
         Args:
             skill_ids: List of skill IDs to compose
             compute_id: Compute instance ID
+            work_id: Work item ID for compose request context
+            task_description: Task description for compose request context
 
         Returns:
             Merged skill instructions
@@ -1280,12 +1290,44 @@ class WorkOrchestrator:
         if not skill_ids:
             return "Execute the assigned work according to the task description."
 
-        try:
-            client = get_marketplace_client()
+        client = get_marketplace_client()
 
+        # Primary path: use marketplace compose endpoint
+        try:
+            result = await client.compose_agent(
+                task_id=work_id or compute_id,
+                task_description=task_description or "Execute assigned work",
+                required_capabilities=[],
+                skill_ids=skill_ids,
+            )
+
+            # Log any conflict warnings from the compose response
+            if result.get("conflict_warnings"):
+                conflict_info = result["conflict_warnings"]
+                if isinstance(conflict_info, dict):
+                    if conflict_info.get("has_conflicts"):
+                        logger.warning(
+                            f"Skill conflicts detected for {compute_id}: "
+                            f"{conflict_info.get('conflicts', [])}"
+                        )
+                    for warning in conflict_info.get("warnings", []):
+                        logger.warning(f"Skill composition warning: {warning}")
+
+            merged = result.get("merged_instructions", "")
+            if merged:
+                return merged
+
+            logger.warning("Compose endpoint returned empty merged_instructions, using fallback")
+        except Exception as e:
+            logger.warning(
+                f"Marketplace compose endpoint unavailable for {compute_id}: {e}. "
+                f"Falling back to inline skill fetching."
+            )
+
+        # Fallback: fetch skills individually and concatenate inline
+        try:
             sections = []
             for skill_id in skill_ids:
-                # Check cache first
                 skill = self._get_cached_skill(skill_id)
                 if skill is None:
                     skill = await client.get_skill(skill_id)
@@ -1301,7 +1343,7 @@ class WorkOrchestrator:
             return "\n".join(sections) if sections else "Execute the assigned work."
 
         except Exception as e:
-            logger.warning(f"Error composing skills for SSE: {e}")
+            logger.warning(f"Error in fallback skill composition for SSE: {e}")
             return "Execute the assigned work according to the task description."
 
     async def _spawn_new_compute(self, work, skills: List[str], model: Optional[str] = None) -> None:

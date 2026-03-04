@@ -15,12 +15,14 @@ class MarketplaceStatus(str, Enum):
 
 
 class MarketplaceTier(str, Enum):
-    """Marketplace hierarchy tier."""
-    ROOT = "root"           # Default ClaudeVN skills shipped with the platform
-    ENTERPRISE = "enterprise"  # Organization-approved skill library
-    TEAM = "team"           # Team-specific skills and customizations
-    PROJECT = "project"     # Project-scoped skills
-    USER = "user"           # Individual user's custom skills
+    """Marketplace classification.
+
+    ROOT: The core marketplace bundled with ClaudeVN (standard skills).
+    EXTENDED: Any add-on marketplace providing specialized capabilities
+              (e.g., "Backoffice Skills", "Data Science Tools", "Security Ops").
+    """
+    ROOT = "root"
+    EXTENDED = "extended"
 
 
 class MarketplaceCapabilities(BaseModel):
@@ -48,7 +50,7 @@ class MarketplaceInstance(BaseModel):
     )
 
     tier: MarketplaceTier = Field(
-        default=MarketplaceTier.USER,
+        default=MarketplaceTier.EXTENDED,
         description="Marketplace hierarchy tier"
     )
 
@@ -70,6 +72,12 @@ class MarketplaceInstance(BaseModel):
 
     # Priority for multi-marketplace support
     priority: int = Field(1, description="Priority for agent discovery (lower = higher priority)")
+
+    # Skill override declarations
+    overrides: List["SkillOverrideDeclaration"] = Field(
+        default_factory=list,
+        description="Skill override/extend declarations"
+    )
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -97,18 +105,38 @@ class MarketplaceInstance(BaseModel):
     })
 
 
+class SkillOverrideDeclaration(BaseModel):
+    """Declaration of how a marketplace's skills relate to another marketplace's skills."""
+    target_marketplace_id: Optional[str] = Field(
+        None,
+        description="Marketplace whose skills are overridden (None = ROOT)"
+    )
+    mode: str = Field(
+        "override",
+        description="Override mode: 'override' replaces skill entirely, 'extend' merges instructions"
+    )
+    skill_pattern: Optional[str] = Field(
+        None,
+        description="Optional glob pattern to limit which skills are affected (e.g., 'acme-*')"
+    )
+
+
 class MarketplaceRegistrationRequest(BaseModel):
     """Request to register a marketplace."""
     marketplace_id: Optional[str] = Field(None, description="Unique ID (auto-generated if not provided)")
     name: str = Field(..., description="Marketplace name")
     endpoint: str = Field(..., description="API endpoint")
     public_endpoint: Optional[str] = Field(None, description="Public endpoint")
-    tier: MarketplaceTier = Field(default=MarketplaceTier.USER, description="Marketplace tier")
+    tier: MarketplaceTier = Field(default=MarketplaceTier.EXTENDED, description="Marketplace tier")
     capabilities: Optional[MarketplaceCapabilities] = Field(None)
     metadata: Dict = Field(default_factory=dict)
     version: str = Field(default_factory=get_version)
     heartbeat_interval: int = Field(60, description="Desired heartbeat interval")
     priority: int = Field(1, description="Marketplace priority")
+    overrides: List[SkillOverrideDeclaration] = Field(
+        default_factory=list,
+        description="Skill override/extend declarations for this marketplace"
+    )
 
     model_config = ConfigDict(json_schema_extra={
         "example": {

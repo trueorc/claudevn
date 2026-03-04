@@ -1,15 +1,19 @@
 """HTTP client for Marketplace service with caching and fallback support."""
 
+import asyncio
 import httpx
 import logging
 import time
 import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# Tier priority: extended (specialized) wins over root (lower value = higher priority)
+_TIER_PRIORITY = {"extended": 0, "root": 1}
 
 
 class MarketplaceClient:
@@ -19,6 +23,7 @@ class MarketplaceClient:
     - API key authentication support
     - In-memory caching with configurable TTL
     - Offline fallback with bundled default personas
+    - Multi-marketplace support with tier-based skill resolution
     """
 
     def __init__(
@@ -26,12 +31,36 @@ class MarketplaceClient:
         base_url: str = "http://localhost:8003",
         api_key: Optional[str] = None,
         cache_ttl: int = 300,
-        fallback_personas_path: Optional[str] = None
+        fallback_personas_path: Optional[str] = None,
+        additional_marketplaces: Optional[List[Dict[str, Any]]] = None,
     ):
+        """Initialize the marketplace client.
+
+        Args:
+            base_url: Primary marketplace URL
+            api_key: Optional API key for authentication
+            cache_ttl: Cache TTL in seconds
+            fallback_personas_path: Path to fallback persona YAML files
+            additional_marketplaces: Optional list of additional marketplace configs,
+                each with keys: url, tier (str), name (optional)
+        """
         self.base_url = base_url.rstrip('/')
         self.api_prefix = "/api/v1"
         self.api_key = api_key
         self.cache_ttl = cache_ttl
+
+        # Ordered list of (url, tier, name) for multi-marketplace resolution
+        # Primary marketplace is included as ROOT by default
+        self._marketplace_endpoints: List[Tuple[str, str, str]] = [
+            (self.base_url, "root", "primary"),
+        ]
+        if additional_marketplaces:
+            for mp in additional_marketplaces:
+                url = mp.get("url", "").rstrip("/")
+                tier = mp.get("tier", "user")
+                name = mp.get("name", url)
+                if url:
+                    self._marketplace_endpoints.append((url, tier, name))
 
         # Cache storage: {key: (data, expiry_time)}
         self._cache: Dict[str, tuple] = {}
@@ -90,10 +119,31 @@ class MarketplaceClient:
         self._cache.clear()
         logger.debug("Marketplace client cache cleared")
 
+    @staticmethod
+    def _normalize_to_skill(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a persona/skill dict to have all Skill model fields.
+
+        Ensures fields expected by downstream consumers (specialized_tools,
+        constraints, dependencies, conflicts_with) are present with
+        empty-list defaults when missing.
+        """
+        defaults = {
+            "specialized_tools": [],
+            "tags": [],
+            "conflicts_with": [],
+            "constraints": [],
+            "dependencies": [],
+            "instructions": "",
+            "version": "1.0.0",
+            "author": "system",
+        }
+        normalized = {**defaults, **data}
+        return normalized
+
     def _get_fallback_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        """Get a skill from fallback personas."""
+        """Get a skill from fallback personas, normalized to Skill model shape."""
         if skill_id in self._fallback_personas:
-            persona = self._fallback_personas[skill_id].copy()
+            persona = self._normalize_to_skill(self._fallback_personas[skill_id].copy())
             persona["source"] = "fallback"
             persona["fallback_mode"] = True
             logger.warning(f"Using fallback persona for skill: {skill_id}")
@@ -101,10 +151,10 @@ class MarketplaceClient:
         return None
 
     def _get_fallback_skills_list(self) -> Dict[str, Any]:
-        """Get list of all fallback skills."""
+        """Get list of all fallback skills, normalized to Skill model shape."""
         skills = []
         for skill_id, skill_data in self._fallback_personas.items():
-            skill = skill_data.copy()
+            skill = self._normalize_to_skill(skill_data.copy())
             skill["source"] = "fallback"
             skill["fallback_mode"] = True
             skills.append(skill)
@@ -216,6 +266,122 @@ class MarketplaceClient:
             )
             response.raise_for_status()
             return response.json()
+
+    async def _fetch_skill_from_endpoint(
+        self, url: str, tier: str, name: str, skill_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a skill from a specific marketplace endpoint.
+
+        Args:
+            url: Marketplace base URL
+            tier: Marketplace tier string
+            name: Marketplace name
+            skill_id: Skill ID to fetch
+
+        Returns:
+            Skill data enriched with marketplace metadata, or None if not found
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{url}{self.api_prefix}/skills/{skill_id}",
+                    headers=self._get_headers(),
+                    timeout=10.0,
+                )
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                data = response.json()
+                data["marketplace_tier"] = tier
+                data["marketplace_name"] = name
+                data["marketplace_url"] = url
+                return data
+        except httpx.HTTPStatusError:
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to fetch skill '{skill_id}' from {name} ({url}): {e}")
+            return None
+
+    async def resolve_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a skill across all configured marketplaces with tier-based priority.
+
+        Queries all marketplace endpoints concurrently. When the same skill
+        exists in multiple marketplaces, the most specific tier wins:
+        USER > PROJECT > TEAM > ENTERPRISE > ROOT.
+
+        Args:
+            skill_id: Skill ID to resolve
+
+        Returns:
+            Skill data from the highest-priority (most specific) tier, or None
+        """
+        # Check cache first
+        cache_key = f"resolved_skill:{skill_id}"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        # If only one marketplace, just use get_skill directly
+        if len(self._marketplace_endpoints) <= 1:
+            try:
+                skill = await self.get_skill(skill_id)
+                return skill
+            except Exception:
+                return None
+
+        # Query all marketplaces concurrently
+        tasks = [
+            self._fetch_skill_from_endpoint(url, tier, name, skill_id)
+            for url, tier, name in self._marketplace_endpoints
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Select by tier priority (most specific wins)
+        best: Optional[Dict[str, Any]] = None
+        best_priority = 999
+
+        for result in results:
+            if isinstance(result, Exception) or result is None:
+                continue
+            tier_str = result.get("marketplace_tier", "root")
+            priority = _TIER_PRIORITY.get(tier_str, 4)
+            if priority < best_priority:
+                best = result
+                best_priority = priority
+
+        if best is not None:
+            self._set_cached(cache_key, best)
+
+        return best
+
+    async def resolve_skills(
+        self, skill_ids: List[str]
+    ) -> Dict[str, Optional[Dict[str, Any]]]:
+        """Resolve multiple skills across all configured marketplaces.
+
+        Each skill is resolved independently with tier-based priority.
+
+        Args:
+            skill_ids: List of skill IDs to resolve
+
+        Returns:
+            Dict mapping skill_id to resolved skill data (or None if not found)
+        """
+        if not skill_ids:
+            return {}
+
+        tasks = [self.resolve_skill(sid) for sid in skill_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        resolved = {}
+        for skill_id, result in zip(skill_ids, results):
+            if isinstance(result, Exception):
+                logger.warning(f"Error resolving skill '{skill_id}': {result}")
+                resolved[skill_id] = None
+            else:
+                resolved[skill_id] = result
+
+        return resolved
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get marketplace statistics."""
