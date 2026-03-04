@@ -622,7 +622,7 @@ class ComputeRegistry:
 
         Args:
             instance_id: Instance ID to approve
-            project_ids: Project IDs to assign (defaults to ["*"] if None)
+            project_ids: Project IDs to assign (defaults to [] if None — approved but benched)
 
         Returns:
             Updated instance or None if not found
@@ -645,7 +645,7 @@ class ComputeRegistry:
 
         # Assign projects
         self._remove_from_project_index(instance_id)
-        instance.project_ids = project_ids if project_ids is not None else ["*"]
+        instance.project_ids = project_ids if project_ids is not None else []
         self._update_project_index(instance)
 
         await self._save_to_storage(instance)

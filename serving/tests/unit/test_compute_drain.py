@@ -364,7 +364,9 @@ class TestDrainAPI:
 
         with patch("services.work_map_service.get_work_map_service") as mock_wms:
             mock_service = MagicMock()
-            mock_service.list_work = AsyncMock(return_value=[])
+            mock_work_list = MagicMock()
+            mock_work_list.items = []
+            mock_service.list_work = AsyncMock(return_value=mock_work_list)
             mock_wms.return_value = mock_service
 
             response = client.get("/api/v1/compute/compute-001/drain")

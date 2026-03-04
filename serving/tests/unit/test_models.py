@@ -61,9 +61,10 @@ def test_compute_instance_creation():
         endpoint="http://localhost:8003",
         health_endpoint="http://localhost:8003/health",
         capabilities=InstanceCapabilities(agents=["agent-a"]),
-        metadata={"location": "local"}
+        metadata={"location": "local"},
+        status=InstanceStatus.ONLINE,
     )
-    
+
     assert instance.instance_id == "test-001"
     assert instance.name == "Test Instance"
     assert instance.status == InstanceStatus.ONLINE
@@ -76,9 +77,10 @@ def test_compute_instance_is_healthy():
     instance = ComputeInstance(
         instance_id="test-001",
         name="Test Instance",
-        endpoint="http://localhost:8003"
+        endpoint="http://localhost:8003",
+        status=InstanceStatus.ONLINE,
     )
-    
+
     # Just created, should be healthy
     assert instance.is_healthy() is True
     

@@ -36,13 +36,14 @@ def registry():
 @pytest.fixture
 def make_instance():
     """Factory for creating test compute instances."""
-    def _make(instance_id="compute-001", project_ids=None):
+    def _make(instance_id="compute-001", project_ids=None, status=InstanceStatus.ONLINE):
         return ComputeInstance(
             instance_id=instance_id,
             name=f"Compute {instance_id}",
             endpoint="sse",
             capabilities=InstanceCapabilities(agents=["agent-a"]),
             project_ids=project_ids or [],
+            status=status,
         )
     return _make
 
@@ -77,14 +78,14 @@ def make_work_item():
 class TestComputeInstanceProjectIds:
     """Test project_ids field on ComputeInstance model."""
 
-    def test_default_all_projects(self):
-        """New instances default to all projects (wildcard)."""
+    def test_default_empty_projects(self):
+        """New instances default to empty project_ids (benched)."""
         instance = ComputeInstance(
             instance_id="test",
             name="Test",
             endpoint="sse",
         )
-        assert instance.project_ids == ["*"]
+        assert instance.project_ids == []
 
     def test_with_specific_projects(self):
         """Instance can be created with specific project IDs."""

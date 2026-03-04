@@ -90,8 +90,9 @@ def test_compute_id_extraction():
     ]
 
     for branch, expected in test_cases:
+        # Use sed for cross-platform compatibility (macOS doesn't support grep -P)
         result = subprocess.run(
-            ["bash", "-c", f"echo '{branch}' | grep -oP 'compute-[a-z0-9-]+$'"],
+            ["bash", "-c", f"echo '{branch}' | sed 's|.*/||'"],
             capture_output=True,
             text=True
         )
@@ -103,11 +104,11 @@ def test_compute_isolation_same_id_allowed():
     branch = "f/issue_abc123/compute-001"
     compute_id = "compute-001"
 
-    # Simulates the check in the hook
+    # Simulates the check in the hook (using sed for macOS compatibility)
     result = subprocess.run(
         ["bash", "-c", f'''
             branch="{branch}"
-            compute_id=$(echo "$branch" | grep -oP 'compute-[a-z0-9-]+$')
+            compute_id=$(echo "$branch" | sed 's|.*/||')
             GIT_PUSH_COMPUTE_ID="{compute_id}"
             if [ -n "$GIT_PUSH_COMPUTE_ID" ] && [ "$compute_id" != "$GIT_PUSH_COMPUTE_ID" ]; then
                 exit 1

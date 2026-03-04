@@ -430,6 +430,8 @@ class TestOrchestratorSSEWorkAssignment:
         work.project_id = "project-1"
         work.base_branch = "main"
         work.repo_url = "git@test:repo.git"
+        work.issue_id = None
+        work.context = {}
         return work
 
     @pytest.mark.asyncio
@@ -471,7 +473,7 @@ class TestOrchestratorSSEWorkAssignment:
                 work_id="work_sse123",
                 compute_id="compute-001",
                 skills=["code-writer"],
-                branch_name="work/work_sse123/compute-001"
+                branch_name="f/work_sse123/compute-001"
             )
 
     @pytest.mark.asyncio
@@ -517,7 +519,7 @@ class TestOrchestratorSSEWorkAssignment:
 
             await orchestrator._spawn_for_work(mock_work)
 
-            mock_sse.assert_called_once_with(mock_work, ["code-writer"], None)
+            mock_sse.assert_called_once_with(mock_work, ["code-writer"], None, None)
             mock_spawn.assert_not_called()
             assert orchestrator._stats["total_assigned"] == 1
 
@@ -533,7 +535,7 @@ class TestOrchestratorSSEWorkAssignment:
             await orchestrator._spawn_for_work(mock_work)
 
             mock_sse.assert_called_once()
-            mock_spawn.assert_called_once_with(mock_work, ["code-writer"])
+            mock_spawn.assert_called_once_with(mock_work, ["code-writer"], None)
 
     @pytest.mark.asyncio
     async def test_spawn_new_compute(self, orchestrator, mock_work):
@@ -1959,7 +1961,7 @@ class TestFailedNodeRotation:
 
         # Verify exclude_compute_ids was passed with the failed node (only when multiple computes exist)
         mock_sse.assert_called_once_with(
-            mock_work, ["code-writer"], {"compute-003"}
+            mock_work, ["code-writer"], {"compute-003"}, None
         )
 
     @pytest.mark.asyncio
@@ -1989,7 +1991,7 @@ class TestFailedNodeRotation:
 
         # Verify exclude_compute_ids was None (not excluded) since there's only 1 compute
         mock_sse.assert_called_once_with(
-            mock_work, ["code-writer"], None
+            mock_work, ["code-writer"], None, None
         )
 
     @pytest.mark.asyncio

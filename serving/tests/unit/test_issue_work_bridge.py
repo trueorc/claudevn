@@ -83,9 +83,14 @@ class TestCreateWorkFromIssue:
         service = work_map_service
         service._issue_service._issues["issue_abc123"] = mock_issue
 
-        with patch("services.project_service.get_project_service") as mock_proj_svc:
-            mock_proj_svc.return_value.get_project = AsyncMock(return_value=mock_project)
+        mock_proj_svc_instance = MagicMock()
+        mock_proj_svc_instance.resolve_repo_details = AsyncMock(return_value={
+            "clone_url": "git@github.com:test/repo.git",
+            "default_branch": "develop",
+        })
+        mock_proj_svc_instance.get_project = AsyncMock(return_value=mock_project)
 
+        with patch("services.project_service.get_project_service", return_value=mock_proj_svc_instance):
             work = await service.create_work_from_issue("issue_abc123")
 
         assert work is not None
