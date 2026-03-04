@@ -336,6 +336,22 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Redis not available: {e}. Git PR queue features disabled.")
 
     # =========================================================================
+    # OPTIONAL: Load persisted settings from Redis
+    # Restores runtime settings (e.g., max_compute_instances) saved via the UI.
+    # =========================================================================
+    if redis_client:
+        try:
+            from api.network_capacity import REDIS_KEY_MAX_COMPUTE
+            stored_max = await redis_client._redis.get(
+                redis_client._key(REDIS_KEY_MAX_COMPUTE)
+            )
+            if stored_max is not None:
+                get_config().network_capacity.max_compute_instances = int(stored_max)
+                logger.info(f"Loaded max_compute_instances={stored_max} from Redis")
+        except Exception as e:
+            logger.warning(f"Failed to load settings from Redis: {e}")
+
+    # =========================================================================
     # OPTIONAL: MCP Auth Key Persistence
     # Loads compute API keys from Redis so they survive Serving restarts.
     # =========================================================================
@@ -1116,8 +1132,8 @@ app.add_middleware(CognitoAuthMiddleware)
 API_VERSION = os.getenv('API_VERSION', 'v1')
 api_prefix = f"/api/{API_VERSION}"
 
-app.include_router(compute.router, prefix=api_prefix)
 app.include_router(compute_approval.router, prefix=api_prefix)
+app.include_router(compute.router, prefix=api_prefix)
 app.include_router(marketplaces.router, prefix=api_prefix)
 app.include_router(skills.router, prefix=api_prefix)
 app.include_router(agents.router, prefix=api_prefix)

@@ -12,7 +12,6 @@ import AuthModal from '../components/auth/AuthModal'
 import Spinner from '../components/common/Spinner'
 import useSystemHealth from '../hooks/useSystemHealth'
 import useAuthTokens from '../hooks/useAuthTokens'
-import useNetworkCapacity from '../hooks/useNetworkCapacity'
 import './NetworkHealthPage.css'
 
 function NetworkHealthPage() {
@@ -20,7 +19,6 @@ function NetworkHealthPage() {
     pollInterval: 30000
   })
   const { systemStatus, getComponentAuth, refresh: refreshAuth } = useAuthTokens({ pollInterval: 30000 })
-  const { capacity, refresh: refreshCapacity } = useNetworkCapacity({ pollInterval: 30000 })
 
   const [viewMode, setViewMode] = useState('list') // 'list' or 'map'
   const [computeFilter, setComputeFilter] = useState(null)
@@ -94,7 +92,7 @@ function NetworkHealthPage() {
             </span>
           </div>
         </div>
-        <button onClick={() => { refresh(); refreshAuth(); refreshCapacity() }} className="refresh-btn" disabled={loading}>
+        <button onClick={() => { refresh(); refreshAuth() }} className="refresh-btn" disabled={loading}>
           <RefreshCw size={16} className={loading ? 'spinning' : ''} />
           Refresh
         </button>
@@ -160,11 +158,6 @@ function NetworkHealthPage() {
         <header className="section-header">
           <h2 className="section-title">
             Compute Instances
-            {capacity && capacity.max_compute_instances > 0 && (
-              <span className="capacity-badge" title="Network capacity limit">
-                {capacity.current_instances}/{capacity.max_compute_instances}
-              </span>
-            )}
           </h2>
           <div className="view-toggle">
             <button

@@ -505,73 +505,13 @@ class ComputeRegistry:
         logger.info(f"Cancelled drain for instance {instance_id}")
         return instance
 
-    async def approve_instance(
-        self,
-        instance_id: str,
-        project_ids: Optional[List[str]] = None,
-    ) -> Optional[ComputeInstance]:
-        """Approve a pending compute instance.
-
-        Transitions from PENDING to ONLINE, optionally assigning initial projects.
-
-        Args:
-            instance_id: Instance ID
-            project_ids: Optional initial project assignments
-
-        Returns:
-            Updated instance or None if not found
-        """
-        instance = self._instances.get(instance_id)
-        if not instance:
-            return None
-
-        if instance.status != InstanceStatus.PENDING:
-            logger.warning(f"Cannot approve instance {instance_id}: status is {instance.status}")
-            return instance
-
-        instance.status = InstanceStatus.ONLINE
-        instance.pending_since = None
-
-        if project_ids:
-            instance.project_ids = project_ids
-            for pid in project_ids:
-                self._add_to_project_index(instance_id, pid)
-
-        await self._save_to_storage(instance)
-        logger.info(f"Approved instance {instance_id}")
-        return instance
-
-    async def reject_instance(
-        self,
-        instance_id: str,
-        reason: Optional[str] = None,
-    ) -> bool:
-        """Reject a pending compute instance.
-
-        Removes the instance from the registry. The caller should
-        also send a 'rejected' SSE event and close the connection.
-
-        Args:
-            instance_id: Instance ID
-            reason: Optional rejection reason for logging
-
-        Returns:
-            True if rejected, False if not found
-        """
-        instance = self._instances.get(instance_id)
-        if not instance:
-            return False
-
-        if reason:
-            logger.info(f"Rejecting instance {instance_id}: {reason}")
-        else:
-            logger.info(f"Rejecting instance {instance_id}")
-
-        await self.remove_instance(instance_id)
-        return True
-
     async def get_pending_instances(self) -> List[ComputeInstance]:
-        """Get all instances in PENDING status."""
+        """Get all instances in PENDING status.
+
+        Returns:
+            List of instances in PENDING status (unordered).
+            Use list_pending_instances() for sorted results.
+        """
         return [
             inst for inst in self._instances.values()
             if inst.status == InstanceStatus.PENDING
@@ -672,7 +612,98 @@ class ComputeRegistry:
 
         # Return first matching instance (could be enhanced with load balancing)
         return candidates[0] if candidates else None
-    
+
+    async def approve_instance(
+        self,
+        instance_id: str,
+        project_ids: Optional[List[str]] = None,
+    ) -> Optional[ComputeInstance]:
+        """Approve a PENDING instance, transitioning it to ONLINE.
+
+        Args:
+            instance_id: Instance ID to approve
+            project_ids: Project IDs to assign (defaults to [] if None — approved but benched)
+
+        Returns:
+            Updated instance or None if not found
+
+        Raises:
+            ValueError: If instance is not in PENDING status
+        """
+        instance = self._instances.get(instance_id)
+        if not instance:
+            return None
+
+        if instance.status != InstanceStatus.PENDING:
+            raise ValueError(
+                f"Instance {instance_id} is not pending (status={instance.status.value})"
+            )
+
+        # Transition to ONLINE
+        instance.status = InstanceStatus.ONLINE
+        instance.pending_since = None
+
+        # Assign projects
+        self._remove_from_project_index(instance_id)
+        instance.project_ids = project_ids if project_ids is not None else []
+        self._update_project_index(instance)
+
+        await self._save_to_storage(instance)
+
+        logger.info(
+            f"Approved instance {instance_id}, "
+            f"project_ids={instance.project_ids}"
+        )
+        return instance
+
+    async def reject_instance(
+        self,
+        instance_id: str,
+        reason: str = "",
+    ) -> bool:
+        """Reject a PENDING instance and remove it from the registry.
+
+        Args:
+            instance_id: Instance ID to reject
+            reason: Optional rejection reason
+
+        Returns:
+            True if rejected and removed, False if not found
+
+        Raises:
+            ValueError: If instance is not in PENDING status
+        """
+        instance = self._instances.get(instance_id)
+        if not instance:
+            return False
+
+        if instance.status != InstanceStatus.PENDING:
+            raise ValueError(
+                f"Instance {instance_id} is not pending (status={instance.status.value})"
+            )
+
+        logger.info(
+            f"Rejected instance {instance_id}"
+            + (f": {reason}" if reason else "")
+        )
+
+        return await self.remove_instance(instance_id)
+
+    async def list_pending_instances(self) -> List[ComputeInstance]:
+        """List all instances in PENDING status.
+
+        Returns:
+            List of pending instances sorted by pending_since (oldest first)
+        """
+        pending = [
+            i for i in self._instances.values()
+            if i.status == InstanceStatus.PENDING
+        ]
+        pending.sort(
+            key=lambda i: i.pending_since or i.registered_at,
+        )
+        return pending
+
     async def update_status(
         self,
         instance_id: str,

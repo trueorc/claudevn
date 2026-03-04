@@ -128,6 +128,10 @@ class SSEEventClient:
         # Git token received from Serving (for HTTP auth)
         self._git_token: Optional[str] = None
 
+        # Approval state
+        self._approved = False
+        self._project_ids: list[str] = []
+
         # Register built-in handlers
         self._register_builtin_handlers()
 
@@ -140,6 +144,8 @@ class SSEEventClient:
         self.on("merge_conflict", self._handle_merge_conflict)
         self.on("credentials_refresh", self._handle_credentials_refresh)
         self.on("auth_token", self._handle_auth_token)
+        self.on("approved", self._handle_approved)
+        self.on("rejected", self._handle_rejected)
 
     async def _handle_git_token_provisioned(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle git_token_provisioned event by storing the token.
@@ -462,6 +468,58 @@ class SSEEventClient:
             logger.info(f"Applied token to credential monitor (status={monitor.status.value})")
         else:
             logger.warning("No credential monitor available to apply token")
+
+    async def _handle_approved(self, event_type: str, data: dict[str, Any]) -> None:
+        """Handle approved event from Serving.
+
+        Sent when an admin approves this compute instance. Stores the
+        approved state and assigned project_ids.
+
+        Args:
+            event_type: Event type (approved)
+            data: Event data containing status and project_ids
+        """
+        project_ids = data.get("project_ids", [])
+        status = data.get("status", "unknown")
+
+        self._approved = True
+        self._project_ids = project_ids
+
+        logger.info(
+            f"Compute {self.compute_id} approved (status={status}, "
+            f"project_ids={project_ids})"
+        )
+
+    async def _handle_rejected(self, event_type: str, data: dict[str, Any]) -> None:
+        """Handle rejected event from Serving.
+
+        Sent when an admin rejects this compute instance. Logs the
+        rejection and initiates graceful shutdown.
+
+        Args:
+            event_type: Event type (rejected)
+            data: Event data containing status and message
+        """
+        message = data.get("message", "No reason provided")
+        status = data.get("status", "unknown")
+
+        logger.warning(
+            f"Compute {self.compute_id} rejected (status={status}): {message}"
+        )
+
+        # Initiate graceful shutdown — server will close SSE connection,
+        # but we should clean up proactively.
+        await self.stop()
+
+    @property
+    def is_approved(self) -> bool:
+        """Check if this compute instance has been approved."""
+        return self._approved
+
+    @property
+    def project_ids(self) -> list[str]:
+        """Get the project IDs assigned to this compute instance."""
+        return self._project_ids
 
     def on(self, event_type: str, handler: EventHandler) -> None:
         """Register an event handler.

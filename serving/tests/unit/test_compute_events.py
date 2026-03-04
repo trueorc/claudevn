@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from models.compute import (
     ComputeInstance,
     InstanceCapabilities,
+    InstanceStatus,
     RegistrationRequest,
 )
 from models.observability import (
@@ -84,12 +85,13 @@ class TestRegisterInstanceEvents:
             name=sample_registration.name,
             endpoint=sample_registration.endpoint,
             capabilities=sample_registration.capabilities,
+            status=InstanceStatus.ONLINE,
         )
         mock_registry.add_instance.return_value = mock_instance
 
         # Patch dependencies - get_event_bus is imported locally in the function
         with patch("services.observability_event_bus.get_event_bus", return_value=mock_event_bus):
-            response = await register_instance(sample_registration, mock_registry)
+            response = await register_instance(sample_registration, registry=mock_registry)
 
         # Verify event emitted
         assert mock_event_bus.emit_event.called
@@ -116,11 +118,12 @@ class TestRegisterInstanceEvents:
             name=sample_registration.name,
             endpoint=sample_registration.endpoint,
             capabilities=sample_registration.capabilities,
+            status=InstanceStatus.ONLINE,
         )
         mock_registry.add_instance.return_value = mock_instance
 
         with patch("services.observability_event_bus.get_event_bus", return_value=mock_event_bus):
-            await register_instance(sample_registration, mock_registry)
+            await register_instance(sample_registration, registry=mock_registry)
 
         emitted_event = mock_event_bus.emit_event.call_args[0][0]
 
@@ -142,14 +145,15 @@ class TestRegisterInstanceEvents:
             name=sample_registration.name,
             endpoint=sample_registration.endpoint,
             capabilities=sample_registration.capabilities,
+            status=InstanceStatus.ONLINE,
         )
         mock_registry.add_instance.return_value = mock_instance
 
         with patch("services.observability_event_bus.get_event_bus", return_value=None):
             # Should not raise
-            response = await register_instance(sample_registration, mock_registry)
+            response = await register_instance(sample_registration, registry=mock_registry)
 
-        assert response.status == "registered"
+        assert response.status == "pending"
 
 
 # =============================================================================
@@ -403,15 +407,16 @@ class TestEventEmissionErrorHandling:
             name=sample_registration.name,
             endpoint=sample_registration.endpoint,
             capabilities=sample_registration.capabilities,
+            status=InstanceStatus.ONLINE,
         )
         mock_registry.add_instance.return_value = mock_instance
 
         # Event bus unavailable (None) - should not fail
         with patch("services.observability_event_bus.get_event_bus", return_value=None):
             # Should not raise - registration completes without event
-            response = await register_instance(sample_registration, mock_registry)
+            response = await register_instance(sample_registration, registry=mock_registry)
 
-        assert response.status == "registered"
+        assert response.status == "pending"
 
     @pytest.mark.asyncio
     async def test_deregister_with_no_event_bus(

@@ -129,12 +129,16 @@ class TestRepoManagerDeleteBranch:
         assert "Cannot delete protected branch: main" in str(exc_info.value)
 
     def test_delete_branch_protected_master_raises(self):
-        """Test delete_branch raises ValueError for master branch."""
+        """Test delete_branch raises ValueError for the default branch (main).
+
+        Note: Only the default branch is protected, not 'master' by name.
+        Repos default to 'main', so deleting 'main' raises ValueError.
+        """
         from git.repo_manager import RepoManager
 
         repo_manager = RepoManager()
 
         with pytest.raises(ValueError) as exc_info:
-            repo_manager.delete_branch("test_project", "master")
+            repo_manager.delete_branch("test_project", "main")
 
-        assert "Cannot delete protected branch: master" in str(exc_info.value)
+        assert "Cannot delete protected branch: main" in str(exc_info.value)

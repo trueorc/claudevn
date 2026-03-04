@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional, AsyncGenerator
+from typing import Optional, List, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query, Depends, Header, Request, status
 from fastapi.responses import StreamingResponse
@@ -50,42 +50,6 @@ SSE_EVENT_CHECK_INTERVAL = 0.5
 
 router = APIRouter(prefix="/compute", tags=["compute"])
 
-
-def _verify_registration_token(authorization: Optional[str]) -> None:
-    """Verify the Bearer token against the COMPUTE_REGISTRATION_TOKEN env var.
-
-    If COMPUTE_REGISTRATION_TOKEN is not set, authentication is not enforced
-    (local dev mode). When set, the Authorization header must provide a matching
-    Bearer token. MCP_AUTH_BYPASS=true disables enforcement for integration tests.
-
-    Raises:
-        HTTPException 401 if token is missing or invalid when enforcement is active.
-    """
-    token = os.getenv("COMPUTE_REGISTRATION_TOKEN")
-    if not token:
-        return  # Not configured — local dev mode, no enforcement
-
-    if os.getenv("MCP_AUTH_BYPASS", "").lower() == "true":
-        return  # Test bypass
-
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "MISSING_AUTH", "message": "Authorization header required for registration"},
-        )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "INVALID_AUTH", "message": "Bearer token required"},
-        )
-
-    provided = authorization[7:]
-    if provided != token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "INVALID_TOKEN", "message": "Invalid registration token"},
-        )
 
 
 # =============================================================================
@@ -295,7 +259,6 @@ async def connect_sse(
     x_resources: Optional[str] = Header(None, alias="X-Resources", description="Resources as key=value pairs"),
     x_labels: Optional[str] = Header(None, alias="X-Labels", description="Routing labels for work assignment (e.g., production-access,database-admin)"),
     x_tools_available: Optional[str] = Header(None, alias="X-Tools-Available", description="Specialized tools available (e.g., deploy_prod,db_migrate)"),
-    authorization: Optional[str] = Header(None, description="Bearer token for authentication"),
     registry: ComputeRegistry = Depends(get_compute_registry),
 ):
     """Establish SSE connection for compute registration.
@@ -304,13 +267,15 @@ async def connect_sse(
     as both registration and health signal. The connection itself indicates the
     compute instance is alive - no separate heartbeat polling is needed.
 
+    Instances start in PENDING status and must be approved by an admin before
+    receiving work assignments.
+
     Headers:
         X-Compute-ID: Unique compute instance identifier (required)
         X-Capabilities: Comma-separated list of capabilities (optional)
         X-Resources: Resource specs as key=value pairs, e.g., "cpu=4,memory=16gb" (optional)
         X-Labels: Routing labels for work assignment, e.g., "production-access,database-admin" (optional)
         X-Tools-Available: Specialized tools available, e.g., "deploy_prod,db_migrate" (optional)
-        Authorization: Bearer token for authentication (optional)
 
     Events sent from server:
         - connected: Initial connection confirmation
@@ -324,9 +289,6 @@ async def connect_sse(
     Returns:
         SSE stream (text/event-stream)
     """
-    # Enforce registration token authentication
-    _verify_registration_token(authorization)
-
     compute_id = x_compute_id
 
     # Check network capacity limit
@@ -436,10 +398,11 @@ async def connect_sse(
                 await event_bus.emit_event(event)
                 logger.debug(f"Emitted compute_registered event for {compute_id}")
         else:
-            # Instance was pre-registered via POST /register
-            # Update heartbeat to mark it as online
+            # Instance was pre-registered via POST /register — preserve PENDING status.
+            # update_heartbeat() only updates the timestamp; it does NOT promote
+            # PENDING → ONLINE. Only explicit approval via POST /{id}/approve does that.
             await registry.update_heartbeat(compute_id, metadata={"sse_connected": True})
-            logger.info(f"Compute {compute_id} pre-registered, updated heartbeat via SSE connection")
+            logger.info(f"Compute {compute_id} pre-registered (PENDING preserved), SSE connected")
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1900,6 +1863,95 @@ async def drain_for_restart(
 
 
 # =============================================================================
+# Approval Endpoints
+# =============================================================================
+
+
+@router.get("/pending")
+async def list_pending_instances(
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """List all compute instances awaiting approval.
+
+    Returns:
+        List of instances in PENDING status, oldest first.
+    """
+    pending = await registry.list_pending_instances()
+    return {
+        "instances": [inst.model_dump(mode="json") for inst in pending],
+        "total": len(pending),
+    }
+
+
+@router.post("/{instance_id}/approve")
+async def approve_instance(
+    instance_id: str,
+    project_ids: Optional[List[str]] = None,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Approve a pending compute instance, transitioning it to ONLINE.
+
+    Args:
+        instance_id: Compute instance to approve
+        project_ids: Project IDs to assign. Defaults to ["*"] (all projects).
+
+    Returns:
+        The approved instance.
+    """
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    try:
+        approved = await registry.approve_instance(instance_id, project_ids)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    logger.info(f"Approved compute instance {instance_id}")
+    return approved.model_dump(mode="json")
+
+
+@router.post("/{instance_id}/reject")
+async def reject_instance(
+    instance_id: str,
+    reason: str = "",
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Reject a pending compute instance and remove it from the registry.
+
+    Args:
+        instance_id: Compute instance to reject
+        reason: Optional rejection reason
+
+    Returns:
+        Acknowledgment with rejection status.
+    """
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    try:
+        await registry.reject_instance(instance_id, reason)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    logger.info(f"Rejected compute instance {instance_id}: {reason}")
+    return {"status": "rejected", "instance_id": instance_id, "reason": reason}
+
+
+# =============================================================================
 # Legacy Registration Endpoints (Deprecated - use SSE /connect instead)
 # =============================================================================
 
@@ -1907,12 +1959,12 @@ async def drain_for_restart(
 @router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
 async def register_instance(
     request: RegistrationRequest,
-    registry: ComputeRegistry = Depends(get_compute_registry)
+    registry: ComputeRegistry = Depends(get_compute_registry),
 ):
     """Register a new compute instance.
 
     This endpoint allows compute instances to register before establishing an SSE connection.
-    This enables fast UI updates without waiting for health checks.
+    Instances are created in PENDING status with empty project_ids until explicitly approved.
 
     Args:
         request: Registration request
@@ -1924,13 +1976,16 @@ async def register_instance(
     Raises:
         HTTPException: If instance_id already exists or validation fails
     """
+
     try:
-        # Create ComputeInstance from request
+        # Create ComputeInstance from request — always starts PENDING with no projects
         instance = ComputeInstance(
             instance_id=request.instance_id,
             name=request.name,
             endpoint=request.endpoint,
             health_endpoint=request.health_endpoint,
+            status=InstanceStatus.PENDING,
+            pending_since=datetime.now(timezone.utc),
             capabilities=request.capabilities,
             metadata=request.metadata,
             version=request.version,
@@ -1969,11 +2024,11 @@ async def register_instance(
             logger.debug(f"Emitted compute_registered event for {registered.instance_id}")
 
         return RegistrationResponse(
-            status="registered",
+            status="pending",
             instance_id=registered.instance_id,
             heartbeat_interval=registered.heartbeat_interval,
             heartbeat_endpoint=f"/api/v1/compute/{registered.instance_id}/health",
-            message=f"Successfully registered compute instance {registered.instance_id}"
+            message=f"Instance {registered.instance_id} registered as PENDING — awaiting approval"
         )
 
     except ValueError as e:

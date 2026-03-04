@@ -26,6 +26,7 @@ def sample_instance():
         instance_id="test-001",
         name="Test Instance",
         endpoint="http://localhost:8003",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(
             agents=["agent-a", "agent-b"],
             tools=["tool-x"],
@@ -38,7 +39,7 @@ def sample_instance():
 async def test_add_instance(registry, sample_instance):
     """Test adding an instance."""
     added = await registry.add_instance(sample_instance)
-    
+
     assert added.instance_id == "test-001"
     assert added.status == InstanceStatus.ONLINE
     assert added.failed_health_checks == 0
@@ -151,14 +152,16 @@ async def test_get_by_capability_agent(registry):
         instance_id="test-001",
         name="Instance 1",
         endpoint="http://localhost:8003",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(agents=["agent-a", "agent-b"])
     )
     await registry.add_instance(instance1)
-    
+
     instance2 = ComputeInstance(
         instance_id="test-002",
         name="Instance 2",
         endpoint="http://localhost:8004",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(agents=["agent-b", "agent-c"])
     )
     await registry.add_instance(instance2)
@@ -180,14 +183,16 @@ async def test_get_by_capability_tool(registry):
         instance_id="test-001",
         name="Instance 1",
         endpoint="http://localhost:8003",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(tools=["tool-x", "tool-y"])
     )
     await registry.add_instance(instance1)
-    
+
     instance2 = ComputeInstance(
         instance_id="test-002",
         name="Instance 2",
         endpoint="http://localhost:8004",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(tools=["tool-y", "tool-z"])
     )
     await registry.add_instance(instance2)
@@ -309,6 +314,7 @@ async def test_get_aggregated_capabilities(registry):
         instance_id="test-001",
         name="Instance 1",
         endpoint="http://localhost:8003",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(
             agents=["agent-a", "agent-b"],
             tools=["tool-x"],
@@ -316,11 +322,12 @@ async def test_get_aggregated_capabilities(registry):
         )
     )
     await registry.add_instance(instance1)
-    
+
     instance2 = ComputeInstance(
         instance_id="test-002",
         name="Instance 2",
         endpoint="http://localhost:8004",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(
             agents=["agent-b", "agent-c"],
             tools=["tool-y"],
@@ -375,6 +382,7 @@ async def test_get_stats(registry):
             instance_id=f"test-{i:03d}",
             name=f"Instance {i}",
             endpoint=f"http://localhost:800{i}",
+            status=InstanceStatus.ONLINE,
             capabilities=InstanceCapabilities(
                 agents=[f"agent-{i}"],
                 tools=[f"tool-{i}"]
@@ -402,6 +410,7 @@ def instance_with_labels():
         instance_id="labeled-001",
         name="Labeled Instance",
         endpoint="http://localhost:8003",
+        status=InstanceStatus.ONLINE,
         auth_status=ComputeAuthStatus.AUTHORIZED,
         capabilities=InstanceCapabilities(
             agents=["code-writer"],
@@ -434,6 +443,7 @@ async def test_get_by_label(registry, instance_with_labels):
         instance_id="standard-001",
         name="Standard Instance",
         endpoint="http://localhost:8004",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(
             agents=["code-writer"],
             labels=["standard"]
@@ -503,6 +513,7 @@ async def test_find_matching_compute_by_labels(registry, instance_with_labels):
         instance_id="standard-001",
         name="Standard Instance",
         endpoint="http://localhost:8004",
+        status=InstanceStatus.ONLINE,
         capabilities=InstanceCapabilities(labels=["standard"])
     )
     await registry.add_instance(standard_instance)
@@ -556,6 +567,7 @@ async def test_find_matching_compute_combined(registry, instance_with_labels):
         instance_id="other-001",
         name="Other Instance",
         endpoint="http://localhost:8004",
+        status=InstanceStatus.ONLINE,
         auth_status=ComputeAuthStatus.AUTHORIZED,
         capabilities=InstanceCapabilities(
             agents=["code-writer"],
