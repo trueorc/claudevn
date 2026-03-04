@@ -85,6 +85,8 @@ class SSEEventClient:
         reconnect_delay: int = 5,
         max_reconnect_delay: int = 60,
         tls_verify: bool = True,
+        tools_available: Optional[list[str]] = None,
+        labels: Optional[list[str]] = None,
     ):
         """Initialize the SSE event client.
 
@@ -97,12 +99,16 @@ class SSEEventClient:
             reconnect_delay: Initial delay between reconnection attempts
             max_reconnect_delay: Maximum delay between reconnection attempts
             tls_verify: Whether to verify TLS certificates
+            tools_available: Specialized tools/runtimes available (e.g., runtime:node:22)
+            labels: Routing labels for work assignment
         """
         self.serving_url = serving_url.rstrip('/')
         self.compute_id = compute_id
         self.api_key = api_key
         self.capabilities = capabilities
         self.resources = resources
+        self.tools_available = tools_available or []
+        self.labels = labels or []
         self.reconnect_delay = reconnect_delay
         self.max_reconnect_delay = max_reconnect_delay
         self.tls_verify = tls_verify
@@ -122,6 +128,10 @@ class SSEEventClient:
         # Git token received from Serving (for HTTP auth)
         self._git_token: Optional[str] = None
 
+        # Approval state
+        self._approved = False
+        self._project_ids: list[str] = []
+
         # Register built-in handlers
         self._register_builtin_handlers()
 
@@ -134,6 +144,8 @@ class SSEEventClient:
         self.on("merge_conflict", self._handle_merge_conflict)
         self.on("credentials_refresh", self._handle_credentials_refresh)
         self.on("auth_token", self._handle_auth_token)
+        self.on("approved", self._handle_approved)
+        self.on("rejected", self._handle_rejected)
 
     async def _handle_git_token_provisioned(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle git_token_provisioned event by storing the token.
@@ -457,6 +469,58 @@ class SSEEventClient:
         else:
             logger.warning("No credential monitor available to apply token")
 
+    async def _handle_approved(self, event_type: str, data: dict[str, Any]) -> None:
+        """Handle approved event from Serving.
+
+        Sent when an admin approves this compute instance. Stores the
+        approved state and assigned project_ids.
+
+        Args:
+            event_type: Event type (approved)
+            data: Event data containing status and project_ids
+        """
+        project_ids = data.get("project_ids", [])
+        status = data.get("status", "unknown")
+
+        self._approved = True
+        self._project_ids = project_ids
+
+        logger.info(
+            f"Compute {self.compute_id} approved (status={status}, "
+            f"project_ids={project_ids})"
+        )
+
+    async def _handle_rejected(self, event_type: str, data: dict[str, Any]) -> None:
+        """Handle rejected event from Serving.
+
+        Sent when an admin rejects this compute instance. Logs the
+        rejection and initiates graceful shutdown.
+
+        Args:
+            event_type: Event type (rejected)
+            data: Event data containing status and message
+        """
+        message = data.get("message", "No reason provided")
+        status = data.get("status", "unknown")
+
+        logger.warning(
+            f"Compute {self.compute_id} rejected (status={status}): {message}"
+        )
+
+        # Initiate graceful shutdown — server will close SSE connection,
+        # but we should clean up proactively.
+        await self.stop()
+
+    @property
+    def is_approved(self) -> bool:
+        """Check if this compute instance has been approved."""
+        return self._approved
+
+    @property
+    def project_ids(self) -> list[str]:
+        """Get the project IDs assigned to this compute instance."""
+        return self._project_ids
+
     def on(self, event_type: str, handler: EventHandler) -> None:
         """Register an event handler.
 
@@ -504,8 +568,8 @@ class SSEEventClient:
                 "agents": self.capabilities,
                 "tools": [],
                 "features": [],
-                "labels": [],
-                "tools_available": [],
+                "labels": self.labels,
+                "tools_available": self.tools_available,
             },
             "metadata": {
                 "connection_type": "sse",
@@ -675,8 +739,12 @@ class SSEEventClient:
             "X-Compute-ID": self.compute_id,
             "X-Capabilities": ",".join(self.capabilities),
             "X-Resources": json.dumps(self.resources),
-            "Accept": "text/event-stream"
+            "Accept": "text/event-stream",
         }
+        if self.labels:
+            headers["X-Labels"] = ",".join(self.labels)
+        if self.tools_available:
+            headers["X-Tools-Available"] = ",".join(self.tools_available)
         # Only add Authorization header if api_key is provided
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -788,6 +856,8 @@ async def initialize_sse_event_client(
     reconnect_delay: int = 5,
     max_reconnect_delay: int = 60,
     tls_verify: bool = True,
+    tools_available: Optional[list[str]] = None,
+    labels: Optional[list[str]] = None,
 ) -> SSEEventClient:
     """Initialize and start the global SSE event client.
 
@@ -800,6 +870,8 @@ async def initialize_sse_event_client(
         reconnect_delay: Initial delay between reconnection attempts (default: 5)
         max_reconnect_delay: Maximum delay between reconnection attempts (default: 60)
         tls_verify: Whether to verify TLS certificates (default: True)
+        tools_available: Specialized tools/runtimes available (e.g., runtime:node:22)
+        labels: Routing labels for work assignment
 
     Returns:
         The initialized SSE event client
@@ -813,6 +885,8 @@ async def initialize_sse_event_client(
         reconnect_delay=reconnect_delay,
         max_reconnect_delay=max_reconnect_delay,
         tls_verify=tls_verify,
+        tools_available=tools_available,
+        labels=labels,
     )
     set_sse_event_client(client)
     await client.start()

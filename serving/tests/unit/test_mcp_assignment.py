@@ -27,6 +27,9 @@ class MockWorkAssignment:
         self.context = kwargs.get("context", {"project": "test"})
         self.dependencies = kwargs.get("dependencies", [])
         self.dependency_outputs = kwargs.get("dependency_outputs", {})
+        self.git_project_name = kwargs.get("git_project_name", None)
+        self.clone_url = kwargs.get("clone_url", None)
+        self.default_branch = kwargs.get("default_branch", None)
 
 
 class TestGetAssignmentTool:

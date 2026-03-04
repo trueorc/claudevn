@@ -64,6 +64,7 @@ from api import feedback
 from api import auth
 from api import cognito_users
 from api import network_capacity
+from api import provisioner
 from api import timing
 # MCP server for compute communication
 from mcp import get_router
@@ -335,6 +336,22 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Redis not available: {e}. Git PR queue features disabled.")
 
     # =========================================================================
+    # OPTIONAL: Load persisted settings from Redis
+    # Restores runtime settings (e.g., max_compute_instances) saved via the UI.
+    # =========================================================================
+    if redis_client:
+        try:
+            from api.network_capacity import REDIS_KEY_MAX_COMPUTE
+            stored_max = await redis_client._redis.get(
+                redis_client._key(REDIS_KEY_MAX_COMPUTE)
+            )
+            if stored_max is not None:
+                get_config().network_capacity.max_compute_instances = int(stored_max)
+                logger.info(f"Loaded max_compute_instances={stored_max} from Redis")
+        except Exception as e:
+            logger.warning(f"Failed to load settings from Redis: {e}")
+
+    # =========================================================================
     # OPTIONAL: MCP Auth Key Persistence
     # Loads compute API keys from Redis so they survive Serving restarts.
     # =========================================================================
@@ -423,6 +440,14 @@ async def lifespan(app: FastAPI):
         set_work_map_service(work_map_service)
         set_goal_service(work_map_service._goal_service)
         logger.info("Work map service initialized")
+
+        # Initialize AssignmentService (used by orchestrator for blocker management)
+        from services.assignment_service import AssignmentService, set_assignment_service
+        assignment_service = AssignmentService(redis_client=redis_client)
+        assignment_service.set_work_items_reference(work_map_service._work_items)
+        await assignment_service.initialize()
+        set_assignment_service(assignment_service)
+        logger.info("Assignment service initialized")
     except Exception as e:
         logger.error(f"Failed to initialize work map service: {e}")
         raise
@@ -929,6 +954,33 @@ async def lifespan(app: FastAPI):
                 f"max_spawns={orchestrator_max_spawns}, "
                 f"{timeout_status})"
             )
+
+            # Register compute provisioners
+            try:
+                from services.compute_provisioner import get_provisioner_registry
+                from services.providers.manual_provisioner import ManualProvisioner
+                prov_registry = get_provisioner_registry()
+
+                # Docker provisioner (priority 10 — tried first when enabled)
+                if config.docker_provisioner.enabled:
+                    from services.providers.docker_provisioner import DockerProvisioner
+                    docker_prov = DockerProvisioner(config.docker_provisioner)
+                    prov_registry.register(docker_prov, priority=10, enabled=True)
+                    logger.info("Registered DockerProvisioner")
+
+                # Manual provisioner always registered as fallback
+                prov_registry.register(ManualProvisioner(), priority=999, enabled=True)
+                logger.info("Registered ManualProvisioner (fallback)")
+            except Exception as e:
+                logger.warning(f"Could not register provisioners: {e}")
+
+            # Start auto-drain lifecycle service for managed instances
+            try:
+                from services.compute_lifecycle_service import get_lifecycle_service
+                lifecycle_svc = get_lifecycle_service()
+                await lifecycle_svc.start()
+            except Exception as e:
+                logger.warning(f"Could not start auto-drain lifecycle service: {e}")
         else:
             logger.info("Work orchestrator disabled via ORCHESTRATOR_ENABLED=false")
     except Exception as e:
@@ -944,6 +996,14 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Serving component...")
+
+    # Stop auto-drain lifecycle service
+    try:
+        from services.compute_lifecycle_service import get_lifecycle_service
+        await get_lifecycle_service().stop()
+        logger.info("Auto-drain lifecycle service stopped")
+    except Exception as e:
+        logger.debug(f"Auto-drain lifecycle service cleanup: {e}")
 
     # Stop reconciliation manager
     try:
@@ -1072,8 +1132,8 @@ app.add_middleware(CognitoAuthMiddleware)
 API_VERSION = os.getenv('API_VERSION', 'v1')
 api_prefix = f"/api/{API_VERSION}"
 
-app.include_router(compute.router, prefix=api_prefix)
 app.include_router(compute_approval.router, prefix=api_prefix)
+app.include_router(compute.router, prefix=api_prefix)
 app.include_router(marketplaces.router, prefix=api_prefix)
 app.include_router(skills.router, prefix=api_prefix)
 app.include_router(agents.router, prefix=api_prefix)
@@ -1104,6 +1164,7 @@ app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
 app.include_router(cognito_users.router, prefix=api_prefix)
 app.include_router(network_capacity.router, prefix=api_prefix)
+app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix

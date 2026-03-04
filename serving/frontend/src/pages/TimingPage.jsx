@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
-import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight, Layers, AlertCircle } from 'lucide-react'
+import { RefreshCw, Clock, BarChart3, Timer, ChevronDown, ChevronRight, Layers, AlertCircle, FolderOpen } from 'lucide-react'
 import Spinner from '../components/common/Spinner'
+import EmptyState from '../components/common/EmptyState'
+import { useProjectContext } from '../contexts/ProjectContext'
 import useTiming from '../hooks/useTiming'
 import './TimingPage.css'
 
@@ -403,7 +405,10 @@ function classifyWorkItems(workItems) {
 }
 
 function TimingPage() {
-  const { workItems, aggregates, totalWorkItems, loading, error, refresh } = useTiming({
+  const { activeProject } = useProjectContext()
+  const activeProjectId = activeProject?.project_id || null
+
+  const { workItems, aggregates, totalWorkItems, loading, error, refresh } = useTiming(activeProjectId, {
     pollInterval: 10000,
     limit: 20
   })
@@ -412,6 +417,24 @@ function TimingPage() {
     () => classifyWorkItems(workItems),
     [workItems]
   )
+
+  if (!activeProjectId) {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <h1 className="page-title">
+            <Timer size={20} />
+            Timing
+          </h1>
+        </header>
+        <EmptyState
+          icon={FolderOpen}
+          title="Select a Project"
+          description="Please select a project from the sidebar to view timing data."
+        />
+      </div>
+    )
+  }
 
   if (loading && !workItems.length) {
     return (

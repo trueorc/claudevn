@@ -20,6 +20,7 @@ def registry():
 
 def _make_instance(instance_id="test-001", auth_status=ComputeAuthStatus.UNAUTHORIZED, **kwargs):
     """Helper to create a compute instance."""
+    kwargs.setdefault("status", InstanceStatus.ONLINE)
     return ComputeInstance(
         instance_id=instance_id,
         name=f"Test {instance_id}",

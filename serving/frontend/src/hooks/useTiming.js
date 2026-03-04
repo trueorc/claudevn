@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getTimingDashboard } from '../api/timing'
 
-function useTiming(options = {}) {
+function useTiming(projectId, options = {}) {
   const { pollInterval = 10000, limit = 20 } = options
 
   const [dashboard, setDashboard] = useState(null)
@@ -9,8 +9,13 @@ function useTiming(options = {}) {
   const [error, setError] = useState(null)
 
   const load = useCallback(async () => {
+    if (!projectId) {
+      setDashboard(null)
+      setLoading(false)
+      return
+    }
     try {
-      const data = await getTimingDashboard(limit)
+      const data = await getTimingDashboard(limit, projectId)
       setDashboard(data)
       setError(null)
     } catch (err) {
@@ -18,7 +23,7 @@ function useTiming(options = {}) {
     } finally {
       setLoading(false)
     }
-  }, [limit])
+  }, [limit, projectId])
 
   const refresh = useCallback(() => {
     load()
@@ -27,11 +32,11 @@ function useTiming(options = {}) {
   useEffect(() => {
     load()
 
-    if (pollInterval > 0) {
+    if (pollInterval > 0 && projectId) {
       const interval = setInterval(load, pollInterval)
       return () => clearInterval(interval)
     }
-  }, [load, pollInterval])
+  }, [load, pollInterval, projectId])
 
   return {
     dashboard,

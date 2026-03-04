@@ -24,13 +24,19 @@ const COLORS = [
   '#6366f1', // indigo (default primary)
   '#8b5cf6', // violet
   '#a855f7', // purple
+  '#d946ef', // fuchsia
   '#ec4899', // pink
+  '#f43f5e', // rose
   '#ef4444', // red
   '#f97316', // orange
+  '#f59e0b', // amber
   '#eab308', // yellow
+  '#84cc16', // lime
   '#22c55e', // green
+  '#10b981', // emerald
   '#14b8a6', // teal
   '#06b6d4', // cyan
+  '#0ea5e9', // sky
   '#3b82f6', // blue
   '#64748b', // slate
 ]
@@ -396,52 +402,59 @@ function ProjectFormModal({ isOpen, onClose, onSuccess, project = null }) {
       isOpen={isOpen}
       onClose={onClose}
       title={isEditing ? 'Edit Project' : 'New Project'}
+      width="680px"
     >
       <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label className="form-label" htmlFor="project-name">
-            Name
-          </label>
-          <input
-            id="project-name"
-            type="text"
-            className="form-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My Project"
-            autoFocus
-          />
-        </div>
+        <div className="project-form-columns">
+          <div className="project-form-left">
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-name">
+                Name
+              </label>
+              <input
+                id="project-name"
+                type="text"
+                className="form-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My Project"
+                autoFocus
+              />
+            </div>
 
-        <div className="form-group">
-          <label className="form-label" htmlFor="project-description">
-            Description
-          </label>
-          <textarea
-            id="project-description"
-            className="form-textarea"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description..."
-          />
-        </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-description">
+                Description
+              </label>
+              <textarea
+                id="project-description"
+                className="form-textarea"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description..."
+              />
+            </div>
 
-        <div className="form-group">
-          <label className="form-label">Icon</label>
-          <IconPicker selectedIcon={icon} onSelect={setIcon} />
-        </div>
+            <div className="form-group">
+              <label className="form-label">Labels</label>
+              <LabelsInput labels={labels} onChange={setLabels} />
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>
+                Press Enter or comma to add a label
+              </p>
+            </div>
+          </div>
 
-        <div className="form-group">
-          <label className="form-label">Icon Color</label>
-          <ColorPicker selectedColor={iconColor} onSelect={setIconColor} />
-        </div>
+          <div className="project-form-right">
+            <div className="form-group">
+              <label className="form-label">Icon</label>
+              <IconPicker selectedIcon={icon} onSelect={setIcon} />
+            </div>
 
-        <div className="form-group">
-          <label className="form-label">Labels</label>
-          <LabelsInput labels={labels} onChange={setLabels} />
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>
-            Press Enter or comma to add a label
-          </p>
+            <div className="form-group">
+              <label className="form-label">Icon Color</label>
+              <ColorPicker selectedColor={iconColor} onSelect={setIconColor} />
+            </div>
+          </div>
         </div>
 
         {!isEditing && (

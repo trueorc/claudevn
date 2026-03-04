@@ -3,6 +3,7 @@ import { ShieldAlert, Check, X, RefreshCw } from 'lucide-react'
 import { request } from '../../api/index'
 import { useToast } from '../../hooks/useToast'
 import ConfirmDialog from '../common/ConfirmDialog'
+import ApprovalModal from './ApprovalModal'
 import './PendingConnections.css'
 
 export default function PendingConnections() {
@@ -11,7 +12,8 @@ export default function PendingConnections() {
   const [error, setError] = useState(null)
   const [rejectingId, setRejectingId] = useState(null)
   const [rejectLoading, setRejectLoading] = useState(false)
-  const [approvingId, setApprovingId] = useState(null)
+  const [approvingInstance, setApprovingInstance] = useState(null)
+  const [approveLoading, setApproveLoading] = useState(false)
   const toast = useToast()
 
   const fetchPending = useCallback(async () => {
@@ -28,21 +30,28 @@ export default function PendingConnections() {
 
   useEffect(() => {
     fetchPending()
-    // Poll every 10 seconds for new connections
     const interval = setInterval(fetchPending, 10000)
     return () => clearInterval(interval)
   }, [fetchPending])
 
-  const handleApprove = async (instanceId) => {
-    setApprovingId(instanceId)
+  const handleApprove = async (projectIds) => {
+    if (!approvingInstance) return
+    setApproveLoading(true)
     try {
-      await request(`/compute/${instanceId}/approve`, { method: 'POST' })
-      toast.success(`Approved ${instanceId}`)
+      await request(`/compute/${approvingInstance.instance_id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ project_ids: projectIds }),
+      })
+      const label = projectIds.includes('*')
+        ? 'all projects'
+        : `${projectIds.length} project(s)`
+      toast.success(`Approved ${approvingInstance.instance_id} with ${label}`)
+      setApprovingInstance(null)
       fetchPending()
     } catch (err) {
       toast.error(err.message || 'Failed to approve')
     } finally {
-      setApprovingId(null)
+      setApproveLoading(false)
     }
   }
 
@@ -103,12 +112,10 @@ export default function PendingConnections() {
             <div className="pending-actions">
               <button
                 className="pending-approve"
-                onClick={() => handleApprove(conn.instance_id)}
-                disabled={approvingId === conn.instance_id}
+                onClick={() => setApprovingInstance(conn)}
                 title="Approve"
               >
-                <Check size={14} />
-                {approvingId === conn.instance_id ? 'Approving...' : 'Approve'}
+                <Check size={14} /> Approve
               </button>
               <button
                 className="pending-deny"
@@ -121,6 +128,15 @@ export default function PendingConnections() {
           </div>
         ))}
       </div>
+
+      {approvingInstance && (
+        <ApprovalModal
+          instance={approvingInstance}
+          onConfirm={handleApprove}
+          onClose={() => setApprovingInstance(null)}
+          loading={approveLoading}
+        />
+      )}
 
       {rejectingId && (
         <ConfirmDialog

@@ -220,7 +220,7 @@ class WorkMapService:
                 'progress_notes': json.dumps(work.progress_notes),
                 'result': json.dumps(work.result) if work.result else '',
                 'error': work.error or '',
-                'blockers': json.dumps([b.model_dump() for b in work.blockers]),
+                'blockers': json.dumps([b.model_dump(mode='json') for b in work.blockers]),
                 'retry_count': str(work.retry_count),
                 'created_at': work.created_at.isoformat(),
                 'updated_at': work.updated_at.isoformat(),
@@ -492,9 +492,39 @@ class WorkMapService:
         reason: Optional[str] = None
     ) -> Optional[Issue]:
         """Update issue status with validation."""
-        return await self._issue_service.update_issue_status(
+        issue = await self._issue_service.update_issue_status(
             issue_id, status, compute_id, reason=reason
         )
+
+        # When an issue resets to BACKLOG (or auto-promotes to READY),
+        # mark any non-terminal work items as FAILED so a fresh work item
+        # can be created, and clear orchestrator retry state.
+        actual_status = issue.status if issue else status
+        if issue and (status in (IssueStatus.BACKLOG, IssueStatus.READY)
+                      or actual_status in (IssueStatus.BACKLOG, IssueStatus.READY)):
+            from models.work_map import WorkStatus
+            for work in list(self._work_items.values()):
+                if work.issue_id == issue_id and work.status not in (
+                    WorkStatus.COMPLETED, WorkStatus.FAILED
+                ):
+                    old_status = work.status
+                    work.status = WorkStatus.FAILED
+                    work.error = f"Reset: issue moved to {status.value}"
+                    logger.info(
+                        f"Marked work {work.work_id} as FAILED "
+                        f"(was {old_status.value}) due to issue reset"
+                    )
+            try:
+                from services.work_orchestrator import get_work_orchestrator
+                orchestrator = get_work_orchestrator()
+                if orchestrator:
+                    for work in self._work_items.values():
+                        if work.issue_id == issue_id:
+                            orchestrator.clear_retry_state(work.work_id)
+            except Exception:
+                pass  # Orchestrator may not be initialized yet
+
+        return issue
 
     async def complete_issue(
         self,

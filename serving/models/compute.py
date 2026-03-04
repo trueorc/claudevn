@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from claudevn_shared.version import get_version
 
 
+class LifecycleMode(str, Enum):
+    """Lifecycle management mode for a compute instance."""
+    MANAGED = "managed"        # Provisioned by serving; serving controls start/stop/drain
+    UNMANAGED = "unmanaged"    # User-registered (BYOC); serving only routes work
+
+
 class InstanceStatus(str, Enum):
     """Status of a compute instance."""
     PENDING = "pending"
@@ -133,18 +139,19 @@ class ComputeInstance(BaseModel):
     name: str = Field(..., description="Human-readable instance name")
     endpoint: str = Field(..., description="Instance base URL endpoint")
     health_endpoint: Optional[str] = Field(None, description="Health check endpoint URL")
-    status: InstanceStatus = Field(default=InstanceStatus.ONLINE, description="Current status")
+    status: InstanceStatus = Field(default=InstanceStatus.PENDING, description="Current status")
     capabilities: InstanceCapabilities = Field(default_factory=InstanceCapabilities, description="Instance capabilities")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     version: str = Field(default_factory=get_version, description="Compute component version")
     registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Registration timestamp")
     last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Last heartbeat timestamp")
-    project_ids: List[str] = Field(default_factory=lambda: ["*"], description="Project IDs this compute can receive work from. ['*'] = all projects (default). Empty = no work (benched).")
+    project_ids: List[str] = Field(default_factory=list, description="Project IDs this compute can receive work from. ['*'] = all projects. Empty = no work (benched, default).")
     heartbeat_interval: int = Field(default=30, description="Expected heartbeat interval in seconds")
     failed_health_checks: int = Field(default=0, description="Consecutive failed health checks")
     drain_started_at: Optional[datetime] = Field(None, description="Timestamp when drain was initiated")
     owner_id: Optional[str] = Field(None, description="User ID of the component owner")
     claimed_at: Optional[datetime] = Field(None, description="When ownership was claimed")
+    lifecycle_mode: LifecycleMode = Field(default=LifecycleMode.UNMANAGED, description="Lifecycle management mode: managed (serving controls) or unmanaged (BYOC)")
     auth_status: ComputeAuthStatus = Field(default=ComputeAuthStatus.UNAUTHORIZED, description="Authentication status")
     auth_expires_at: Optional[datetime] = Field(None, description="When the auth token expires")
     auth_authorized_at: Optional[datetime] = Field(None, description="When the auth token was submitted")
@@ -213,6 +220,7 @@ class RegistrationRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     version: str = Field(default_factory=get_version, description="Compute component version")
     heartbeat_interval: int = Field(default=30, ge=10, le=300, description="Preferred heartbeat interval in seconds")
+    lifecycle_mode: LifecycleMode = Field(default=LifecycleMode.UNMANAGED, description="Lifecycle management mode")
 
 
 class RegistrationResponse(BaseModel):

@@ -36,6 +36,7 @@ class IssueServiceProtocol(Protocol):
         goal_id: Optional[str] = None,
         blocked_by: Optional[List[str]] = None,
         required_skills: Optional[List[str]] = None,
+        required_tools: Optional[List[str]] = None,
         acceptance_criteria: Optional[List[str]] = None,
     ) -> Issue:
         """Create a new issue."""
@@ -396,6 +397,7 @@ class PlanExecutorService:
             goal_id=goal_id,
             blocked_by=real_blocked_by,
             required_skills=decomposed_issue.required_skills,
+            required_tools=decomposed_issue.required_tools,
             acceptance_criteria=decomposed_issue.acceptance_criteria,
         )
 

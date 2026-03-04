@@ -48,6 +48,7 @@ class WorkItemTiming(BaseModel):
     cache_creation_tokens: Optional[int] = Field(None, description="Cache creation tokens")
     num_turns: Optional[int] = Field(None, description="Number of conversation turns")
     session_id: Optional[str] = Field(None, description="SDK session ID")
+    project_id: Optional[str] = Field(None, description="Associated project identifier")
 
 
 class AggregateStats(BaseModel):

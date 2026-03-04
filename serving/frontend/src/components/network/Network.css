@@ -305,6 +305,37 @@
   line-height: 1;
 }
 
+.runtime-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.runtime-tag {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-2, #1e293b);
+  color: var(--text-secondary, #94a3b8);
+  font-family: var(--font-mono, monospace);
+}
+
+.lifecycle-badge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lifecycle-badge.managed {
+  background: var(--accent-muted, #2563eb22);
+  color: var(--accent, #3b82f6);
+  border: 1px solid var(--accent, #3b82f6);
+}
+
 .badge-tier {
   display: inline-flex;
   align-items: center;

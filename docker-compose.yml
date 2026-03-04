@@ -12,7 +12,8 @@
 #   serving      → Coordination hub at http://localhost:8002
 #   marketplace  → Skill marketplace at http://localhost:8003
 #   redis        → Redis at localhost:6379
-#   compute-1/2/3 → Compute agents
+#   python-1/2    → Python compute agents
+#   node-1        → Full-stack compute agent
 #
 # Authentication:
 #   Default: AUTH_MODE=bypass (no login required, dev user assumed)
@@ -139,9 +140,14 @@ services:
       # Compute spawner
       - WORKSPACES_PATH=/app/data/workspaces
       - SERVING_PUBLIC_URL=http://serving:8002
+      # Docker provisioner (uncomment to enable auto-provisioning)
+      # - DOCKER_PROVISIONER_ENABLED=true
+      # - DOCKER_PROVISIONER_NETWORK=claudevn_claudevn-network
     volumes:
       - serving_data:/app/data
       - serving_logs:/app/logs
+      # Docker socket for DockerProvisioner (uncomment to enable)
+      # - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - claudevn-network
     depends_on:
@@ -157,17 +163,17 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Compute Instance 1 - Code Writer specialist
+  # Compute Instance - Python Code Writer specialist
   # No HTTP server, no ports. Connects outbound to Serving via SSE.
   # Healthcheck uses heartbeat file updated on each SSE keepalive.
-  compute-1:
+  python-1:
     build:
       context: .
-      dockerfile: compute/Dockerfile
-    container_name: claudevn-compute-1
+      dockerfile: compute/images/python-testing/Dockerfile
+    container_name: claudevn-python-1
     environment:
-      - COMPUTE_INSTANCE_ID=compute-001
-      - COMPUTE_INSTANCE_NAME=Compute-CodeWriter
+      - COMPUTE_INSTANCE_ID=python-001
+      - COMPUTE_INSTANCE_NAME=Python-CodeWriter
       - COMPUTE_STORAGE_PATH=/app/data/compute
       - COMPUTE_LOG_FILE=/app/logs/compute.log
       - LOG_LEVEL=INFO
@@ -179,15 +185,15 @@ services:
       - CLAUDEVN_SERVING_URL=http://serving:8002
       # Skill/capability tags for work assignment
       - COMPUTE_SKILLS=code-writer,test-automator
-      - COMPUTE_CAPABILITIES=python,javascript,typescript
+      - COMPUTE_CAPABILITIES=python
       # Auth mode: serving (fetch from serving), local (mount), or external (own)
       - COMPUTE_AUTH_MODE=serving
       - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
       # Max concurrent Claude Code instances per compute (default: 1)
       - MAX_CLAUDE_INSTANCES=1
     volumes:
-      - compute1_data:/app/data
-      - compute1_logs:/app/logs
+      - python1_data:/app/data
+      - python1_logs:/app/logs
     networks:
       - claudevn-network
     depends_on:
@@ -195,15 +201,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Compute Instance 2 - Debugger specialist (TEMPORARILY DISABLED)
-  compute-2:
+  # Compute Instance - Python Debugger specialist
+  python-2:
     build:
       context: .
-      dockerfile: compute/Dockerfile
-    container_name: claudevn-compute-2
+      dockerfile: compute/images/python-testing/Dockerfile
+    container_name: claudevn-python-2
     environment:
-      - COMPUTE_INSTANCE_ID=compute-002
-      - COMPUTE_INSTANCE_NAME=Compute-Debugger
+      - COMPUTE_INSTANCE_ID=python-002
+      - COMPUTE_INSTANCE_NAME=Python-Debugger
       - COMPUTE_STORAGE_PATH=/app/data/compute
       - COMPUTE_LOG_FILE=/app/logs/compute.log
       - LOG_LEVEL=INFO
@@ -220,8 +226,44 @@ services:
       - COMPUTE_AUTH_MODE=serving
       - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
     volumes:
-      - compute2_data:/app/data
-      - compute2_logs:/app/logs
+      - python2_data:/app/data
+      - python2_logs:/app/logs
+    networks:
+      - claudevn-network
+    depends_on:
+      serving:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Compute Instance - Node.js + Python full-stack specialist
+  node-1:
+    build:
+      context: .
+      dockerfile: compute/images/fullstack/Dockerfile
+    container_name: claudevn-node-1
+    environment:
+      - COMPUTE_INSTANCE_ID=node-001
+      - COMPUTE_INSTANCE_NAME=Node-Fullstack
+      - COMPUTE_STORAGE_PATH=/app/data/compute
+      - COMPUTE_LOG_FILE=/app/logs/compute.log
+      - LOG_LEVEL=INFO
+      - COMPUTE_REGISTER_ON_STARTUP=true
+      - SERVING_URL=http://serving:8002
+      - COMPUTE_HEARTBEAT_INTERVAL=30
+      # MCP configuration
+      - MCP_ENABLED=true
+      - CLAUDEVN_SERVING_URL=http://serving:8002
+      # Skill/capability tags for work assignment
+      - COMPUTE_SKILLS=code-writer
+      - COMPUTE_CAPABILITIES=javascript,typescript,react,nextjs
+      # Auth mode: serving (fetch from serving), local (mount), or external (own)
+      - COMPUTE_AUTH_MODE=serving
+      - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
+      # Max concurrent Claude Code instances per compute (default: 1)
+      - MAX_CLAUDE_INSTANCES=1
+    volumes:
+      - node1_data:/app/data
+      - node1_logs:/app/logs
     networks:
       - claudevn-network
     depends_on:
@@ -273,13 +315,17 @@ volumes:
     driver: local
   marketplace_skills:
     driver: local
-  compute1_data:
+  python1_data:
     driver: local
-  compute1_logs:
+  python1_logs:
     driver: local
-  compute2_data:  # TEMPORARILY DISABLED
+  python2_data:
     driver: local
-  compute2_logs:  # TEMPORARILY DISABLED
+  python2_logs:
+    driver: local
+  node1_data:
+    driver: local
+  node1_logs:
     driver: local
   # compute3_data:  # TEMPORARILY DISABLED
   #   driver: local

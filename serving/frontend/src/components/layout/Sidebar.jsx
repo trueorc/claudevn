@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check, Key, Timer } from 'lucide-react'
+import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check, Settings, Timer } from 'lucide-react'
 import useSystemHealth from '../../hooks/useSystemHealth'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import NotificationBell from '../notifications/NotificationBell'
@@ -14,7 +14,7 @@ const navItems = [
   { to: '/plan', icon: Play, label: 'Plan' },
   { to: '/backlog', icon: ListTodo, label: 'Backlog' },
   { to: '/timing', icon: Timer, label: 'Timing' },
-  { to: '/settings/ssh-keys', icon: Key, label: 'SSH Keys' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 function ProjectSelector() {
@@ -117,7 +117,7 @@ function ProjectSelector() {
 }
 
 function Sidebar() {
-  const { overallStatus, loading } = useSystemHealth({ pollInterval: 60000 })
+  const { health, overallStatus, loading } = useSystemHealth({ pollInterval: 60000 })
   const { activeProject } = useProjectContext()
 
   const getIndicatorClass = () => {
@@ -154,7 +154,10 @@ function Sidebar() {
     <nav className="sidebar">
       <div className="sidebar-brand">
         <img src="/ClaudeVN-Logo-64x64.png" alt="ClaudeVN" width="28" height="28" />
-        <span className="sidebar-brand-text">ClaudeVN</span>
+        <div className="sidebar-brand-info">
+          <span className="sidebar-brand-text">ClaudeVN</span>
+          {health?.version && <span className="sidebar-brand-version">v{health.version}</span>}
+        </div>
       </div>
 
       <div className="sidebar-divider" />
