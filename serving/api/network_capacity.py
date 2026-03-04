@@ -6,11 +6,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from config import get_config
+from git.redis_client import get_redis_client
 from services.registry_service import ComputeRegistry, get_compute_registry
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/network", tags=["network"])
+
+REDIS_KEY_MAX_COMPUTE = "settings:max_compute_instances"
 
 
 class CapacityResponse(BaseModel):
@@ -53,11 +56,23 @@ async def update_capacity(
 ):
     """Update the network capacity limit at runtime.
 
-    This updates the in-memory config only. To persist across restarts,
-    also set the MAX_COMPUTE_INSTANCES environment variable.
+    Persists the setting to Redis so it survives restarts.
+    Falls back to the MAX_COMPUTE_INSTANCES env var if Redis is unavailable.
     """
     config = get_config()
     config.network_capacity.max_compute_instances = body.max_compute_instances
+
+    # Persist to Redis
+    redis_client = get_redis_client()
+    if redis_client:
+        try:
+            await redis_client._redis.set(
+                redis_client._key(REDIS_KEY_MAX_COMPUTE),
+                str(body.max_compute_instances),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist max_compute_instances to Redis: {e}")
+
     logger.info(f"Updated max compute instances to {body.max_compute_instances}")
 
     current = registry.get_instance_count()

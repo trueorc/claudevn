@@ -51,42 +51,6 @@ SSE_EVENT_CHECK_INTERVAL = 0.5
 router = APIRouter(prefix="/compute", tags=["compute"])
 
 
-def _verify_registration_token(authorization: Optional[str]) -> None:
-    """Verify the Bearer token against the COMPUTE_REGISTRATION_TOKEN env var.
-
-    If COMPUTE_REGISTRATION_TOKEN is not set, authentication is not enforced
-    (local dev mode). When set, the Authorization header must provide a matching
-    Bearer token. MCP_AUTH_BYPASS=true disables enforcement for integration tests.
-
-    Raises:
-        HTTPException 401 if token is missing or invalid when enforcement is active.
-    """
-    token = os.getenv("COMPUTE_REGISTRATION_TOKEN")
-    if not token:
-        return  # Not configured — local dev mode, no enforcement
-
-    if os.getenv("MCP_AUTH_BYPASS", "").lower() == "true":
-        return  # Test bypass
-
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "MISSING_AUTH", "message": "Authorization header required for registration"},
-        )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "INVALID_AUTH", "message": "Bearer token required"},
-        )
-
-    provided = authorization[7:]
-    if provided != token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "INVALID_TOKEN", "message": "Invalid registration token"},
-        )
-
 
 # =============================================================================
 # SSE Connection Endpoint (Primary registration method)
@@ -295,7 +259,6 @@ async def connect_sse(
     x_resources: Optional[str] = Header(None, alias="X-Resources", description="Resources as key=value pairs"),
     x_labels: Optional[str] = Header(None, alias="X-Labels", description="Routing labels for work assignment (e.g., production-access,database-admin)"),
     x_tools_available: Optional[str] = Header(None, alias="X-Tools-Available", description="Specialized tools available (e.g., deploy_prod,db_migrate)"),
-    authorization: Optional[str] = Header(None, description="Bearer token for authentication"),
     registry: ComputeRegistry = Depends(get_compute_registry),
 ):
     """Establish SSE connection for compute registration.
@@ -304,13 +267,15 @@ async def connect_sse(
     as both registration and health signal. The connection itself indicates the
     compute instance is alive - no separate heartbeat polling is needed.
 
+    Instances start in PENDING status and must be approved by an admin before
+    receiving work assignments.
+
     Headers:
         X-Compute-ID: Unique compute instance identifier (required)
         X-Capabilities: Comma-separated list of capabilities (optional)
         X-Resources: Resource specs as key=value pairs, e.g., "cpu=4,memory=16gb" (optional)
         X-Labels: Routing labels for work assignment, e.g., "production-access,database-admin" (optional)
         X-Tools-Available: Specialized tools available, e.g., "deploy_prod,db_migrate" (optional)
-        Authorization: Bearer token for authentication (optional)
 
     Events sent from server:
         - connected: Initial connection confirmation
@@ -324,9 +289,6 @@ async def connect_sse(
     Returns:
         SSE stream (text/event-stream)
     """
-    # Enforce registration token authentication
-    _verify_registration_token(authorization)
-
     compute_id = x_compute_id
 
     # Check network capacity limit
@@ -1997,7 +1959,6 @@ async def reject_instance(
 @router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
 async def register_instance(
     request: RegistrationRequest,
-    authorization: Optional[str] = Header(None, description="Bearer token for authentication"),
     registry: ComputeRegistry = Depends(get_compute_registry),
 ):
     """Register a new compute instance.
@@ -2007,17 +1968,14 @@ async def register_instance(
 
     Args:
         request: Registration request
-        authorization: Bearer token (checked against COMPUTE_REGISTRATION_TOKEN)
         registry: Compute registry (injected)
 
     Returns:
         Registration response with heartbeat details
 
     Raises:
-        HTTPException: If instance_id already exists, validation fails, or auth fails
+        HTTPException: If instance_id already exists or validation fails
     """
-    # Enforce registration token authentication (same as SSE /connect)
-    _verify_registration_token(authorization)
 
     try:
         # Create ComputeInstance from request — always starts PENDING with no projects

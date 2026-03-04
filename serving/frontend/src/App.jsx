@@ -14,6 +14,7 @@ import ExecutionPlanPage from './pages/ExecutionPlanPage'
 import GoalsPage from './pages/GoalsPage'
 import ProfilePage from './pages/ProfilePage'
 import SSHKeysPage from './pages/SSHKeysPage'
+import SettingsPage from './pages/SettingsPage'
 import AuthSetupPage from './pages/AuthSetupPage'
 import TimingPage from './pages/TimingPage'
 import NotificationsPage from './pages/NotificationsPage'
@@ -46,8 +47,9 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             <Route path="/network" element={<NetworkHealthPage />} />
             <Route path="/timing" element={<TimingPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/settings/profile" element={<ProfilePage />} />
-            <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/profile" element={<Navigate to="/settings?tab=profile" replace />} />
+            <Route path="/settings/ssh-keys" element={<Navigate to="/settings?tab=ssh-keys" replace />} />
             <Route path="/settings/users" element={<UserManagementPage />} />
             {/* Redirects from old routes */}
             <Route path="/goals" element={<Navigate to="/directives" replace />} />

@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # These use their own auth mechanisms (compute registration token, MCP API key, etc.)
 PUBLIC_PATH_PREFIXES = (
     "/api/v1/health",
-    "/api/v1/compute/connect",       # SSE registration (uses compute auth)
-    "/api/v1/compute/register",      # Compute registration (uses compute token)
+    "/api/v1/compute/connect",       # SSE registration (approval workflow gates access)
+    "/api/v1/compute/register",      # Compute registration (starts in PENDING status)
     "/api/v1/compute/refresh-credentials",  # Compute credential refresh
     "/api/v1/mcp/",                  # MCP tools (uses API key auth)
     "/api/v1/auth/credentials",      # Compute credential fetching
