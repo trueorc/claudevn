@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional, AsyncGenerator
+from typing import Optional, List, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query, Depends, Header, Request, status
 from fastapi.responses import StreamingResponse
@@ -1900,6 +1900,95 @@ async def drain_for_restart(
 
 
 # =============================================================================
+# Approval Endpoints
+# =============================================================================
+
+
+@router.get("/pending")
+async def list_pending_instances(
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """List all compute instances awaiting approval.
+
+    Returns:
+        List of instances in PENDING status, oldest first.
+    """
+    pending = await registry.list_pending_instances()
+    return {
+        "instances": [inst.model_dump(mode="json") for inst in pending],
+        "total": len(pending),
+    }
+
+
+@router.post("/{instance_id}/approve")
+async def approve_instance(
+    instance_id: str,
+    project_ids: Optional[List[str]] = None,
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Approve a pending compute instance, transitioning it to ONLINE.
+
+    Args:
+        instance_id: Compute instance to approve
+        project_ids: Project IDs to assign. Defaults to ["*"] (all projects).
+
+    Returns:
+        The approved instance.
+    """
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    try:
+        approved = await registry.approve_instance(instance_id, project_ids)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    logger.info(f"Approved compute instance {instance_id}")
+    return approved.model_dump(mode="json")
+
+
+@router.post("/{instance_id}/reject")
+async def reject_instance(
+    instance_id: str,
+    reason: str = "",
+    registry: ComputeRegistry = Depends(get_compute_registry),
+):
+    """Reject a pending compute instance and remove it from the registry.
+
+    Args:
+        instance_id: Compute instance to reject
+        reason: Optional rejection reason
+
+    Returns:
+        Acknowledgment with rejection status.
+    """
+    instance = await registry.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instance {instance_id} not found",
+        )
+
+    try:
+        await registry.reject_instance(instance_id, reason)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    logger.info(f"Rejected compute instance {instance_id}: {reason}")
+    return {"status": "rejected", "instance_id": instance_id, "reason": reason}
+
+
+# =============================================================================
 # Legacy Registration Endpoints (Deprecated - use SSE /connect instead)
 # =============================================================================
 
@@ -1907,30 +1996,37 @@ async def drain_for_restart(
 @router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
 async def register_instance(
     request: RegistrationRequest,
-    registry: ComputeRegistry = Depends(get_compute_registry)
+    authorization: Optional[str] = Header(None, description="Bearer token for authentication"),
+    registry: ComputeRegistry = Depends(get_compute_registry),
 ):
     """Register a new compute instance.
 
     This endpoint allows compute instances to register before establishing an SSE connection.
-    This enables fast UI updates without waiting for health checks.
+    Instances are created in PENDING status with empty project_ids until explicitly approved.
 
     Args:
         request: Registration request
+        authorization: Bearer token (checked against COMPUTE_REGISTRATION_TOKEN)
         registry: Compute registry (injected)
 
     Returns:
         Registration response with heartbeat details
 
     Raises:
-        HTTPException: If instance_id already exists or validation fails
+        HTTPException: If instance_id already exists, validation fails, or auth fails
     """
+    # Enforce registration token authentication (same as SSE /connect)
+    _verify_registration_token(authorization)
+
     try:
-        # Create ComputeInstance from request
+        # Create ComputeInstance from request — always starts PENDING with no projects
         instance = ComputeInstance(
             instance_id=request.instance_id,
             name=request.name,
             endpoint=request.endpoint,
             health_endpoint=request.health_endpoint,
+            status=InstanceStatus.PENDING,
+            pending_since=datetime.now(timezone.utc),
             capabilities=request.capabilities,
             metadata=request.metadata,
             version=request.version,
