@@ -24,10 +24,11 @@ router = APIRouter(prefix="/timing", tags=["timing"])
 )
 async def get_dashboard(
     limit: int = Query(20, ge=1, le=100, description="Number of recent work items"),
+    project_id: Optional[str] = Query(None, description="Filter by project ID"),
 ):
     """Get combined dashboard with recent work item timings and aggregate stats."""
     service = get_timing_service()
-    return await service.get_dashboard(limit)
+    return await service.get_dashboard(limit, project_id=project_id)
 
 
 @router.get(

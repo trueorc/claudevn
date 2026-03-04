@@ -27,7 +27,7 @@ def _make_entry(phase, duration_ms, tool_name=None):
     )
 
 
-def _make_work_item(work_id, entries, issue_id=None, issue_title=None):
+def _make_work_item(work_id, entries, issue_id=None, issue_title=None, project_id=None):
     """Create a WorkItemTiming with given entries."""
     return WorkItemTiming(
         work_id=work_id,
@@ -35,6 +35,7 @@ def _make_work_item(work_id, entries, issue_id=None, issue_title=None):
         entries=entries,
         issue_id=issue_id,
         issue_title=issue_title,
+        project_id=project_id,
     )
 
 
@@ -357,3 +358,103 @@ class TestUpdateSessionMetrics:
         assert timing.total_cost_usd == 0.10
         assert timing.input_tokens is None
         assert timing.num_turns is None
+
+
+class TestDashboardProjectFilter:
+    """Tests for project_id filtering in get_dashboard."""
+
+    @pytest.fixture
+    def service(self):
+        return TimingService(redis_client=None)
+
+    def _seed_items(self, service):
+        """Seed service with work items that have project_id set."""
+        # Use service's append method to create items, then set project_id
+        service._memory_append_entry(
+            "w1:c1", "w1", "c1",
+            _make_entry(TimingPhase.SDK_LAUNCH, 100.0),
+        )
+        service._memory["w1:c1"].project_id = "proj-a"
+
+        service._memory_append_entry(
+            "w2:c1", "w2", "c1",
+            _make_entry(TimingPhase.SDK_LAUNCH, 200.0),
+        )
+        service._memory["w2:c1"].project_id = "proj-a"
+
+        service._memory_append_entry(
+            "w3:c1", "w3", "c1",
+            _make_entry(TimingPhase.SDK_LAUNCH, 300.0),
+        )
+        service._memory["w3:c1"].project_id = "proj-b"
+
+        service._memory_append_entry(
+            "w4:c1", "w4", "c1",
+            _make_entry(TimingPhase.SDK_LAUNCH, 400.0),
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_filter_returns_all(self, service):
+        self._seed_items(service)
+        # Patch out enrichment since items already have project_id set
+        with patch.object(service, "_enrich_issue_context", new_callable=AsyncMock):
+            result = await service.get_dashboard(limit=10)
+        assert len(result.work_items) == 4
+
+    @pytest.mark.asyncio
+    async def test_filter_by_project_a(self, service):
+        self._seed_items(service)
+        with patch.object(service, "_enrich_issue_context", new_callable=AsyncMock):
+            result = await service.get_dashboard(limit=10, project_id="proj-a")
+        assert len(result.work_items) == 2
+        assert all(w.project_id == "proj-a" for w in result.work_items)
+
+    @pytest.mark.asyncio
+    async def test_filter_by_project_b(self, service):
+        self._seed_items(service)
+        with patch.object(service, "_enrich_issue_context", new_callable=AsyncMock):
+            result = await service.get_dashboard(limit=10, project_id="proj-b")
+        assert len(result.work_items) == 1
+        assert result.work_items[0].work_id == "w3"
+
+    @pytest.mark.asyncio
+    async def test_filter_nonexistent_project_returns_empty(self, service):
+        self._seed_items(service)
+        with patch.object(service, "_enrich_issue_context", new_callable=AsyncMock):
+            result = await service.get_dashboard(limit=10, project_id="proj-z")
+        assert len(result.work_items) == 0
+        assert result.total_work_items == 0
+
+    @pytest.mark.asyncio
+    async def test_aggregates_scoped_to_filtered_items(self, service):
+        self._seed_items(service)
+        with patch.object(service, "_enrich_issue_context", new_callable=AsyncMock):
+            result = await service.get_dashboard(limit=10, project_id="proj-a")
+        # Aggregates should only be from proj-a items (100ms and 200ms)
+        sdk_stats = [a for a in result.aggregates if a.phase == TimingPhase.SDK_LAUNCH]
+        assert len(sdk_stats) == 1
+        assert sdk_stats[0].count == 2
+        assert sdk_stats[0].avg_ms == 150.0
+
+    @pytest.mark.asyncio
+    async def test_enrichment_sets_project_id(self, service):
+        """Test that _enrich_issue_context populates project_id from work_map_service."""
+        item = _make_work_item("w1", [])
+        assert item.project_id is None
+
+        mock_work = MagicMock()
+        mock_work.issue_id = "issue-1"
+        mock_work.title = "Test issue"
+        mock_work.project_id = "proj-x"
+
+        mock_wm_service = AsyncMock()
+        mock_wm_service.get_work = AsyncMock(return_value=mock_work)
+
+        with patch(
+            "services.work_map_service.get_work_map_service",
+            return_value=mock_wm_service,
+        ):
+            await service._enrich_issue_context([item])
+
+        assert item.project_id == "proj-x"
+        assert item.issue_id == "issue-1"
