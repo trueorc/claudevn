@@ -25,7 +25,7 @@ class TestTimingPhase:
         assert TimingPhase.TOTAL_WALL_TIME == "total_wall_time"
 
     def test_all_phases_exist(self):
-        assert len(TimingPhase) == 7
+        assert len(TimingPhase) == 9
 
 
 class TestTimingEntry:

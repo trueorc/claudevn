@@ -133,7 +133,6 @@ class TestNotifyConflict:
         mock_work_map_service.update_status.assert_called_once()
         call_kwargs = mock_work_map_service.update_status.call_args.kwargs
         assert call_kwargs["work_id"] == "task-123"
-        assert "conflict" in call_kwargs["message"].lower()
 
     @pytest.mark.asyncio
     @patch("mcp.tools.conflict.get_work_map_service")

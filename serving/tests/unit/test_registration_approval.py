@@ -92,7 +92,7 @@ class TestApproveInstance:
 
     @pytest.mark.asyncio
     async def test_approve_assigns_default_projects(self, registry):
-        """Without explicit project_ids, approval defaults to ['*']."""
+        """Without explicit project_ids, approval leaves instance benched ([])."""
         instance = _make_instance(
             "c-001",
             status=InstanceStatus.PENDING,
@@ -102,7 +102,7 @@ class TestApproveInstance:
 
         approved = await registry.approve_instance("c-001")
 
-        assert approved.project_ids == ["*"]
+        assert approved.project_ids == []
 
     @pytest.mark.asyncio
     async def test_approve_assigns_specific_projects(self, registry):

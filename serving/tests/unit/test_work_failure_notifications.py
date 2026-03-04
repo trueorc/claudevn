@@ -129,6 +129,7 @@ class TestTimeoutExhaustedNotification:
              patch("services.notification_service.get_notification_service", return_value=mock_svc):
             mock_work_map = MagicMock()
             mock_work_map.get_stale_work = AsyncMock(return_value=[stale_item])
+            mock_work_map.get_stale_assigned_work = AsyncMock(return_value=[])
             mock_work_map.mark_work_timed_out = AsyncMock(return_value=failed_result)
             mock_get_wms.return_value = mock_work_map
 
