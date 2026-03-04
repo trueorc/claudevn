@@ -10,6 +10,7 @@ import asyncio
 import os
 import signal
 import logging
+import subprocess
 from pathlib import Path
 
 from config import load_config, get_version
@@ -47,6 +48,35 @@ conflict_handler = None
 claude_code_spawner = None
 credential_monitor = None
 _shutdown_event: asyncio.Event = None
+
+
+def _detect_runtime_tools(capabilities: list[str]) -> list[str]:
+    """Detect installed runtimes and return as tools_available labels.
+
+    Tries detect-runtimes.sh first, then falls back to extracting
+    runtime:* entries from the capabilities list (set by detect-capabilities.sh
+    in the entrypoint).
+    """
+    tools = []
+
+    # Try running detect-runtimes.sh
+    detect_script = Path("/app/detect-runtimes.sh")
+    if detect_script.exists():
+        try:
+            result = subprocess.run(
+                [str(detect_script), "--comma"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                tools = [t.strip() for t in result.stdout.strip().split(",") if t.strip()]
+        except Exception as e:
+            logger.debug(f"detect-runtimes.sh failed: {e}")
+
+    # Fallback: extract runtime:* entries from capabilities (set by detect-capabilities.sh)
+    if not tools:
+        tools = [c for c in capabilities if c.startswith("runtime:")]
+
+    return tools
 
 
 def _touch_heartbeat() -> None:
@@ -224,6 +254,11 @@ async def startup() -> None:
             "memory": config.resources_memory
         }
 
+        # Detect installed runtimes to populate tools_available
+        tools_available = _detect_runtime_tools(capabilities_list)
+        if tools_available:
+            logger.info(f"Detected runtime tools: {tools_available}")
+
         sse_event_client = await initialize_sse_event_client(
             serving_url=config.serving_url,
             compute_id=config.instance_id,
@@ -233,6 +268,7 @@ async def startup() -> None:
             reconnect_delay=config.sse_reconnect_delay,
             max_reconnect_delay=config.sse_max_reconnect_delay,
             tls_verify=config.tls_verify,
+            tools_available=tools_available,
         )
 
         # Register event handlers

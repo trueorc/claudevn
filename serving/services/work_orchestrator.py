@@ -247,6 +247,12 @@ class WorkOrchestrator:
         In steady state with an active WorkDispatcher, this loop runs idle most
         of the time — the dispatcher handles immediate assignment.
         """
+        # Grace period on startup to allow SSE computes to reconnect
+        # before processing pending work (avoids spawning CLI fallbacks).
+        startup_grace = int(os.environ.get("ORCHESTRATOR_STARTUP_GRACE_SECONDS", "10"))
+        if startup_grace > 0:
+            logger.info(f"Orchestration loop waiting {startup_grace}s for computes to connect")
+            await asyncio.sleep(startup_grace)
         logger.info("Orchestration loop started (polling fallback)")
 
         while self._running:
@@ -1578,6 +1584,25 @@ class WorkOrchestrator:
             f"retry in {delay}s, "
             f"deterministic={deterministic}): {error}"
         )
+
+    def clear_retry_state(self, work_id: str) -> None:
+        """Clear retry tracking for a work item.
+
+        Called when an issue is reset to BACKLOG so the orchestrator
+        treats the work item as fresh on the next dispatch cycle.
+        """
+        cleared = []
+        if self._retry_counts.pop(work_id, None) is not None:
+            cleared.append("retry_counts")
+        if self._retry_after.pop(work_id, None) is not None:
+            cleared.append("retry_after")
+        if self._last_errors.pop(work_id, None) is not None:
+            cleared.append("last_errors")
+        if self._failed_match_counts.pop(work_id, None) is not None:
+            cleared.append("failed_match_counts")
+        self._failed_nodes.pop(work_id, None)
+        if cleared:
+            logger.info(f"Cleared retry state for {work_id}: {cleared}")
 
     async def trigger_immediate(self) -> Dict:
         """Trigger an immediate orchestration cycle.

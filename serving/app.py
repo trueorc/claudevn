@@ -424,6 +424,14 @@ async def lifespan(app: FastAPI):
         set_work_map_service(work_map_service)
         set_goal_service(work_map_service._goal_service)
         logger.info("Work map service initialized")
+
+        # Initialize AssignmentService (used by orchestrator for blocker management)
+        from services.assignment_service import AssignmentService, set_assignment_service
+        assignment_service = AssignmentService(redis_client=redis_client)
+        assignment_service.set_work_items_reference(work_map_service._work_items)
+        await assignment_service.initialize()
+        set_assignment_service(assignment_service)
+        logger.info("Assignment service initialized")
     except Exception as e:
         logger.error(f"Failed to initialize work map service: {e}")
         raise

@@ -46,6 +46,10 @@ COPY compute/ .
 # Bundle MCP stdio server script for communication with Serving
 COPY serving/mcp/stdio_server.py /app/mcp/stdio_server.py
 
+# Copy runtime detection script (sourced by entrypoint to set COMPUTE_CAPABILITIES)
+COPY compute/images/node/detect-capabilities.sh /app/detect-capabilities.sh
+RUN chmod +x /app/detect-capabilities.sh
+
 # Copy and configure entrypoint script
 COPY compute/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

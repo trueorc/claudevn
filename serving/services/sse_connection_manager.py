@@ -220,7 +220,9 @@ class SSEConnectionManager:
         if required_labels:
             candidates = [c for c in candidates if all(l in c.labels for l in required_labels)]
         if required_tools:
-            candidates = [c for c in candidates if all(t in c.tools_available for t in required_tools)]
+            def _tool_matches(required: str, available: list[str]) -> bool:
+                return required in available or any(a.startswith(required + ":") for a in available)
+            candidates = [c for c in candidates if all(_tool_matches(t, c.tools_available) for t in required_tools)]
         if required_capabilities:
             candidates = [c for c in candidates if all(cap in c.capabilities for cap in required_capabilities)]
         return len(candidates) > 0
@@ -287,11 +289,18 @@ class SSEConnectionManager:
                 if all(label in c.labels for label in required_labels)
             ]
 
-        # Filter by required tools
+        # Filter by required tools (prefix matching for runtime tools)
+        # e.g., required "runtime:node" matches available "runtime:node:22"
         if required_tools:
+            def _tool_matches(required: str, available: list[str]) -> bool:
+                if required in available:
+                    return True
+                # Prefix match: runtime:node matches runtime:node:22
+                return any(a == required or a.startswith(required + ":") for a in available)
+
             candidates = [
                 c for c in candidates
-                if all(tool in c.tools_available for tool in required_tools)
+                if all(_tool_matches(tool, c.tools_available) for tool in required_tools)
             ]
 
         # Filter by required capabilities

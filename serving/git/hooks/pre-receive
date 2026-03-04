@@ -29,7 +29,7 @@ DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 # type: f (feature), b (bugfix), r (refactor), d (docs), t (test)
 # identifier: issue_xxx or work_xxx (hex/alphanumeric IDs)
 # compute-id: compute-NNN or compute-{name} format
-BRANCH_REGEX="^[fbrdt]/(issue|work)_[a-z0-9]+/compute-[a-z0-9-]+$"
+BRANCH_REGEX="^[fbrdt]/(issue|work)_[a-z0-9]+/.+$"
 
 # Read stdin line by line (git sends: oldrev newrev refname)
 while read oldrev newrev refname; do
@@ -73,18 +73,18 @@ while read oldrev newrev refname; do
             echo "       Where:" >&2
             echo "         type       = f (feature), b (bugfix), r (refactor), d (docs), t (test)" >&2
             echo "         identifier = issue_xxx or work_xxx (hex/alphanumeric ID)" >&2
-            echo "         compute-id = Compute instance ID (compute-001, compute-a)" >&2
+            echo "         compute-id = Compute instance ID (e.g., node-001, python-001)" >&2
             echo "" >&2
             echo "       Examples:" >&2
-            echo "         f/issue_ae655ba830a9/compute-001" >&2
-            echo "         b/issue_abc123/compute-003" >&2
-            echo "         r/work_def456/compute-002" >&2
-            echo "         d/issue_789abc/compute-001" >&2
+            echo "         f/issue_ae655ba830a9/node-001" >&2
+            echo "         b/issue_abc123/python-002" >&2
+            echo "         r/work_def456/compute-001" >&2
+            echo "         d/issue_789abc/node-001" >&2
             exit 1
         fi
 
         # Extract compute ID from branch name for ownership verification
-        compute_id=$(echo "$branch" | grep -oP 'compute-[a-z0-9-]+$')
+        compute_id=$(echo "$branch" | grep -oP '[^/]+$')
 
         # Verify compute instance can only push to its own branches
         # GIT_PUSH_COMPUTE_ID is set by the SSH server to identify the pushing compute instance

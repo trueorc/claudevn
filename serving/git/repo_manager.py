@@ -378,16 +378,16 @@ while read oldrev newrev refname; do
     fi
 
     # Validate branch naming convention: {{type}}/{{identifier}}/{{compute-id}}
-    if ! [[ "$branch" =~ ^[fbrdt]/(issue|work)_[a-z0-9]+/compute-[a-z0-9-]+$ ]]; then
+    if ! [[ "$branch" =~ ^[fbrdt]/(issue|work)_[a-z0-9]+/.+$ ]]; then
         echo "ERROR: Invalid branch name: $branch"
         echo "       Format: {{type}}/{{issue_id}}/{{compute-id}}"
         echo "       Types: f (feature), b (bugfix), r (refactor), d (docs), t (test)"
-        echo "       Example: f/issue_ae655ba830a9/compute-001"
+        echo "       Example: f/issue_ae655ba830a9/node-001"
         exit 1
     fi
 
     # Extract compute ID and verify ownership
-    compute_id=$(echo "$branch" | grep -oP 'compute-[a-z0-9-]+$')
+    compute_id=$(echo "$branch" | grep -oP '[^/]+$')
     if [ -n "$GIT_PUSH_COMPUTE_ID" ] && [ "$compute_id" != "$GIT_PUSH_COMPUTE_ID" ]; then
         echo "ERROR: $GIT_PUSH_COMPUTE_ID cannot push to $compute_id's branch"
         exit 1

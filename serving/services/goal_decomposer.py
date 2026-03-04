@@ -130,11 +130,16 @@ class GoalDecomposerService:
             supplemental_context=supplemental_context,
         )
 
+        # Infer runtime requirements from the goal text for compute routing
+        from services.runtime_inference import infer_runtime_tools
+        inferred_tools = infer_runtime_tools(goal_text, goal_text)
+
         # Enqueue decomposition task to WorkDispatcher (event-driven, no polling)
         await self._spawn_decomposition_compute(
             decomposition_id=decomposition_id,
             task_context=task_context,
             goal_id=goal_id,
+            required_tools=inferred_tools,
         )
 
         # Wait for result from compute instance via asyncio.Event (no polling)
@@ -444,6 +449,7 @@ Follow the guidelines in your goal-decomposer skill for proper issue structure.
         decomposition_id: str,
         task_context: str,
         goal_id: str = "",
+        required_tools: list[str] | None = None,
     ) -> None:
         """Enqueue decomposition work to the event-driven WorkDispatcher.
 
@@ -454,6 +460,7 @@ Follow the guidelines in your goal-decomposer skill for proper issue structure.
             decomposition_id: Decomposition ID for tracking
             task_context: Task description for the compute instance
             goal_id: Goal ID for context propagation
+            required_tools: Inferred runtime tools for compute routing
 
         Raises:
             NoComputeAvailableError: If WorkDispatcher is not initialized
@@ -474,6 +481,7 @@ Follow the guidelines in your goal-decomposer skill for proper issue structure.
                 goal_id=goal_id,
                 task_context=task_context,
                 skill_instructions=skill_instructions,
+                required_tools=required_tools or [],
             ))
             logger.info(
                 f"Decomposition {decomposition_id} enqueued to WorkDispatcher "

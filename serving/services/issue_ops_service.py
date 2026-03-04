@@ -697,6 +697,22 @@ class IssueOpsService:
             issue.completed_at = None
             issue.assigned_compute_id = None
 
+            # Auto-promote to READY if all dependencies are met
+            if not issue.depends_on:
+                status = IssueStatus.READY
+                issue.status = status
+                logger.info(f"Auto-promoted issue {issue_id} to READY (no dependencies)")
+            else:
+                all_done = all(
+                    self._issues.get(dep_id) and
+                    self._issues[dep_id].status == IssueStatus.DONE
+                    for dep_id in issue.depends_on
+                )
+                if all_done:
+                    status = IssueStatus.READY
+                    issue.status = status
+                    logger.info(f"Auto-promoted issue {issue_id} to READY (all deps done)")
+
         if self._redis:
             await self._redis._redis.srem(
                 self._key(f"issue:status:{old_status.value}"),

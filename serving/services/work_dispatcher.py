@@ -70,6 +70,7 @@ class DecompositionTask:
     goal_id: str
     task_context: str
     skill_instructions: str
+    required_tools: list[str] = field(default_factory=list)
     enqueued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -242,8 +243,11 @@ class WorkDispatcher:
     async def _assign_decomp_tasks(self, sse_manager: Any) -> None:
         """Assign decomposition tasks to idle computes."""
         while self._decomp_queue:
+            task = self._decomp_queue[0]
             connection = sse_manager.find_matching_connection(
-                idle_only=True, phase="decomposition"
+                idle_only=True,
+                phase="decomposition",
+                required_tools=task.required_tools or None,
             )
             if not connection:
                 logger.debug("No idle compute for decomposition task")
