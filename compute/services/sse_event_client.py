@@ -85,6 +85,8 @@ class SSEEventClient:
         reconnect_delay: int = 5,
         max_reconnect_delay: int = 60,
         tls_verify: bool = True,
+        tools_available: Optional[list[str]] = None,
+        labels: Optional[list[str]] = None,
     ):
         """Initialize the SSE event client.
 
@@ -97,12 +99,16 @@ class SSEEventClient:
             reconnect_delay: Initial delay between reconnection attempts
             max_reconnect_delay: Maximum delay between reconnection attempts
             tls_verify: Whether to verify TLS certificates
+            tools_available: Specialized tools/runtimes available (e.g., runtime:node:22)
+            labels: Routing labels for work assignment
         """
         self.serving_url = serving_url.rstrip('/')
         self.compute_id = compute_id
         self.api_key = api_key
         self.capabilities = capabilities
         self.resources = resources
+        self.tools_available = tools_available or []
+        self.labels = labels or []
         self.reconnect_delay = reconnect_delay
         self.max_reconnect_delay = max_reconnect_delay
         self.tls_verify = tls_verify
@@ -504,8 +510,8 @@ class SSEEventClient:
                 "agents": self.capabilities,
                 "tools": [],
                 "features": [],
-                "labels": [],
-                "tools_available": [],
+                "labels": self.labels,
+                "tools_available": self.tools_available,
             },
             "metadata": {
                 "connection_type": "sse",
@@ -675,8 +681,12 @@ class SSEEventClient:
             "X-Compute-ID": self.compute_id,
             "X-Capabilities": ",".join(self.capabilities),
             "X-Resources": json.dumps(self.resources),
-            "Accept": "text/event-stream"
+            "Accept": "text/event-stream",
         }
+        if self.labels:
+            headers["X-Labels"] = ",".join(self.labels)
+        if self.tools_available:
+            headers["X-Tools-Available"] = ",".join(self.tools_available)
         # Only add Authorization header if api_key is provided
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -788,6 +798,8 @@ async def initialize_sse_event_client(
     reconnect_delay: int = 5,
     max_reconnect_delay: int = 60,
     tls_verify: bool = True,
+    tools_available: Optional[list[str]] = None,
+    labels: Optional[list[str]] = None,
 ) -> SSEEventClient:
     """Initialize and start the global SSE event client.
 
@@ -800,6 +812,8 @@ async def initialize_sse_event_client(
         reconnect_delay: Initial delay between reconnection attempts (default: 5)
         max_reconnect_delay: Maximum delay between reconnection attempts (default: 60)
         tls_verify: Whether to verify TLS certificates (default: True)
+        tools_available: Specialized tools/runtimes available (e.g., runtime:node:22)
+        labels: Routing labels for work assignment
 
     Returns:
         The initialized SSE event client
@@ -813,6 +827,8 @@ async def initialize_sse_event_client(
         reconnect_delay=reconnect_delay,
         max_reconnect_delay=max_reconnect_delay,
         tls_verify=tls_verify,
+        tools_available=tools_available,
+        labels=labels,
     )
     set_sse_event_client(client)
     await client.start()

@@ -162,6 +162,14 @@ function ComputeDetailModal({ isOpen, onClose, instanceId, onDeregister }) {
                 <span className="detail-label">Status</span>
                 <span className="detail-value">{instance.status}</span>
               </div>
+              <div className="detail-row">
+                <span className="detail-label">Lifecycle</span>
+                <span className="detail-value">
+                  <span className={`lifecycle-badge ${instance.lifecycle_mode || 'unmanaged'}`}>
+                    {instance.lifecycle_mode || 'unmanaged'}
+                  </span>
+                </span>
+              </div>
               {instance.last_heartbeat && (
                 <div className="detail-row">
                   <span className="detail-label">Last Heartbeat</span>

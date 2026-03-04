@@ -153,6 +153,7 @@ class DecomposedIssueInput(BaseModel):
     priority: str = Field(default="P2", description="Priority: P0, P1, P2, P3")
     area: str = Field(default="api", description="Area: api, database, frontend, infra, other")
     required_skills: List[str] = Field(default_factory=list, description="Required skill IDs")
+    required_tools: List[str] = Field(default_factory=list, description="Runtime tools required (e.g., runtime:node, runtime:python:3.12)")
     estimated_complexity: str = Field(default="m", description="Complexity: xs, s, m, l, xl")
     blocked_by: List[str] = Field(default_factory=list, description="Temp IDs this issue is blocked by")
     acceptance_criteria: List[str] = Field(default_factory=list, description="Acceptance criteria")
