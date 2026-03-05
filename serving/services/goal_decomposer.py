@@ -414,24 +414,29 @@ You have been assigned to {task_instruction}.
 {constraints_section}
 
 ## Runtime Requirements
-For each issue, infer what runtime tools are needed based on the work description.
-Use the `required_tools` field with `runtime:<name>` or `runtime:<name>:<version>` format.
+IMPORTANT: `required_tools` is ONLY for tasks that need to **execute** a dev tool at runtime.
+Use the `runtime:<name>` or `runtime:<name>:<version>` format.
 
-Common mappings:
-- React, Vite, npm, Node.js, Express, Next.js, TypeScript → `runtime:node`
-- Django, Flask, pip, Python scripts, FastAPI → `runtime:python`
-- Go modules, Go binaries, go build → `runtime:go`
-- Cargo, Rust, rustc → `runtime:rust`
-- Maven, Gradle, Java, Spring → `runtime:java`
+Set `required_tools` ONLY when the task must **run** a tool, for example:
+- Scaffolding: `npx create-react-app`, `django-admin startproject` → needs the runtime
+- Installing dependencies: `npm install`, `pip install`, `go mod download` → needs the runtime
+- Building: `npm run build`, `go build`, `cargo build`, `mvn package` → needs the runtime
+- Running tests: `npm test`, `pytest`, `go test` → needs the runtime
+- Starting servers: `npm start`, `uvicorn`, `go run` → needs the runtime
 
-Include version when explicitly specified (e.g., "Node 22" → `runtime:node:22`).
-If the runtime is ambiguous or unclear, leave `required_tools` empty — the system
-will detect capability gaps at execution time.
+Do NOT set `required_tools` for tasks that only **write or generate code**:
+- "Implement a React component" → no runtime needed, any compute can write code
+- "Write a Flask API endpoint" → no runtime needed
+- "Create Go handler functions" → no runtime needed
+- "Add CSS styles" → no runtime needed
+
+When in doubt, leave `required_tools` empty. The system detects capability gaps at
+execution time. Most code generation tasks should have an empty `required_tools` list.
 
 ## Your Task
 1. Analyze this goal thoroughly
 2. Break it into discrete, implementable issues
-3. For each issue, infer required runtime tools from the description
+3. For each issue, set `required_tools` ONLY if it must execute a dev tool (see above)
 4. Submit results using `claudevn_submit_decomposition` with:
    - decomposition_id: "{decomposition_id}"
    - goal_id: "{goal_id}"
@@ -634,10 +639,9 @@ Include: decomposition_id, goal_id, issues array, confidence score, and reasonin
             }
             priority = priority_map.get(issue.priority, IssuePriority.P2)
 
-            # Combine LLM-inferred tools with keyword-based fallback
-            from services.runtime_inference import infer_runtime_tools
-            inferred_tools = infer_runtime_tools(issue.title, issue.description)
-            combined_tools = list(dict.fromkeys(issue.required_tools + inferred_tools))
+            # Use LLM-inferred tools directly — the LLM prompt instructs it to
+            # only set required_tools for tasks that execute dev tools, not code gen.
+            combined_tools = list(issue.required_tools)
 
             issue_data: Dict[str, Any] = {
                 "temp_id": issue.temp_id,
