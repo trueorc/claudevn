@@ -6,6 +6,7 @@ import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthConte
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
 import AuthExpiredBanner from './components/common/AuthExpiredBanner'
+import DashboardPage from './pages/DashboardPage'
 import NetworkHealthPage from './pages/NetworkHealthPage'
 import SkillsPage from './pages/SkillsPage'
 import ProjectsPage from './pages/ProjectsPage'
@@ -39,7 +40,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
           )}
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Navigate to="/projects" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/directives" element={<GoalsPage />} />
             <Route path="/plan" element={<ExecutionPlanPage />} />
