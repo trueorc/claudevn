@@ -178,6 +178,22 @@ class TestJavaCodeGenNoMatch:
         assert tools == []
 
 
+class TestFalsePositiveRegression:
+    """Ensure substring collisions don't cause false positives."""
+
+    def test_go_model_not_go_mod(self):
+        tools = infer_runtime_tools("Data model", "Create a Go model for users")
+        assert tools == []
+
+    def test_go_moderate_not_go_mod(self):
+        tools = infer_runtime_tools("Content moderation", "Go moderate the content queue")
+        assert tools == []
+
+    def test_npm_runtime_not_npm_run(self):
+        tools = infer_runtime_tools("Architecture", "Describe the npm runtime environment")
+        assert tools == []
+
+
 class TestNoMatch:
     def test_ambiguous_description(self):
         tools = infer_runtime_tools("Update README", "Fix typos in documentation")

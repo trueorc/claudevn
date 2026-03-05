@@ -76,15 +76,10 @@ def infer_runtime_tools(title: str, description: str) -> List[str]:
 
     for keywords, runtime in _RUNTIME_RULES:
         for kw in keywords:
-            # Use word-boundary-aware matching for short keywords
-            if len(kw) <= 4:
-                # Short keywords need word boundaries to avoid false matches
-                if re.search(rf"\b{re.escape(kw)}\b", text):
-                    tools.append(runtime)
-                    break
-            else:
-                if kw in text:
-                    tools.append(runtime)
-                    break
+            # Word-boundary matching for all keywords to avoid false positives
+            # (e.g., "go mod" must not match "go model")
+            if re.search(rf"\b{re.escape(kw)}\b", text):
+                tools.append(runtime)
+                break
 
     return tools
