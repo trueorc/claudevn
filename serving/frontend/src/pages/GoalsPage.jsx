@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, FolderOpen, MessageSquare } from 'lucide-react'
 import { getGoals, getGoalComments, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress, createGoalComment, getIssue } from '../api/workmap'
 import { useProjectContext } from '../contexts/ProjectContext'
-import useConversation, { INTENT_MODES } from '../hooks/useConversation'
+import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
@@ -37,7 +37,7 @@ function GoalsPage() {
     return stored === 'true'
   })
 
-  // Unified conversation hook
+  // Shared conversation context (persists across page refreshes, shared with SidePanel)
   const {
     messages,
     submitting,
@@ -49,7 +49,7 @@ function GoalsPage() {
     rejectPending,
     retryProcessing,
     clear: clearConversation,
-  } = useConversation(projectId)
+  } = useConversationContext()
 
   // Load goals list
   const loadGoals = useCallback(async () => {
