@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import { useConversationContext } from '../../contexts/ConversationContext'
+import useIssues from '../../hooks/useIssues'
+import useDirectivePrompts from '../../hooks/useDirectivePrompts'
 import { Send, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import './SidePanel.css'
 
@@ -14,6 +16,10 @@ function SidePanel() {
   const [message, setMessage] = useState('')
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
+
+  // Load issue stats for context-aware prompts (only when a project is active)
+  const { stats } = useIssues({ useWebSocket: !!activeProject, pollInterval: activeProject ? 30000 : 0 })
+  const prompts = useDirectivePrompts(activeProject ? stats : null)
 
   // Show the most recent messages (last N)
   const recentMessages = messages.slice(-SIDEPANEL_MAX_MESSAGES)
@@ -77,26 +83,19 @@ function SidePanel() {
                 <p className="sidepanel-empty-text">
                   Describe what you want to build or direct execution
                 </p>
-                <div className="sidepanel-prompts">
-                  <button
-                    className="sidepanel-prompt"
-                    onClick={() => setMessage('Decompose my goals into work items')}
-                  >
-                    Decompose goals
-                  </button>
-                  <button
-                    className="sidepanel-prompt"
-                    onClick={() => setMessage('Focus on P0 items first')}
-                  >
-                    Focus on P0 items
-                  </button>
-                  <button
-                    className="sidepanel-prompt"
-                    onClick={() => setMessage('Review execution progress')}
-                  >
-                    Review progress
-                  </button>
-                </div>
+                {prompts.length > 0 && (
+                  <div className="sidepanel-prompts">
+                    {prompts.map((prompt) => (
+                      <button
+                        key={prompt.text}
+                        className="sidepanel-prompt"
+                        onClick={() => setMessage(prompt.text)}
+                      >
+                        {prompt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
               <p className="sidepanel-empty-text">
