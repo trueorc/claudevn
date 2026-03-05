@@ -4,7 +4,7 @@ import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
 import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
 import { ToastContainer } from './components/common/Toast'
-import Sidebar from './components/layout/Sidebar'
+import IconBar from './components/layout/IconBar'
 import AuthExpiredBanner from './components/common/AuthExpiredBanner'
 import NetworkHealthPage from './pages/NetworkHealthPage'
 import SkillsPage from './pages/SkillsPage'
@@ -28,7 +28,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
   return (
     <ProjectProvider>
       <div className="app">
-        <Sidebar />
+        <IconBar />
         <main className="main-content">
           {(expired || expiringAt) && (
             <AuthExpiredBanner
@@ -38,7 +38,8 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             />
           )}
           <Routes>
-            <Route path="/" element={<Navigate to="/projects" replace />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Navigate to="/projects" replace />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/directives" element={<GoalsPage />} />
             <Route path="/plan" element={<ExecutionPlanPage />} />
