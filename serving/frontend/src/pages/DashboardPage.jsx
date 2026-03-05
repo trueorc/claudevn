@@ -1,6 +1,8 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, NavLink } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
-import { Plus, ArrowRight } from 'lucide-react'
+import useIssues from '../hooks/useIssues'
+import usePlanSummary from '../hooks/usePlanSummary'
+import { Plus, ArrowRight, Target, Play, CheckCircle } from 'lucide-react'
 import './DashboardPage.css'
 
 function NoProjectDashboard({ onNewProject }) {
@@ -75,23 +77,145 @@ function NoProjectDashboard({ onNewProject }) {
   )
 }
 
+function WorkflowLanes({ stats, planData }) {
+  const defineCount = stats ? (stats.by_status?.pending || 0) + (stats.by_status?.new || 0) : 0
+  const executeActive = planData?.active_count || 0
+  const executeQueued = planData?.queued_count || 0
+  const reviewCount = stats ? (stats.by_status?.in_review || 0) + (stats.by_status?.testing || 0) : 0
+  const doneCount = stats?.by_status?.done || 0
+
+  const lanes = [
+    {
+      key: 'define',
+      icon: Target,
+      title: 'Define',
+      desc: 'Describe what you want built',
+      to: '/directives',
+      active: defineCount > 0,
+      content: defineCount > 0
+        ? `${defineCount} item${defineCount !== 1 ? 's' : ''} pending`
+        : 'No pending items',
+    },
+    {
+      key: 'execute',
+      icon: Play,
+      title: 'Execute',
+      desc: 'System builds your backlog',
+      to: '/plan',
+      active: executeActive > 0,
+      content: executeActive > 0
+        ? `${executeActive} active${executeQueued > 0 ? `, ${executeQueued} queued` : ''}`
+        : executeQueued > 0
+          ? `${executeQueued} queued`
+          : 'No active work',
+    },
+    {
+      key: 'review',
+      icon: CheckCircle,
+      title: 'Review',
+      desc: 'Review and merge results',
+      to: '/backlog',
+      active: reviewCount > 0,
+      content: reviewCount > 0
+        ? `${reviewCount} awaiting review`
+        : doneCount > 0
+          ? `${doneCount} completed`
+          : 'Nothing to review',
+    },
+  ]
+
+  return (
+    <div className="dashboard-lanes">
+      {lanes.map(({ key, icon: Icon, title, desc, to, active, content }) => (
+        <NavLink key={key} to={to} className={`dashboard-lane ${active ? 'has-activity' : ''}`}>
+          <div className="dashboard-lane-header">
+            <Icon size={16} strokeWidth={1.5} />
+            <span className="dashboard-lane-title">{title}</span>
+          </div>
+          <p className="dashboard-lane-desc">{desc}</p>
+          <p className="dashboard-lane-status">{content}</p>
+          <div className="dashboard-lane-link">
+            <span>Open</span>
+            <ArrowRight size={12} />
+          </div>
+        </NavLink>
+      ))}
+    </div>
+  )
+}
+
+function AttentionSection({ items, stats }) {
+  const attentionItems = []
+
+  // Blocked items
+  const blockedCount = stats?.by_status?.blocked || 0
+  if (blockedCount > 0) {
+    attentionItems.push({
+      key: 'blocked',
+      text: `${blockedCount} item${blockedCount !== 1 ? 's' : ''} blocked — may need dependency resolution`,
+      to: '/backlog',
+    })
+  }
+
+  // Uncharacterized items
+  const uncharacterized = items.filter(i => i.characterization_status === 'pending').length
+  if (uncharacterized > 0) {
+    attentionItems.push({
+      key: 'uncharacterized',
+      text: `${uncharacterized} item${uncharacterized !== 1 ? 's' : ''} awaiting characterization`,
+      to: '/backlog',
+    })
+  }
+
+  // Items ready for review
+  const reviewCount = (stats?.by_status?.in_review || 0) + (stats?.by_status?.testing || 0)
+  if (reviewCount > 0) {
+    attentionItems.push({
+      key: 'review',
+      text: `${reviewCount} item${reviewCount !== 1 ? 's' : ''} ready for review`,
+      to: '/backlog',
+    })
+  }
+
+  if (attentionItems.length === 0) return null
+
+  return (
+    <div className="dashboard-attention">
+      <h3 className="dashboard-section-title">Your attention is needed</h3>
+      <div className="dashboard-attention-list">
+        {attentionItems.slice(0, 5).map(({ key, text, to }) => (
+          <NavLink key={key} to={to} className="dashboard-attention-item">
+            <span className="dashboard-attention-text">{text}</span>
+            <ArrowRight size={12} className="dashboard-attention-arrow" />
+          </NavLink>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ActiveProjectDashboard() {
   const { activeProject } = useProjectContext()
+  const { items, stats, loading: issuesLoading } = useIssues({
+    pollInterval: 15000,
+    filters: { project_id: activeProject?.project_id },
+  })
+  const { data: planData, loading: planLoading } = usePlanSummary(activeProject?.project_id, {
+    pollInterval: 15000,
+  })
 
   return (
     <div className="dashboard-page">
       <div className="dashboard-project-header">
         <h1 className="dashboard-project-title">{activeProject?.name}</h1>
-        <p className="dashboard-project-desc">{activeProject?.description || 'No description'}</p>
+        {activeProject?.description && (
+          <p className="dashboard-project-desc">{activeProject.description}</p>
+        )}
       </div>
 
-      <div className="dashboard-placeholder">
-        <p className="dashboard-placeholder-text">
-          Project dashboard coming soon — workflow lanes, attention items, and activity feed
-        </p>
-        <p className="dashboard-placeholder-hint">
-          Use the navigation to access Directives, Plan, Backlog, and other areas
-        </p>
+      <div className="dashboard-active-content">
+        <WorkflowLanes stats={stats} planData={planData} />
+        <AttentionSection items={items} stats={stats} />
       </div>
     </div>
   )
