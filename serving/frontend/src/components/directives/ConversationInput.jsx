@@ -16,7 +16,7 @@ const MODE_LABELS = {
   [INTENT_MODES.DIRECTIVE]: 'Directive',
 }
 
-function ConversationInput({ onSubmit, submitting, disabled, commentMode }) {
+function ConversationInput({ onSubmit, submitting, disabled, commentMode, suggestedText, onSuggestedTextConsumed }) {
   const [text, setText] = useState('')
   const [mode, setMode] = useState(INTENT_MODES.AUTO)
   const [showOptions, setShowOptions] = useState(false)
@@ -34,6 +34,15 @@ function ConversationInput({ onSubmit, submitting, disabled, commentMode }) {
   useEffect(() => {
     adjustHeight()
   }, [text, adjustHeight])
+
+  // Populate the textarea when a suggested prompt is clicked externally
+  useEffect(() => {
+    if (suggestedText) {
+      setText(suggestedText)
+      textareaRef.current?.focus()
+      onSuggestedTextConsumed?.()
+    }
+  }, [suggestedText]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = useCallback(() => {
     if (!text.trim() || submitting || disabled) return

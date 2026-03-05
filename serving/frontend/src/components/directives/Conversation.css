@@ -176,6 +176,35 @@
   text-align: left;
 }
 
+/* Context-aware prompt chips */
+.conv-prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 480px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.conv-prompt-chip {
+  padding: 7px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.conv-prompt-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-muted, rgba(99, 102, 241, 0.08));
+}
+
 .conv-empty {
   display: flex;
   flex-direction: column;
