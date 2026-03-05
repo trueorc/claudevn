@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Radio, User, Key } from 'lucide-react'
+import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
 import useNetworkCapacity from '../hooks/useNetworkCapacity'
 import { useUser } from '../hooks/useUser'
 import { useCompute } from '../hooks/useCompute'
@@ -228,6 +229,12 @@ function SettingsPage() {
   return (
     <div className="settings-page">
       <h1 className="settings-title">Settings</h1>
+      <PageSubtitle>System configuration, your profile, and SSH key management</PageSubtitle>
+
+      <InlineHint hintKey="settings-network-capacity">
+        Network capacity limits how many compute instances can register simultaneously.
+        SSH keys are used to authenticate Git operations between compute instances and the serving Git server.
+      </InlineHint>
 
       <div className="settings-tabs">
         {TABS.map(({ id, label, icon: Icon }) => (

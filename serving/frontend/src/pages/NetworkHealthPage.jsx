@@ -10,6 +10,7 @@ import ComputeDetailModal from '../components/network/ComputeDetailModal'
 import MarketplaceDetailModal from '../components/network/MarketplaceDetailModal'
 import AuthModal from '../components/auth/AuthModal'
 import Spinner from '../components/common/Spinner'
+import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
 import useSystemHealth from '../hooks/useSystemHealth'
 import useAuthTokens from '../hooks/useAuthTokens'
 import './NetworkHealthPage.css'
@@ -81,7 +82,10 @@ function NetworkHealthPage() {
     <div className="page">
       <header className="page-header">
         <div className="page-header-content">
-          <h1 className="page-title">Network & Health</h1>
+          <div>
+            <h1 className="page-title">Network & Health</h1>
+            <PageSubtitle>Live status of compute instances, marketplaces, and core services</PageSubtitle>
+          </div>
           <div className="health-meta">
             <span className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
               {connected ? 'Live' : 'Polling'}
@@ -103,6 +107,11 @@ function NetworkHealthPage() {
           {error}
         </div>
       )}
+
+      <InlineHint hintKey="network-compute-auth">
+        Compute instances must be authorized before they can receive work. If an instance shows "unauthorized",
+        open its detail view to issue a Claude API token. Health data refreshes automatically every 30 seconds.
+      </InlineHint>
 
       {/* Pending Connections - shown at top when pending exist */}
       <PendingConnections />

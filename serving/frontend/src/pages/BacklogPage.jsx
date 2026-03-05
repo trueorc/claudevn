@@ -9,6 +9,7 @@ import Badge from '../components/common/Badge'
 import Spinner from '../components/common/Spinner'
 import EmptyState from '../components/common/EmptyState'
 import BucketBadges from '../components/common/BucketBadges'
+import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
 import useIssues from '../hooks/useIssues'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
 import useBucketTree from '../hooks/useBucketTree'
@@ -366,6 +367,7 @@ function BacklogPage() {
       <div className="page">
         <header className="page-header">
           <h1 className="page-title">Backlog</h1>
+          <PageSubtitle>Individual work items — the explicit influence point for priorities and assignments</PageSubtitle>
         </header>
         <EmptyState
           icon={FolderOpen}
@@ -380,7 +382,10 @@ function BacklogPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1 className="page-title">Backlog</h1>
+        <div>
+          <h1 className="page-title">Backlog</h1>
+          <PageSubtitle>Individual work items — edit priorities, assignments, and dependencies directly</PageSubtitle>
+        </div>
         <div className="header-actions">
           <button
             onClick={() => setShowCreateModal(true)}
@@ -391,6 +396,11 @@ function BacklogPage() {
           </button>
         </div>
       </header>
+
+      <InlineHint hintKey="backlog-items-source">
+        Issues are created automatically when directives are processed, or manually with New Issue.
+        Buckets group related issues by theme — the rank order reflects execution priority across the whole project.
+      </InlineHint>
 
       {/* Filter bar */}
       <div className="backlog-toolbar">
@@ -614,8 +624,12 @@ function BacklogPage() {
       ) : processedItems.length === 0 ? (
         <EmptyState
           icon={ListTodo}
-          title="No backlog issues"
-          description={hasActiveFilters ? "No issues match your filters" : "Issues will appear here when goals are decomposed or issues are created manually"}
+          title={hasActiveFilters ? "No matching issues" : "Backlog is empty"}
+          description={
+            hasActiveFilters
+              ? "No issues match the active filters. Try broadening your criteria."
+              : "Issues appear here once a directive has been processed, or you can create one manually with New Issue."
+          }
           action={hasActiveFilters ? (
             <button onClick={clearFilters} className="btn btn-secondary">
               Clear filters
