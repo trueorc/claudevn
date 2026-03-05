@@ -398,11 +398,33 @@ async def connect_sse(
                 await event_bus.emit_event(event)
                 logger.debug(f"Emitted compute_registered event for {compute_id}")
         else:
-            # Instance was pre-registered via POST /register — preserve PENDING status.
-            # update_heartbeat() only updates the timestamp; it does NOT promote
-            # PENDING → ONLINE. Only explicit approval via POST /{id}/approve does that.
-            await registry.update_heartbeat(compute_id, metadata={"sse_connected": True})
-            logger.info(f"Compute {compute_id} pre-registered (PENDING preserved), SSE connected")
+            # Instance already in registry (pre-registered or loaded from storage after restart).
+            was_previously_approved = existing.status != InstanceStatus.PENDING
+
+            if was_previously_approved:
+                # Reconnect after restart: preserve approved status, update capabilities
+                reconnect_metadata = {
+                    "connection_type": "sse",
+                    "connected_at": datetime.now(timezone.utc).isoformat(),
+                    "sse_reconnected": True,
+                }
+                await registry.update_instance(
+                    compute_id,
+                    capabilities=instance_capabilities,
+                    metadata=reconnect_metadata,
+                )
+                await registry.update_heartbeat(compute_id)
+                logger.info(
+                    f"Compute {compute_id} reconnected — "
+                    f"preserved {existing.status.value} status "
+                    f"(auth={existing.auth_status.value})"
+                )
+            else:
+                # Genuinely pending — preserve PENDING status.
+                # update_heartbeat() only updates the timestamp; it does NOT promote
+                # PENDING → ONLINE. Only explicit approval via POST /{id}/approve does that.
+                await registry.update_heartbeat(compute_id, metadata={"sse_connected": True})
+                logger.info(f"Compute {compute_id} pre-registered (PENDING preserved), SSE connected")
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1978,7 +2000,33 @@ async def register_instance(
     """
 
     try:
-        # Create ComputeInstance from request — always starts PENDING with no projects
+        # Check if instance already exists (e.g., loaded from storage after restart)
+        existing = await registry.get_instance(request.instance_id)
+
+        if existing:
+            # Instance already in registry — update capabilities, preserve approval state
+            await registry.update_instance(
+                request.instance_id,
+                capabilities=request.capabilities,
+                metadata=request.metadata,
+            )
+            await registry.update_heartbeat(request.instance_id)
+            logger.info(
+                f"Compute {request.instance_id} re-registered — "
+                f"preserved {existing.status.value} status"
+            )
+            return RegistrationResponse(
+                status=existing.status.value,
+                instance_id=existing.instance_id,
+                heartbeat_interval=existing.heartbeat_interval,
+                heartbeat_endpoint=f"/api/v1/compute/{existing.instance_id}/health",
+                message=(
+                    f"Instance {existing.instance_id} reconnected — "
+                    f"{existing.status.value} status preserved"
+                ),
+            )
+
+        # New instance — create as PENDING with no projects
         instance = ComputeInstance(
             instance_id=request.instance_id,
             name=request.name,
@@ -1993,7 +2041,6 @@ async def register_instance(
             lifecycle_mode=request.lifecycle_mode,
         )
 
-        # Register instance
         registered = await registry.add_instance(instance)
 
         logger.info(
