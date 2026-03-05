@@ -10,6 +10,7 @@ import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog
 import GoalCompletionCard from '../components/directives/GoalCompletionCard'
 import EmptyState from '../components/common/EmptyState'
 import Spinner from '../components/common/Spinner'
+import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
 import '../components/goals/Goals.css'
 import '../components/directives/Conversation.css'
 
@@ -238,7 +239,7 @@ function GoalsPage() {
         <div className="conv-header">
           <div className="conv-header-content">
             <h1>Directives</h1>
-            <p>Select a project to get started</p>
+            <PageSubtitle>Select a project to get started</PageSubtitle>
           </div>
         </div>
         <EmptyState
@@ -255,7 +256,9 @@ function GoalsPage() {
       <div className="conv-header">
         <div className="conv-header-content">
           <h1>Directives</h1>
-          <p>{activeProject ? `Directing ${activeProject.name}` : 'Select a project'}</p>
+          <PageSubtitle>
+            {activeProject ? `Directing ${activeProject.name}` : 'Select a project'}
+          </PageSubtitle>
         </div>
         <div className="conv-header-actions">
           {selectedGoal && (
@@ -348,6 +351,10 @@ function GoalsPage() {
                       <div className="conv-example">&ldquo;Focus on testing for the API domain&rdquo;</div>
                       <div className="conv-example">&ldquo;Deprioritize new features until bugs are resolved&rdquo;</div>
                     </div>
+                    <InlineHint hintKey="directives-how-it-works">
+                      Directives are processed by the AI, which decomposes them into backlog issues and schedules execution.
+                      Previous directives are listed on the right — select one to add comments or review its outcome.
+                    </InlineHint>
                   </div>
                 )}
                 <ConversationTimeline
