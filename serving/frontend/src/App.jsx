@@ -5,6 +5,7 @@ import { ProjectProvider } from './contexts/ProjectContext'
 import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
+import SidePanel from './components/layout/SidePanel'
 import AuthExpiredBanner from './components/common/AuthExpiredBanner'
 import DashboardPage from './pages/DashboardPage'
 import NetworkHealthPage from './pages/NetworkHealthPage'
@@ -30,6 +31,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
     <ProjectProvider>
       <div className="app">
         <IconBar />
+        <SidePanel />
         <main className="main-content">
           {(expired || expiringAt) && (
             <AuthExpiredBanner
