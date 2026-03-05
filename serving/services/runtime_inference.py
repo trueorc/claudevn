@@ -1,9 +1,13 @@
 """Keyword-based runtime tool inference from work item text.
 
 Provides a lightweight fallback for inferring required runtime tools from
-issue titles and descriptions. Used alongside LLM-based inference during
-goal decomposition. When ambiguous, returns empty — the capability gap
-detection (#140) handles missing capabilities at execution time.
+issue titles and descriptions. Only matches when the text implies the task
+needs to **execute** a dev tool (scaffolding, building, installing deps,
+running tests). Does NOT match generic language/framework mentions — writing
+code in React or Flask does not require the runtime on the compute.
+
+When ambiguous, returns empty — the capability gap detection (#140) handles
+missing capabilities at execution time.
 """
 
 import re
@@ -12,37 +16,42 @@ from typing import List
 # ── Keyword → runtime mapping ────────────────────────────────────────────────
 # Each entry: (set of keywords, runtime tool label)
 # Matching is case-insensitive against concatenated title + description.
-# Only match when keywords are strong indicators — avoid false positives.
+# IMPORTANT: Only include keywords that imply the task must EXECUTE the
+# runtime (scaffold, build, install, test, run). Do NOT include framework
+# or library names (react, express, django, flask) — writing code in those
+# frameworks does not require the runtime.
 
 _RUNTIME_RULES = [
-    # Node.js / JavaScript ecosystem
+    # Node.js / JavaScript ecosystem — execution-specific terms only
     (
-        {"react", "vite", "next.js", "nextjs", "express", "npm", "npx",
-         "node.js", "nodejs", "webpack", "eslint", "jest", "tsx", "jsx",
-         "package.json", "yarn", "pnpm", "bun"},
+        {"npm install", "npm run", "npm test", "npm start", "npm build",
+         "npx", "create-react-app", "yarn install", "yarn build",
+         "pnpm install", "pnpm build", "bun install", "bun run",
+         "package.json"},
         "runtime:node",
     ),
-    # Python ecosystem
+    # Python ecosystem — execution-specific terms only
     (
-        {"django", "flask", "fastapi", "pip install", "requirements.txt",
-         "python script", "pytest", "poetry", "uvicorn", "celery",
-         "pandas", "numpy", "sqlalchemy"},
+        {"pip install", "requirements.txt", "pytest", "python -m",
+         "python script", "poetry install", "uvicorn", "manage.py",
+         "django-admin"},
         "runtime:python",
     ),
-    # Go ecosystem
+    # Go ecosystem — execution-specific terms only
     (
-        {"go module", "go build", "go test", "go.mod", "golang",
-         "go binary", "go run"},
+        {"go build", "go test", "go run", "go mod", "go.mod",
+         "go install"},
         "runtime:go",
     ),
-    # Rust ecosystem
+    # Rust ecosystem — execution-specific terms only
     (
-        {"cargo", "rustc", "rust", "crate", "cargo.toml"},
+        {"cargo build", "cargo test", "cargo run", "cargo.toml",
+         "rustc"},
         "runtime:rust",
     ),
-    # Java ecosystem
+    # Java ecosystem — execution-specific terms only
     (
-        {"maven", "gradle", "spring boot", "java", "jvm",
+        {"mvn", "maven", "gradle build", "gradle test",
          "pom.xml", "build.gradle"},
         "runtime:java",
     ),
@@ -67,15 +76,10 @@ def infer_runtime_tools(title: str, description: str) -> List[str]:
 
     for keywords, runtime in _RUNTIME_RULES:
         for kw in keywords:
-            # Use word-boundary-aware matching for short keywords
-            if len(kw) <= 4:
-                # Short keywords need word boundaries to avoid false matches
-                if re.search(rf"\b{re.escape(kw)}\b", text):
-                    tools.append(runtime)
-                    break
-            else:
-                if kw in text:
-                    tools.append(runtime)
-                    break
+            # Word-boundary matching for all keywords to avoid false positives
+            # (e.g., "go mod" must not match "go model")
+            if re.search(rf"\b{re.escape(kw)}\b", text):
+                tools.append(runtime)
+                break
 
     return tools
