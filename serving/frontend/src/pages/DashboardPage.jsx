@@ -2,6 +2,7 @@ import { useNavigate, NavLink } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
 import useIssues from '../hooks/useIssues'
 import usePlanSummary from '../hooks/usePlanSummary'
+import useRecentActivity from '../hooks/useRecentActivity'
 import { Plus, ArrowRight, Target, Play, CheckCircle } from 'lucide-react'
 import './DashboardPage.css'
 
@@ -194,6 +195,26 @@ function AttentionSection({ items, stats }) {
   )
 }
 
+function ActivityFeed({ items }) {
+  const { events } = useRecentActivity({ items, maxEvents: 10 })
+
+  if (events.length === 0) return null
+
+  return (
+    <div className="dashboard-activity">
+      <h3 className="dashboard-section-title">Recent Activity</h3>
+      <div className="dashboard-activity-list">
+        {events.map((event) => (
+          <div key={`${event.id}-${event.timestamp}`} className="dashboard-activity-item">
+            <span className="dashboard-activity-desc">{event.description}</span>
+            <span className="dashboard-activity-time">{event.relativeTime}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ActiveProjectDashboard() {
   const { activeProject } = useProjectContext()
   const { items, stats, loading: issuesLoading } = useIssues({
@@ -216,6 +237,7 @@ function ActiveProjectDashboard() {
       <div className="dashboard-active-content">
         <WorkflowLanes stats={stats} planData={planData} />
         <AttentionSection items={items} stats={stats} />
+        <ActivityFeed items={items} />
       </div>
     </div>
   )
