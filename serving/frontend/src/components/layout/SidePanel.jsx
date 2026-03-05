@@ -1,47 +1,33 @@
 import { useState, useRef, useEffect } from 'react'
 import { useProjectContext } from '../../contexts/ProjectContext'
+import { useConversationContext } from '../../contexts/ConversationContext'
 import { Send, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import './SidePanel.css'
 
+// How many recent messages to show in the side panel preview
+const SIDEPANEL_MAX_MESSAGES = 6
+
 function SidePanel() {
   const { activeProject } = useProjectContext()
+  const { messages, submitting, submit } = useConversationContext()
   const [collapsed, setCollapsed] = useState(false)
   const [message, setMessage] = useState('')
-  const [messages, setMessages] = useState([])
-  const [sending, setSending] = useState(false)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
+
+  // Show the most recent messages (last N)
+  const recentMessages = messages.slice(-SIDEPANEL_MAX_MESSAGES)
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [recentMessages])
 
   const handleSend = async () => {
-    if (!message.trim() || sending) return
-
-    const userMessage = {
-      id: Date.now(),
-      role: 'user',
-      content: message.trim(),
-      timestamp: new Date(),
-    }
-
-    setMessages(prev => [...prev, userMessage])
+    if (!message.trim() || submitting || !activeProject) return
+    const text = message.trim()
     setMessage('')
-    setSending(true)
-
-    // Simulate sending — actual integration with directives API
-    // will come with issue #168 (persistent conversation)
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1,
-        role: 'system',
-        content: 'Message received. Conversation persistence coming soon.',
-        timestamp: new Date(),
-      }])
-      setSending(false)
-    }, 500)
+    await submit(text)
   }
 
   const handleKeyDown = (e) => {
@@ -120,14 +106,33 @@ function SidePanel() {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <div key={msg.id} className={`sidepanel-message sidepanel-message-${msg.role}`}>
-            <p className="sidepanel-message-content">{msg.content}</p>
-            <span className="sidepanel-message-time">
-              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-        ))}
+        {recentMessages.map((msg) => {
+          // Normalize message format: useConversation uses {type, content, timestamp}
+          // while old local state used {role, content, timestamp}
+          const isUser = msg.type === 'user' || msg.role === 'user'
+          const isError = msg.type === 'error'
+          const isThinking = msg.type === 'thinking'
+          const roleClass = isUser ? 'user' : isError ? 'error' : 'system'
+          const timestamp = msg.timestamp
+            ? (typeof msg.timestamp === 'string'
+                ? new Date(msg.timestamp)
+                : msg.timestamp instanceof Date
+                  ? msg.timestamp
+                  : new Date())
+            : new Date()
+
+          // Skip purely internal/transient message types in the side panel
+          if (isThinking) return null
+
+          return (
+            <div key={msg.id} className={`sidepanel-message sidepanel-message-${roleClass}`}>
+              <p className="sidepanel-message-content">{msg.content}</p>
+              <span className="sidepanel-message-time">
+                {timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          )
+        })}
         <div ref={messagesEndRef} />
       </div>
 
@@ -140,13 +145,13 @@ function SidePanel() {
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={activeProject ? 'Type a directive...' : 'Select a project first'}
-            disabled={!activeProject || sending}
+            disabled={!activeProject || submitting}
             rows={1}
           />
           <button
             className="sidepanel-send-btn"
             onClick={handleSend}
-            disabled={!message.trim() || sending || !activeProject}
+            disabled={!message.trim() || submitting || !activeProject}
             title="Send (Enter)"
           >
             <Send size={14} />

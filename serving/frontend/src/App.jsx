@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider } from './contexts/AppContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
+import { ConversationProvider } from './contexts/ConversationContext'
 import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
@@ -29,46 +30,48 @@ import { useAuth } from './hooks/useAuth'
 function AuthenticatedApp({ expired, expiringAt, onReauth }) {
   return (
     <ProjectProvider>
-      <div className="app">
-        <IconBar />
-        <SidePanel />
-        <main className="main-content">
-          {(expired || expiringAt) && (
-            <AuthExpiredBanner
-              expired={expired}
-              expiringAt={expiringAt}
-              onReauth={onReauth}
-            />
-          )}
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/directives" element={<GoalsPage />} />
-            <Route path="/plan" element={<ExecutionPlanPage />} />
-            <Route path="/backlog" element={<BacklogPage />} />
-            <Route path="/marketplace" element={<SkillsPage />} />
-            <Route path="/network" element={<NetworkHealthPage />} />
-            <Route path="/timing" element={<TimingPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/settings/profile" element={<Navigate to="/settings?tab=profile" replace />} />
-            <Route path="/settings/ssh-keys" element={<Navigate to="/settings?tab=ssh-keys" replace />} />
-            <Route path="/settings/users" element={<UserManagementPage />} />
-            {/* Redirects from old routes */}
-            <Route path="/goals" element={<Navigate to="/directives" replace />} />
-            <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
-            <Route path="/health" element={<Navigate to="/network" replace />} />
-            <Route path="/work" element={<Navigate to="/backlog" replace />} />
-            <Route path="/workmap" element={<Navigate to="/plan" replace />} />
-            <Route path="/traces" element={<Navigate to="/plan" replace />} />
-            <Route path="/focus" element={<Navigate to="/plan" replace />} />
-            <Route path="/capabilities" element={<Navigate to="/network" replace />} />
-            <Route path="/conflicts" element={<Navigate to="/network" replace />} />
-          </Routes>
-        </main>
-      </div>
-      <ToastContainer />
+      <ConversationProvider>
+        <div className="app">
+          <IconBar />
+          <SidePanel />
+          <main className="main-content">
+            {(expired || expiringAt) && (
+              <AuthExpiredBanner
+                expired={expired}
+                expiringAt={expiringAt}
+                onReauth={onReauth}
+              />
+            )}
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/directives" element={<GoalsPage />} />
+              <Route path="/plan" element={<ExecutionPlanPage />} />
+              <Route path="/backlog" element={<BacklogPage />} />
+              <Route path="/marketplace" element={<SkillsPage />} />
+              <Route path="/network" element={<NetworkHealthPage />} />
+              <Route path="/timing" element={<TimingPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/profile" element={<Navigate to="/settings?tab=profile" replace />} />
+              <Route path="/settings/ssh-keys" element={<Navigate to="/settings?tab=ssh-keys" replace />} />
+              <Route path="/settings/users" element={<UserManagementPage />} />
+              {/* Redirects from old routes */}
+              <Route path="/goals" element={<Navigate to="/directives" replace />} />
+              <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
+              <Route path="/health" element={<Navigate to="/network" replace />} />
+              <Route path="/work" element={<Navigate to="/backlog" replace />} />
+              <Route path="/workmap" element={<Navigate to="/plan" replace />} />
+              <Route path="/traces" element={<Navigate to="/plan" replace />} />
+              <Route path="/focus" element={<Navigate to="/plan" replace />} />
+              <Route path="/capabilities" element={<Navigate to="/network" replace />} />
+              <Route path="/conflicts" element={<Navigate to="/network" replace />} />
+            </Routes>
+          </main>
+        </div>
+        <ToastContainer />
+      </ConversationProvider>
     </ProjectProvider>
   )
 }
