@@ -647,5 +647,4 @@ Should return available skills.
 
 - [Architecture Overview](design/architecture/v1.0-architecture.md)
 - [Git Infrastructure](design/specifications/git-infrastructure.md)
-- [Deployment Guide](guides/deployment-guide.md)
-- [API Reference](api-reference.md)
+- [Distributed Deployment Guide](guides/distributed-deployment.md)
