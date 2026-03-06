@@ -40,10 +40,10 @@ The following features lack proper UI support and have GitHub issues filed:
 
 | Gap | Issue | Priority | Status |
 |-----|-------|----------|--------|
-| Infrastructure Health Dashboard | [#328](https://github.com/Guarrdon/claudevn/issues/328) | P2 | Backlog |
-| Goal Creation UI | [#329](https://github.com/Guarrdon/claudevn/issues/329) | P2 | Backlog |
-| Skill Creation UI | [#330](https://github.com/Guarrdon/claudevn/issues/330) | P3 | Backlog |
-| Issue Creation/Editing in WorkMap | [#331](https://github.com/Guarrdon/claudevn/issues/331) | P1 | Backlog |
+| Infrastructure Health Dashboard | [#328](https://github.com/trueorc/claudevn/issues/328) | P2 | Backlog |
+| Goal Creation UI | [#329](https://github.com/trueorc/claudevn/issues/329) | P2 | Backlog |
+| Skill Creation UI | [#330](https://github.com/trueorc/claudevn/issues/330) | P3 | Backlog |
+| Issue Creation/Editing in WorkMap | [#331](https://github.com/trueorc/claudevn/issues/331) | P1 | Backlog |
 
 ---
 
@@ -92,7 +92,7 @@ Before testing, understand the three-tier work hierarchy:
 
 ## Phase 1: Infrastructure Health
 
-> **UI Gap:** No health dashboard exists. See [#328](https://github.com/Guarrdon/claudevn/issues/328)
+> **UI Gap:** No health dashboard exists. See [#328](https://github.com/trueorc/claudevn/issues/328)
 
 ### 1.1 Service Health Checks
 
@@ -117,7 +117,7 @@ Before testing, understand the three-tier work hierarchy:
 
 ## Phase 2: Marketplace & Skills
 
-> **UI Gap:** Cannot create skills from UI. See [#330](https://github.com/Guarrdon/claudevn/issues/330)
+> **UI Gap:** Cannot create skills from UI. See [#330](https://github.com/trueorc/claudevn/issues/330)
 
 ### 2.1 Skill Management
 
@@ -164,7 +164,7 @@ curl -X POST http://localhost:8003/api/v1/skills \
 
 ## Phase 4: Work Map - Goals
 
-> **UI Gap:** Cannot create goals from UI. See [#329](https://github.com/Guarrdon/claudevn/issues/329)
+> **UI Gap:** Cannot create goals from UI. See [#329](https://github.com/trueorc/claudevn/issues/329)
 
 ### 4.1 Goal Management
 
@@ -192,7 +192,7 @@ curl -X POST http://localhost:8002/api/v1/work-map/goals \
 
 ## Phase 5: Work Map - Issues
 
-> **UI Gap:** Cannot create/edit issues directly. See [#331](https://github.com/Guarrdon/claudevn/issues/331)
+> **UI Gap:** Cannot create/edit issues directly. See [#331](https://github.com/trueorc/claudevn/issues/331)
 
 ### 5.1 Issue Creation & Dependencies
 

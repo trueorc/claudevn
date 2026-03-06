@@ -87,7 +87,7 @@ curl -X POST http://localhost:8002/api/v1/marketplaces/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "ClaudeVN Central Marketplace",
-    "endpoint": "http://localhost:8001",
+    "endpoint": "http://localhost:8003",
     "capabilities": {
       "agent_count": 10,
       "supports_search": true
@@ -590,7 +590,7 @@ cd ../marketplace && ./start.sh  # Start marketplace
 cd ../serving && ./start.sh       # Start serving
 
 # Register marketplace with serving
-curl -X POST http://localhost:8001/api/v1/integrations/serving/register \
+curl -X POST http://localhost:8003/api/v1/integrations/serving/register \
   -H "Content-Type: application/json" \
   -d '{"serving_url":"http://localhost:8002","marketplace_name":"Test Marketplace"}'
 
