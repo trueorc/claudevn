@@ -1,4 +1,4 @@
-import { FolderGit2, GitBranch, Pencil, Trash2, CheckCircle2, Activity, Code, Database, Server, Globe, Folder, Box, Layers, Cpu, Cloud, Shield } from 'lucide-react'
+import { FolderGit2, GitBranch, Pencil, Trash2, CheckCircle2, Activity, Code, Database, Server, Globe, Folder, Box, Layers, Cpu, Cloud, Shield, ArrowRight } from 'lucide-react'
 import Card, { CardHeader, CardBody } from '../common/Card'
 import { StatusBadge } from '../common/Badge'
 import './Projects.css'
@@ -94,7 +94,7 @@ function ProjectLabels({ labels }) {
   )
 }
 
-function ProjectCard({ project, onClick, onEdit, onDelete }) {
+function ProjectCard({ project, onClick, onEdit, onDelete, onSelectActive, isActive }) {
   const {
     name,
     description,
@@ -117,6 +117,11 @@ function ProjectCard({ project, onClick, onEdit, onDelete }) {
     onDelete?.(project)
   }
 
+  const handleSelectActive = (e) => {
+    e.stopPropagation()
+    onSelectActive?.(project)
+  }
+
   const lastActivityText = activity_summary?.last_activity_at
     ? formatRelativeTime(activity_summary.last_activity_at)
     : null
@@ -130,6 +135,19 @@ function ProjectCard({ project, onClick, onEdit, onDelete }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <StatusBadge status={status} />
+          {onSelectActive && !isActive && (
+            <button
+              onClick={handleSelectActive}
+              className="project-action-btn project-action-btn-select"
+              title="Select as active project"
+            >
+              <ArrowRight size={14} />
+              <span className="project-select-label">Select</span>
+            </button>
+          )}
+          {isActive && (
+            <span className="project-active-badge">Active</span>
+          )}
           {onEdit && (
             <button
               onClick={handleEdit}

@@ -5,7 +5,7 @@ import Spinner from '../common/Spinner'
 import EmptyState from '../common/EmptyState'
 import './Projects.css'
 
-function ProjectList({ onSelect, onEdit, onDelete, filters = {} }) {
+function ProjectList({ onSelect, onEdit, onDelete, onSelectActive, activeProjectId, filters = {} }) {
   const { projects, loading, error } = useProjects({ filters })
 
   const hasFilters = filters.search ||
@@ -52,6 +52,8 @@ function ProjectList({ onSelect, onEdit, onDelete, filters = {} }) {
           onClick={() => onSelect?.(project)}
           onEdit={onEdit}
           onDelete={onDelete}
+          onSelectActive={onSelectActive}
+          isActive={activeProjectId === project.project_id}
         />
       ))}
     </div>

@@ -74,7 +74,7 @@ function NoProjectDashboard() {
 }
 
 function ActiveProjectDashboard() {
-  const { activeProject, projects, setActiveProject } = useProjectContext()
+  const { activeProject, projects, recentProjects, setActiveProject } = useProjectContext()
   const { user } = useAuth()
   const navigate = useNavigate()
   const {
@@ -132,7 +132,7 @@ function ActiveProjectDashboard() {
       {/* Left column — Operations */}
       <div className="dashboard-col-left">
         <LeftPanels
-          projects={projects}
+          recentProjects={recentProjects}
           activeProject={activeProject}
           onSelectProject={setActiveProject}
           onNewProject={handleNewProject}

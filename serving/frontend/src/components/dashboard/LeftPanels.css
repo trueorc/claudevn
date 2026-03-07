@@ -172,6 +172,22 @@
   min-width: 0;
 }
 
+/* "All projects" footer link */
+.lp-all-projects-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.lp-panel--clickable:hover .lp-all-projects-link {
+  color: var(--primary);
+}
+
 /* ============================================================
    Panel 2 — Execution Status
    ============================================================ */
