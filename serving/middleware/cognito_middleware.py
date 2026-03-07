@@ -34,6 +34,7 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/marketplace/register",  # Marketplace registration
     "/api/v1/users/login",           # User login (local auth mode)
     "/api/v1/users/register",        # User registration (local auth mode)
+    "/api/v1/releases",              # Release notes (public, non-sensitive)
 )
 
 # Non-API routes that are always public
