@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 class UserRole(str, Enum):
     """User role in the network."""
     OWNER = "owner"
+    ADMIN = "admin"
     MEMBER = "member"
+    VIEWER = "viewer"
 
 
 class User(BaseModel):
@@ -41,6 +43,7 @@ class RegisterResponse(BaseModel):
 class LoginRequest(BaseModel):
     """Request to log in."""
     username: str
+    password: Optional[str] = Field(None, description="Password (required in local auth mode)")
 
 
 class LoginResponse(BaseModel):
