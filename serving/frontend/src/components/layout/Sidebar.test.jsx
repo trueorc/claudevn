@@ -21,6 +21,7 @@ vi.mock('../../contexts/ProjectContext', () => ({
 }))
 
 import useSystemHealth from '../../hooks/useSystemHealth'
+import { useProjectContext } from '../../contexts/ProjectContext'
 
 function renderSidebar() {
   return render(
@@ -99,6 +100,54 @@ describe('Sidebar', () => {
 
       renderSidebar()
       expect(screen.getByAltText('ClaudeVN')).toBeInTheDocument()
+    })
+  })
+
+  describe('project-specific nav items', () => {
+    const projectSpecificLabels = ['Directives', 'Plan', 'Backlog', 'Timing']
+    const alwaysVisibleLabels = ['Network', 'Projects', 'Marketplace', 'SSH Keys']
+
+    it('hides project-specific tabs when no project is selected', () => {
+      useSystemHealth.mockReturnValue({
+        health: null,
+        overallStatus: 'unknown',
+        loading: false,
+      })
+      useProjectContext.mockReturnValue({
+        activeProject: null,
+        projects: [],
+        setActiveProject: vi.fn(),
+        loading: false,
+      })
+
+      renderSidebar()
+
+      for (const label of projectSpecificLabels) {
+        expect(screen.queryByText(label)).not.toBeInTheDocument()
+      }
+      for (const label of alwaysVisibleLabels) {
+        expect(screen.getByText(label)).toBeInTheDocument()
+      }
+    })
+
+    it('shows project-specific tabs when a project is selected', () => {
+      useSystemHealth.mockReturnValue({
+        health: null,
+        overallStatus: 'unknown',
+        loading: false,
+      })
+      useProjectContext.mockReturnValue({
+        activeProject: { project_id: 'proj-1', name: 'Test Project' },
+        projects: [{ project_id: 'proj-1', name: 'Test Project' }],
+        setActiveProject: vi.fn(),
+        loading: false,
+      })
+
+      renderSidebar()
+
+      for (const label of [...projectSpecificLabels, ...alwaysVisibleLabels]) {
+        expect(screen.getByText(label)).toBeInTheDocument()
+      }
     })
   })
 })

@@ -10,10 +10,10 @@ const navItems = [
   { to: '/network', icon: Radio, label: 'Network' },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
   { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
-  { to: '/directives', icon: Target, label: 'Directives' },
-  { to: '/plan', icon: Play, label: 'Plan' },
-  { to: '/backlog', icon: ListTodo, label: 'Backlog' },
-  { to: '/timing', icon: Timer, label: 'Timing' },
+  { to: '/directives', icon: Target, label: 'Directives', requiresProject: true },
+  { to: '/plan', icon: Play, label: 'Plan', requiresProject: true },
+  { to: '/backlog', icon: ListTodo, label: 'Backlog', requiresProject: true },
+  { to: '/timing', icon: Timer, label: 'Timing', requiresProject: true },
   { to: '/settings/ssh-keys', icon: Key, label: 'SSH Keys' },
   { to: '/settings/general', icon: Settings, label: 'Settings' },
 ]
@@ -164,7 +164,7 @@ function Sidebar() {
       <div className="sidebar-divider" />
 
       <div className="sidebar-nav">
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {navItems.filter(item => !item.requiresProject || activeProject).map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
