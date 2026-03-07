@@ -1467,6 +1467,14 @@ async def create_issue(request: IssueCreateRequest):
     service = get_work_map_service()
     try:
         issue = await service.create_issue(request)
+
+        # Populate user attribution
+        user = get_current_user()
+        if user:
+            issue.created_by = user.get('sub')
+            issue.created_by_name = user.get('username') or user.get('email')
+            await service._issue_service._save_issue_to_redis(issue)
+
         logger.info(f"Created issue {issue.issue_id}")
         return issue
     except Exception as e:
@@ -1636,6 +1644,13 @@ async def update_issue(issue_id: str, request: IssueUpdateRequest):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Issue '{issue_id}' not found"
         )
+
+    # Populate user attribution
+    user = get_current_user()
+    if user:
+        issue.modified_by = user.get('sub')
+        issue.modified_by_name = user.get('username') or user.get('email')
+        await service._issue_service._save_issue_to_redis(issue)
 
     return issue
 
