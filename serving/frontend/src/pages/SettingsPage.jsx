@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Radio, User, Key } from 'lucide-react'
+import { Radio, User, Key, ToggleLeft } from 'lucide-react'
 import useNetworkCapacity from '../hooks/useNetworkCapacity'
 import { useUser } from '../hooks/useUser'
 import { useCompute } from '../hooks/useCompute'
 import { useAuth } from '../hooks/useAuth'
 import SSHKeysPage from './SSHKeysPage'
+import { useFeatureFlags } from '../hooks/useFeatureFlags'
 import './SettingsPage.css'
 
 const TABS = [
   { id: 'network', label: 'Network', icon: Radio },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'ssh-keys', label: 'SSH Keys', icon: Key },
+  { id: 'feature-flags', label: 'Feature Flags', icon: ToggleLeft },
 ]
 
 function NetworkSettings() {
@@ -217,6 +219,128 @@ function ProfileSettings() {
   )
 }
 
+const CATEGORY_LABELS = {
+  ui: 'UI',
+  backend: 'Backend',
+  experimental: 'Experimental',
+}
+
+function FeatureFlagSettings() {
+  const { flags, loading, error, toggle, create, remove } = useFeatureFlags()
+  const [showCreate, setShowCreate] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newCategory, setNewCategory] = useState('experimental')
+  const [createError, setCreateError] = useState(null)
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return
+    setCreateError(null)
+    try {
+      await create({ name: newName.trim(), description: newDesc.trim(), category: newCategory, enabled: false })
+      setNewName('')
+      setNewDesc('')
+      setNewCategory('experimental')
+      setShowCreate(false)
+    } catch (err) {
+      setCreateError(err.message)
+    }
+  }
+
+  if (loading) return <div className="settings-loading">Loading...</div>
+  if (error) return <div className="settings-error">Failed to load feature flags: {error}</div>
+
+  return (
+    <div className="settings-section">
+      <div className="ff-header">
+        <h2 className="settings-section-title">Feature Flags</h2>
+        <button className="settings-btn primary" onClick={() => setShowCreate(!showCreate)}>
+          {showCreate ? 'Cancel' : 'New Flag'}
+        </button>
+      </div>
+
+      {showCreate && (
+        <div className="settings-card">
+          <div className="settings-form">
+            <label className="settings-form-label">
+              Name (kebab-case)
+              <input
+                className="settings-input ff-input-wide"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder="my-feature"
+              />
+            </label>
+            <label className="settings-form-label">
+              Description
+              <input
+                className="settings-input ff-input-wide"
+                value={newDesc}
+                onChange={e => setNewDesc(e.target.value)}
+                placeholder="Optional description"
+              />
+            </label>
+            <label className="settings-form-label">
+              Category
+              <select
+                className="settings-input ff-input-wide"
+                value={newCategory}
+                onChange={e => setNewCategory(e.target.value)}
+              >
+                <option value="ui">UI</option>
+                <option value="backend">Backend</option>
+                <option value="experimental">Experimental</option>
+              </select>
+            </label>
+            {createError && <p className="settings-error-text">{createError}</p>}
+            <div className="settings-form-actions">
+              <button className="settings-btn primary" onClick={handleCreate}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {flags.length === 0 ? (
+        <div className="settings-card">
+          <p className="settings-muted">No feature flags configured</p>
+        </div>
+      ) : (
+        <div className="ff-list">
+          {flags.map(flag => (
+            <div key={flag.name} className="settings-card ff-card">
+              <div className="ff-row">
+                <div className="ff-info">
+                  <div className="ff-name">{flag.name}</div>
+                  {flag.description && <div className="ff-desc">{flag.description}</div>}
+                  <span className={`settings-badge ff-category-${flag.category}`}>
+                    {CATEGORY_LABELS[flag.category] || flag.category}
+                  </span>
+                </div>
+                <div className="ff-actions">
+                  <button
+                    className={`ff-toggle ${flag.enabled ? 'on' : 'off'}`}
+                    onClick={() => toggle(flag.name, !flag.enabled)}
+                    title={flag.enabled ? 'Disable' : 'Enable'}
+                  >
+                    {flag.enabled ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    className="settings-btn ff-delete"
+                    onClick={() => remove(flag.name)}
+                    title="Delete flag"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') || 'network'
@@ -246,6 +370,7 @@ function SettingsPage() {
         {activeTab === 'network' && <NetworkSettings />}
         {activeTab === 'profile' && <ProfileSettings />}
         {activeTab === 'ssh-keys' && <SSHKeysPage />}
+        {activeTab === 'feature-flags' && <FeatureFlagSettings />}
       </div>
     </div>
   )

@@ -66,6 +66,7 @@ from api import cognito_users
 from api import network_capacity
 from api import provisioner
 from api import timing
+from api import feature_flags
 # MCP server for compute communication
 from mcp import get_router
 # Marketplace HTTP client (marketplace is a separate service on port 8003)
@@ -371,6 +372,17 @@ async def lifespan(app: FastAPI):
     timing_service = TimingService(redis_client=redis_client)
     set_timing_service(timing_service)
     logger.info("Timing service initialized")
+
+    # =========================================================================
+    # OPTIONAL: Feature Flag Service
+    # Manages feature flags with in-memory cache and Redis persistence.
+    # Degrades gracefully if Redis unavailable (flags stored in-memory only).
+    # =========================================================================
+    from services.feature_flag_service import FeatureFlagService, set_feature_flag_service
+    feature_flag_service = FeatureFlagService(redis_client=redis_client)
+    await feature_flag_service.initialize()
+    set_feature_flag_service(feature_flag_service)
+    logger.info("Feature flag service initialized")
 
     # =========================================================================
     # OPTIONAL: Rate Limiter
@@ -1166,6 +1178,7 @@ app.include_router(cognito_users.router, prefix=api_prefix)
 app.include_router(network_capacity.router, prefix=api_prefix)
 app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
+app.include_router(feature_flags.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix
 # Note: Skill marketplace is a separate service on port 8003 - use MarketplaceClient
