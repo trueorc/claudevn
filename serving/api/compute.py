@@ -438,10 +438,16 @@ async def connect_sse(
                     f"(auth={existing.auth_status.value})"
                 )
             else:
-                # Genuinely pending — preserve PENDING status.
+                # Genuinely pending — preserve PENDING status but update capabilities
+                # (resources are only sent via X-Resources header on SSE connect).
                 # update_heartbeat() only updates the timestamp; it does NOT promote
                 # PENDING → ONLINE. Only explicit approval via POST /{id}/approve does that.
-                await registry.update_heartbeat(compute_id, metadata={"sse_connected": True})
+                await registry.update_instance(
+                    compute_id,
+                    capabilities=instance_capabilities,
+                    metadata={"sse_connected": True},
+                )
+                await registry.update_heartbeat(compute_id)
                 logger.info(f"Compute {compute_id} pre-registered (PENDING preserved), SSE connected")
     except ValueError as e:
         raise HTTPException(
