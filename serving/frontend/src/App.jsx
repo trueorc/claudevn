@@ -3,7 +3,7 @@ import { AppProvider } from './contexts/AppContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
 import { ConversationProvider } from './contexts/ConversationContext'
-import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
+import { AuthProvider, useAuth as useUserAuth } from './contexts/auth/AuthContext'
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
 import ChatRail from './components/layout/ChatRail'
@@ -77,7 +77,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
 }
 
 function CognitoGate({ children }) {
-  const { loading: cognitoLoading, isAuthenticated: cognitoAuthed, isBypass } = useCognitoAuth()
+  const { loading: cognitoLoading, isAuthenticated: cognitoAuthed, isBypass } = useUserAuth()
 
   if (cognitoLoading) {
     return (
@@ -156,7 +156,7 @@ function ClaudeTokenGate() {
 
 function App() {
   return (
-    <CognitoAuthProvider>
+    <AuthProvider>
       <ToastProvider>
         <AppProvider>
           <CognitoGate>
@@ -164,7 +164,7 @@ function App() {
           </CognitoGate>
         </AppProvider>
       </ToastProvider>
-    </CognitoAuthProvider>
+    </AuthProvider>
   )
 }
 

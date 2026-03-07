@@ -5,10 +5,64 @@ import { useConversationContext } from '../../contexts/ConversationContext'
 import useIssues from '../../hooks/useIssues'
 import useDirectivePrompts from '../../hooks/useDirectivePrompts'
 import useChatTransition from '../../hooks/useChatTransition'
-import { Send, ChevronLeft, MessageSquare, ExternalLink } from 'lucide-react'
+import { Send, ChevronLeft, ChevronDown, Check, MessageSquare, ExternalLink } from 'lucide-react'
 import './ChatRail.css'
 
 const CHATRAIL_MAX_MESSAGES = 10
+
+function RailProjectSelector() {
+  const { activeProject, projects, setActiveProject, loading } = useProjectContext()
+  const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleSelect = (project) => {
+    setActiveProject(project)
+    setIsOpen(false)
+  }
+
+  return (
+    <div className="rail-project-selector" ref={containerRef}>
+      <button
+        className="rail-project-trigger"
+        onClick={() => setIsOpen(!isOpen)}
+        disabled={loading}
+      >
+        <span className="rail-project-name">
+          {activeProject ? activeProject.name : 'Select project'}
+        </span>
+        <ChevronDown size={14} className={isOpen ? 'rail-chevron-open' : ''} />
+      </button>
+
+      {isOpen && (
+        <div className="rail-project-dropdown">
+          {projects.map((project) => (
+            <button
+              key={project.project_id}
+              className={`rail-project-option ${activeProject?.project_id === project.project_id ? 'selected' : ''}`}
+              onClick={() => handleSelect(project)}
+            >
+              <span className="rail-project-option-name">{project.name}</span>
+              {activeProject?.project_id === project.project_id && <Check size={12} />}
+            </button>
+          ))}
+          {projects.length === 0 && !loading && (
+            <div className="rail-project-empty">No projects</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ChatRail() {
   const { activeProject } = useProjectContext()
@@ -99,6 +153,8 @@ function ChatRail() {
       {/* Full rail content — visible only when expanded and not on dashboard */}
       {!isDashboard && !collapsed && (
         <>
+          <RailProjectSelector />
+
           <div className="chat-rail-header">
             <button
               className="chat-rail-full-link"

@@ -112,8 +112,10 @@ class ConversationService:
             if bus:
                 payload = json.dumps({
                     'type': 'conversation_message',
-                    'project_id': msg.project_id,
-                    'message': msg.model_dump(mode='json'),
+                    'event': {
+                        'project_id': msg.project_id,
+                        'message': msg.model_dump(mode='json'),
+                    },
                 }, default=str)
                 # Reuse the _broadcast_to_all plumbing by sending raw text to all connections
                 await bus._broadcast_raw(payload)

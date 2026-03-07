@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCognitoAuth } from '../contexts/CognitoAuthContext'
+import { useAuth } from '../contexts/auth/AuthContext'
 import './LoginPage.css'
 
 export default function SetPasswordPage() {
@@ -9,7 +9,7 @@ export default function SetPasswordPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
-  const { completeNewPassword, challengeName } = useCognitoAuth()
+  const { completeNewPassword, challengeName } = useAuth()
 
   // If no challenge is active, redirect to login
   if (challengeName !== 'NEW_PASSWORD_REQUIRED') {

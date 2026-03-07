@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw } from 'lucide-react'
 import { MSG_TYPES } from '../../hooks/useConversation'
+import { getAvatarColor, getInitials } from '../common/UserAvatar'
 import GoalCompletionCard from './GoalCompletionCard'
 
 const STAGE_LABELS = {
@@ -20,22 +21,67 @@ function formatTime(isoString) {
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function UserMessage({ msg, onPromoteToDirective }) {
+function UserMessage({ msg, currentUserId, onPromoteToDirective }) {
+  const senderId = msg.userId
+  const isCurrentUser = !senderId || senderId === currentUserId
+  const isAI = senderId === 'ai' || msg.displayName === 'AI'
+
+  if (isAI) {
+    return (
+      <div className="conv-msg conv-msg-ai">
+        <div className="conv-msg-sender">
+          <span className="conv-msg-sender-avatar conv-ai-avatar">AI</span>
+          <span className="conv-msg-sender-name">AI</span>
+        </div>
+        <div className="conv-msg-bubble conv-bubble-ai">
+          <p className="conv-msg-text">{msg.content}</p>
+          <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (isCurrentUser) {
+    const color = currentUserId ? getAvatarColor(currentUserId) : null
+    return (
+      <div className="conv-msg conv-msg-user">
+        <div
+          className="conv-msg-bubble conv-bubble-user"
+          style={color ? { backgroundColor: color } : undefined}
+        >
+          <p className="conv-msg-text">{msg.content}</p>
+          <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
+        </div>
+        {onPromoteToDirective && (
+          <button
+            className="conv-promote-btn"
+            onClick={() => onPromoteToDirective(msg)}
+            title="Submit as directive"
+          >
+            <Target size={12} />
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  // Other user
+  const color = getAvatarColor(senderId)
+  const displayName = msg.displayName || senderId
+  const initials = getInitials(displayName)
+
   return (
-    <div className="conv-msg conv-msg-user">
-      <div className="conv-msg-bubble conv-bubble-user">
+    <div className="conv-msg conv-msg-other">
+      <div className="conv-msg-sender">
+        <span className="conv-msg-sender-avatar" style={{ backgroundColor: color }}>
+          {initials}
+        </span>
+        <span className="conv-msg-sender-name">{displayName}</span>
+      </div>
+      <div className="conv-msg-bubble conv-bubble-other" style={{ borderColor: color }}>
         <p className="conv-msg-text">{msg.content}</p>
         <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
       </div>
-      {onPromoteToDirective && (
-        <button
-          className="conv-promote-btn"
-          onClick={() => onPromoteToDirective(msg)}
-          title="Submit as directive"
-        >
-          <Target size={12} />
-        </button>
-      )}
     </div>
   )
 }
@@ -352,7 +398,7 @@ function ErrorMessage({ msg }) {
   )
 }
 
-function ConversationTimeline({ messages, pendingDirective, applying, onApply, onReject, onRetry, onPromoteToDirective, onDismissPromotion }) {
+function ConversationTimeline({ messages, currentUserId, pendingDirective, applying, onApply, onReject, onRetry, onPromoteToDirective, onDismissPromotion }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -366,7 +412,7 @@ function ConversationTimeline({ messages, pendingDirective, applying, onApply, o
       {messages.map((msg) => {
         switch (msg.type) {
           case MSG_TYPES.USER:
-            return <UserMessage key={msg.id} msg={msg} onPromoteToDirective={onPromoteToDirective} />
+            return <UserMessage key={msg.id} msg={msg} currentUserId={currentUserId} onPromoteToDirective={onPromoteToDirective} />
           case MSG_TYPES.SYSTEM:
             return <SystemMessage key={msg.id} msg={msg} />
           case MSG_TYPES.THINKING:

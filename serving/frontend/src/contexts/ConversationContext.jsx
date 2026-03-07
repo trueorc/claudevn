@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { useProjectContext } from './ProjectContext'
+import { useAuth } from './auth/AuthContext'
 import useConversation, { INTENT_MODES, MSG_TYPES } from '../hooks/useConversation'
 import {
   getConversation,
@@ -79,6 +80,8 @@ function getSharedWs() {
 
 export function ConversationProvider({ children }) {
   const { activeProject } = useProjectContext()
+  const { user } = useAuth()
+  const currentUserId = user?.sub || null
   const projectId = activeProject?.project_id || null
 
   const conversation = useConversation(projectId)
@@ -134,7 +137,11 @@ export function ConversationProvider({ children }) {
       // Mark as known so the outgoing-sync effect won't POST it back to the server.
       persistedIdsRef.current.add(localMsg.id)
 
-      setRemoteMessages(prev => [...prev, localMsg])
+      // Skip if we already have this exact message in remoteMessages
+      setRemoteMessages(prev => {
+        if (prev.some(m => m.id === localMsg.id)) return prev
+        return [...prev, localMsg]
+      })
     }
 
     ws.on('conversation_message', handleConversationMessage)
@@ -216,6 +223,13 @@ export function ConversationProvider({ children }) {
         type: msg.type,
         content: msg.content,
         metadata,
+      }).then(serverMsg => {
+        // Track the server-assigned message_id so the WebSocket echo
+        // (which arrives with the server ID, not our local numeric ID)
+        // is recognized as a duplicate and skipped.
+        if (serverMsg?.message_id) {
+          persistedIdsRef.current.add(serverMsg.message_id)
+        }
       }).catch(err => {
         console.warn('Failed to persist message to server:', err)
         // On failure, remove from the persisted set so it can be retried.
@@ -249,7 +263,19 @@ export function ConversationProvider({ children }) {
   const effectiveMessages = (() => {
     if (messages.length > 0) {
       const liveIds = new Set(messages.map(m => m.id))
-      const newRemote = remoteMessages.filter(m => !liveIds.has(m.id))
+      // Build a set of content fingerprints from live messages to catch
+      // our own messages echoed back via WebSocket with a different (server) ID.
+      const liveFingerprints = new Set(
+        messages.map(m => `${m.type}:${m.content}`)
+      )
+      const newRemote = remoteMessages.filter(m => {
+        if (liveIds.has(m.id)) return false
+        // Content-match dedup: only for our own echoed messages.
+        // If the remote message is from the current user and matches content
+        // already in the live list, it's our own echo from the server.
+        if (m.userId === currentUserId && liveFingerprints.has(`${m.type}:${m.content}`)) return false
+        return true
+      })
       if (newRemote.length === 0) return messages
       // Merge and sort by timestamp so remote messages appear in arrival order.
       return [...messages, ...newRemote].sort(

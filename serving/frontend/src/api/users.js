@@ -2,12 +2,7 @@
  * Users API client for registration, login, and profile management.
  */
 
-import { API_BASE } from './index.js'
-
-function authHeaders() {
-  const token = localStorage.getItem('claudevn_user_token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
+import { API_BASE, request as apiRequest } from './index.js'
 
 export async function registerUser(username, email) {
   const response = await fetch(`${API_BASE}/users/register`, {
@@ -36,27 +31,19 @@ export async function loginUser(username) {
 }
 
 export async function getUserProfile() {
-  const response = await fetch(`${API_BASE}/users/me`, {
-    headers: { ...authHeaders() }
-  })
-  if (response.status === 401) {
-    return null
+  try {
+    return await apiRequest('/users/me')
+  } catch (err) {
+    if (err.message?.includes('401') || err.message?.includes('Unauthorized')) {
+      return null
+    }
+    throw err
   }
-  if (!response.ok) {
-    throw new Error('Failed to fetch profile')
-  }
-  return response.json()
 }
 
 export async function updateUserProfile(data) {
-  const response = await fetch(`${API_BASE}/users/me`, {
+  return apiRequest('/users/me', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(data)
+    body: JSON.stringify(data),
   })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }))
-    throw new Error(error.detail || 'Update failed')
-  }
-  return response.json()
 }

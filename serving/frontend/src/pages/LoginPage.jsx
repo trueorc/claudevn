@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useCognitoAuth } from '../contexts/CognitoAuthContext'
+import { useAuth } from '../contexts/auth/AuthContext'
 import './LoginPage.css'
 
 export default function LoginPage() {
@@ -9,7 +9,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
-  const { login } = useCognitoAuth()
+  const { login, isLocal } = useAuth()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -50,16 +50,16 @@ export default function LoginPage() {
           )}
 
           <div className="login-field">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">{isLocal ? 'Username' : 'Email'}</label>
             <input
               id="email"
-              type="email"
+              type={isLocal ? 'text' : 'email'}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              placeholder={isLocal ? 'Enter username' : 'you@example.com'}
               disabled={submitting}
               autoFocus
-              autoComplete="email"
+              autoComplete={isLocal ? 'username' : 'email'}
             />
           </div>
 
@@ -84,9 +84,11 @@ export default function LoginPage() {
             {submitting ? 'Signing in...' : 'Sign in'}
           </button>
 
-          <div className="login-links">
-            <Link to="/forgot-password">Forgot password?</Link>
-          </div>
+          {!isLocal && (
+            <div className="login-links">
+              <Link to="/forgot-password">Forgot password?</Link>
+            </div>
+          )}
         </form>
       </div>
     </div>
