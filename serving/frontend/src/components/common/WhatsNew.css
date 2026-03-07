@@ -1,0 +1,90 @@
+.whats-new-content {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: var(--space-sm);
+}
+
+.whats-new-content h3.whats-new-section {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+  margin: var(--space-lg) 0 var(--space-sm) 0;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.whats-new-content h3.whats-new-section:first-child {
+  margin-top: 0;
+}
+
+.whats-new-content h4.whats-new-subsection {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: var(--space-md) 0 var(--space-xs) 0;
+}
+
+.whats-new-content ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-sm) 0;
+}
+
+.whats-new-content li {
+  position: relative;
+  padding-left: var(--space-md);
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.whats-new-content li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.whats-new-content li strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.whats-new-content p.whats-new-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: var(--space-sm) 0;
+}
+
+.whats-new-content code {
+  background: var(--bg-hover);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9em;
+}
+
+.whats-new-issue {
+  color: var(--primary);
+  font-size: var(--font-size-xs);
+  opacity: 0.7;
+}
+
+.whats-new-loading {
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.whats-new-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-md);
+}
