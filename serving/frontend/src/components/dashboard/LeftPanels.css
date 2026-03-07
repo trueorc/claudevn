@@ -389,27 +389,38 @@
   margin: 0;
 }
 
-/* Aggregate resource stats */
-.lp-resource-stats {
+/* Aggregate resource metrics */
+.lp-resource-metrics {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  margin-top: var(--space-xs);
-  padding-top: var(--space-xs);
+  flex-direction: column;
+  gap: 3px;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
   border-top: 1px solid var(--border);
 }
 
-.lp-resource-item {
-  display: inline-flex;
+.lp-resource-row {
+  display: flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-xs);
   font-size: var(--font-size-xs);
-  color: var(--text-secondary);
 }
 
 .lp-resource-icon {
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.lp-resource-label {
+  color: var(--text-muted);
+  min-width: 42px;
+}
+
+.lp-resource-value {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
 }
 
 .lp-network-marketplace {

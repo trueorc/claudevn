@@ -244,6 +244,39 @@ function ComputeDetailModal({ isOpen, onClose, instanceId, onDeregister }) {
               </div>
             )}
 
+            {instance.capabilities?.resources && (
+              <div className="detail-section">
+                <h4 className="detail-section-title">Hardware Resources</h4>
+                {instance.capabilities.resources.cpu_count != null && (
+                  <div className="detail-row">
+                    <span className="detail-label">CPU Cores</span>
+                    <span className="detail-value">{instance.capabilities.resources.cpu_count}</span>
+                  </div>
+                )}
+                {instance.capabilities.resources.memory_gb != null && (
+                  <div className="detail-row">
+                    <span className="detail-label">Memory</span>
+                    <span className="detail-value">{instance.capabilities.resources.memory_gb} GB</span>
+                  </div>
+                )}
+                {instance.capabilities.resources.storage_gb != null && (
+                  <div className="detail-row">
+                    <span className="detail-label">Storage</span>
+                    <span className="detail-value">{instance.capabilities.resources.storage_gb} GB</span>
+                  </div>
+                )}
+                {instance.capabilities.resources.gpu_count != null && instance.capabilities.resources.gpu_count > 0 && (
+                  <div className="detail-row">
+                    <span className="detail-label">GPU</span>
+                    <span className="detail-value">
+                      {instance.capabilities.resources.gpu_count}
+                      {instance.capabilities.resources.gpu_type && ` × ${instance.capabilities.resources.gpu_type}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {instance.metadata && Object.keys(instance.metadata).length > 0 && (
               <div className="detail-section">
                 <h4 className="detail-section-title">Metadata</h4>
