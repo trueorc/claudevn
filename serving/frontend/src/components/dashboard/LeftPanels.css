@@ -176,6 +176,13 @@
    Panel 2 — Execution Status
    ============================================================ */
 
+/* Profile indicator */
+.lp-profile-indicator {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 /* Ring */
 .lp-ring-wrap {
   display: flex;

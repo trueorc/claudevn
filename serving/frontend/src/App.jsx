@@ -4,6 +4,7 @@ import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
 import { ConversationProvider } from './contexts/ConversationContext'
 import { AuthProvider, useAuth as useUserAuth } from './contexts/auth/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
 import ChatRail from './components/layout/ChatRail'
@@ -53,6 +54,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
               <Route path="/network" element={<NetworkHealthPage />} />
               <Route path="/timing" element={<TimingPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
               <Route path="/settings/profile" element={<ProfilePage />} />
               <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
               <Route path="/settings/general" element={<SettingsPage />} />
@@ -157,13 +159,15 @@ function ClaudeTokenGate() {
 function App() {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <AppProvider>
-          <CognitoGate>
-            <ClaudeTokenGate />
-          </CognitoGate>
-        </AppProvider>
-      </ToastProvider>
+      <ThemeProvider>
+        <ToastProvider>
+          <AppProvider>
+            <CognitoGate>
+              <ClaudeTokenGate />
+            </CognitoGate>
+          </AppProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </AuthProvider>
   )
 }
