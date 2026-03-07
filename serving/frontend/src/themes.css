@@ -1,0 +1,174 @@
+/* =============================================================================
+   Theme Definitions
+
+   Themes override the color variables defined in :root (App.css).
+   Applied via data-theme attribute on <html>.
+   ============================================================================= */
+
+/* Smooth theme transitions */
+html[data-theme] *,
+html[data-theme] *::before,
+html[data-theme] *::after {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+
+/* Light Theme */
+html[data-theme="light"] {
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-muted: rgba(124, 58, 237, 0.1);
+
+  --bg: #f8f8fa;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f0f0f3;
+  --bg-active: #e8e8ec;
+
+  --border: #e0e0e4;
+  --border-light: #d0d0d6;
+
+  --text: #1a1a2e;
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+
+  --bg-tertiary: #f0f0f5;
+  --bg-card: var(--bg-elevated);
+  --border-color: var(--border);
+  --border-subtle: #ebebef;
+  --text-primary: var(--text);
+  --text-tertiary: #a1a1aa;
+  --text-on-primary: #fff;
+
+  --color-initiative-muted: rgba(139, 92, 246, 0.08);
+  --primary-alpha: rgba(124, 58, 237, 0.06);
+  --error-alpha: rgba(239, 68, 68, 0.08);
+  --status-online-alpha: rgba(34, 197, 94, 0.1);
+  --status-degraded-alpha: rgba(245, 158, 11, 0.1);
+  --status-offline-alpha: rgba(239, 68, 68, 0.1);
+  --status-pending-alpha: rgba(59, 130, 246, 0.1);
+}
+
+/* Retro Theme - amber/green terminal */
+html[data-theme="retro"] {
+  --primary: #f59e0b;
+  --primary-hover: #d97706;
+  --primary-muted: rgba(245, 158, 11, 0.15);
+
+  --bg: #1a1400;
+  --bg-elevated: #261e00;
+  --bg-hover: #332800;
+  --bg-active: #3d3000;
+
+  --border: #3d3000;
+  --border-light: #4a3a00;
+
+  --text: #f5d97a;
+  --text-secondary: #c4a84a;
+  --text-muted: #8a7530;
+
+  --bg-tertiary: #2a2000;
+  --bg-card: var(--bg-elevated);
+  --border-color: var(--border);
+  --border-subtle: #332800;
+  --text-primary: var(--text);
+  --text-tertiary: #6b5a20;
+  --text-on-primary: #1a1400;
+
+  --status-online: #4ade80;
+  --status-degraded: #f5d97a;
+  --status-offline: #f87171;
+  --status-pending: #f59e0b;
+
+  --color-initiative: #f59e0b;
+  --color-initiative-secondary: #d97706;
+  --color-initiative-muted: rgba(245, 158, 11, 0.1);
+  --primary-alpha: rgba(245, 158, 11, 0.06);
+  --error-alpha: rgba(248, 113, 113, 0.1);
+  --status-online-alpha: rgba(74, 222, 128, 0.12);
+  --status-degraded-alpha: rgba(245, 217, 122, 0.12);
+  --status-offline-alpha: rgba(248, 113, 113, 0.12);
+  --status-pending-alpha: rgba(245, 158, 11, 0.12);
+}
+
+/* Ocean Theme - deep blue/teal */
+html[data-theme="ocean"] {
+  --primary: #06b6d4;
+  --primary-hover: #0891b2;
+  --primary-muted: rgba(6, 182, 212, 0.15);
+
+  --bg: #0a1628;
+  --bg-elevated: #0f1f36;
+  --bg-hover: #142944;
+  --bg-active: #1a3352;
+
+  --border: #1a3352;
+  --border-light: #1f3d60;
+
+  --text: #e0f2fe;
+  --text-secondary: #7dd3fc;
+  --text-muted: #3d7a9e;
+
+  --bg-tertiary: #0d1a2e;
+  --bg-card: var(--bg-elevated);
+  --border-color: var(--border);
+  --border-subtle: #142944;
+  --text-primary: var(--text);
+  --text-tertiary: #2a5a78;
+  --text-on-primary: #0a1628;
+
+  --status-online: #34d399;
+  --status-degraded: #fbbf24;
+  --status-offline: #f87171;
+  --status-pending: #38bdf8;
+
+  --color-initiative: #06b6d4;
+  --color-initiative-secondary: #0891b2;
+  --color-initiative-muted: rgba(6, 182, 212, 0.1);
+  --primary-alpha: rgba(6, 182, 212, 0.06);
+  --error-alpha: rgba(248, 113, 113, 0.1);
+  --status-online-alpha: rgba(52, 211, 153, 0.12);
+  --status-degraded-alpha: rgba(251, 191, 36, 0.12);
+  --status-offline-alpha: rgba(248, 113, 113, 0.12);
+  --status-pending-alpha: rgba(56, 189, 248, 0.12);
+}
+
+/* Neon Theme - cyberpunk neon */
+html[data-theme="neon"] {
+  --primary: #e040fb;
+  --primary-hover: #d500f9;
+  --primary-muted: rgba(224, 64, 251, 0.15);
+
+  --bg: #0a0a14;
+  --bg-elevated: #12121e;
+  --bg-hover: #1a1a28;
+  --bg-active: #222232;
+
+  --border: #222232;
+  --border-light: #2e2e42;
+
+  --text: #f0e6ff;
+  --text-secondary: #b388ff;
+  --text-muted: #6a5a8a;
+
+  --bg-tertiary: #14141e;
+  --bg-card: var(--bg-elevated);
+  --border-color: var(--border);
+  --border-subtle: #1a1a28;
+  --text-primary: var(--text);
+  --text-tertiary: #4a3a6a;
+  --text-on-primary: #0a0a14;
+
+  --status-online: #00e676;
+  --status-degraded: #ffea00;
+  --status-offline: #ff1744;
+  --status-pending: #00b0ff;
+
+  --color-initiative: #e040fb;
+  --color-initiative-secondary: #7c4dff;
+  --color-initiative-muted: rgba(224, 64, 251, 0.1);
+  --primary-alpha: rgba(224, 64, 251, 0.06);
+  --error-alpha: rgba(255, 23, 68, 0.1);
+  --status-online-alpha: rgba(0, 230, 118, 0.12);
+  --status-degraded-alpha: rgba(255, 234, 0, 0.12);
+  --status-offline-alpha: rgba(255, 23, 68, 0.12);
+  --status-pending-alpha: rgba(0, 176, 255, 0.12);
+}
