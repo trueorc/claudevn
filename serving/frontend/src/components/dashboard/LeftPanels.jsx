@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { Activity, Cpu, Database, FlaskConical, Hammer, HardDrive, MemoryStick, Plus, Server, Shield, TrendingUp } from 'lucide-react'
+import NotificationDot from '../common/NotificationDot'
 import './LeftPanels.css'
 
 // ---------------------------------------------------------------------------
@@ -95,7 +96,7 @@ const PRESET_ICON_MAP = {
   invest: TrendingUp,
 }
 
-function ExecutionPanel({ planData }) {
+function ExecutionPanel({ planData, showNotification, onAcknowledge }) {
   const navigate = useNavigate()
 
   const active = planData?.in_progress_count ?? planData?.active_count ?? 0
@@ -116,10 +117,11 @@ function ExecutionPanel({ planData }) {
   const extraCount = runningItems.length - displayedItems.length
 
   return (
-    <button className="lp-panel lp-panel--clickable lp-panel--grow" onClick={() => navigate('/plan')}>
+    <button className="lp-panel lp-panel--clickable lp-panel--grow" onClick={() => { onAcknowledge?.('execution'); navigate('/plan') }}>
       <div className="lp-panel-header">
         <Activity size={12} className="lp-panel-icon" />
         <span className="lp-panel-title">Execution</span>
+        {showNotification && <NotificationDot color="blue" title="Execution profile changed or blocked items" />}
         {ProfileIcon && (
           <span
             className="lp-profile-indicator"
@@ -186,7 +188,7 @@ function ExecutionPanel({ planData }) {
 // ---------------------------------------------------------------------------
 // Panel 3: Network Health
 // ---------------------------------------------------------------------------
-function NetworkPanel({ health, overallStatus, healthLoading }) {
+function NetworkPanel({ health, overallStatus, healthLoading, showNotification, onAcknowledge }) {
   const navigate = useNavigate()
 
   const computeByStatus = health?.compute_registry?.by_status ?? {}
@@ -222,10 +224,11 @@ function NetworkPanel({ health, overallStatus, healthLoading }) {
   }
 
   return (
-    <button className="lp-panel lp-panel--clickable" onClick={() => navigate('/network')}>
+    <button className="lp-panel lp-panel--clickable" onClick={() => { onAcknowledge?.('network'); navigate('/network') }}>
       <div className="lp-panel-header">
         <Cpu size={12} className="lp-panel-icon" />
         <span className="lp-panel-title">Network</span>
+        {showNotification && <NotificationDot color="red" title="Compute nodes unhealthy or offline" />}
         {!healthLoading && (
           <span className={`lp-health-dot lp-health-dot--${overallStatus ?? 'unknown'}`} />
         )}
@@ -305,6 +308,8 @@ function LeftPanels({
   health,
   overallStatus,
   healthLoading,
+  notifications,
+  onAcknowledge,
 }) {
   return (
     <div className="lp-column">
@@ -314,11 +319,13 @@ function LeftPanels({
         onSelectProject={onSelectProject}
         onNewProject={onNewProject}
       />
-      <ExecutionPanel planData={planData} />
+      <ExecutionPanel planData={planData} showNotification={notifications?.execution} onAcknowledge={onAcknowledge} />
       <NetworkPanel
         health={health}
         overallStatus={overallStatus}
         healthLoading={healthLoading}
+        showNotification={notifications?.network}
+        onAcknowledge={onAcknowledge}
       />
     </div>
   )

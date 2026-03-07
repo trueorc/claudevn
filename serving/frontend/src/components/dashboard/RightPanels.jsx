@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Package, Clock, Users } from 'lucide-react'
 import UserAvatar from '../common/UserAvatar'
+import NotificationDot from '../common/NotificationDot'
 import './RightPanels.css'
 
 function formatDuration(ms) {
@@ -179,7 +180,7 @@ const STATUS_SORT_ORDER = {
   done: 8,
 }
 
-function BacklogPanel({ stats, issues }) {
+function BacklogPanel({ stats, issues, showNotification, onAcknowledge }) {
   const navigate = useNavigate()
 
   const ready = (stats?.by_status?.ready || 0) + (stats?.by_status?.pending || 0)
@@ -211,12 +212,13 @@ function BacklogPanel({ stats, issues }) {
   return (
     <button
       className="rp-panel rp-panel-clickable rp-panel--grow"
-      onClick={() => navigate('/backlog')}
+      onClick={() => { onAcknowledge?.('backlog'); navigate('/backlog') }}
       aria-label="Navigate to backlog"
     >
       <div className="rp-panel-header">
         <Package size={14} className="rp-panel-icon" />
         <h3 className="rp-panel-title">BACKLOG</h3>
+        {showNotification && <NotificationDot color="amber" title="Blocked issues increased" />}
         {total > 0 && <span className="rp-panel-count">{total}</span>}
       </div>
 
@@ -271,7 +273,7 @@ function BacklogPanel({ stats, issues }) {
   )
 }
 
-function TimingPanel({ aggregates, totalWorkItems }) {
+function TimingPanel({ aggregates, totalWorkItems, showNotification, onAcknowledge }) {
   const navigate = useNavigate()
 
   const wallTimeAggregate = aggregates?.find((a) => a.phase === 'total_wall_time')
@@ -292,12 +294,13 @@ function TimingPanel({ aggregates, totalWorkItems }) {
   return (
     <button
       className="rp-panel rp-panel-clickable"
-      onClick={() => navigate('/timing')}
+      onClick={() => { onAcknowledge?.('timing'); navigate('/timing') }}
       aria-label="Navigate to timing"
     >
       <div className="rp-panel-header">
         <Clock size={14} className="rp-panel-icon" />
         <h3 className="rp-panel-title">TIMING</h3>
+        {showNotification && <NotificationDot color="amber" title="Timing exceeds threshold" />}
       </div>
 
       {hasData ? (
@@ -411,11 +414,11 @@ function TeamPanel({ presenceUsers }) {
   )
 }
 
-function RightPanels({ stats, issues, aggregates, totalWorkItems, presenceUsers }) {
+function RightPanels({ stats, issues, aggregates, totalWorkItems, presenceUsers, notifications, onAcknowledge }) {
   return (
     <div className="rp-column">
-      <BacklogPanel stats={stats} issues={issues} />
-      <TimingPanel aggregates={aggregates} totalWorkItems={totalWorkItems} />
+      <BacklogPanel stats={stats} issues={issues} showNotification={notifications?.backlog} onAcknowledge={onAcknowledge} />
+      <TimingPanel aggregates={aggregates} totalWorkItems={totalWorkItems} showNotification={notifications?.timing} onAcknowledge={onAcknowledge} />
       <TeamPanel presenceUsers={presenceUsers} />
     </div>
   )
