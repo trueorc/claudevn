@@ -160,6 +160,7 @@ credentials/
 *.secret
 *_secret.*
 api_keys.*
+users.local
 
 # Large files and datasets
 *.csv

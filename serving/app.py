@@ -62,6 +62,7 @@ from api import notifications
 from api import unified_directives
 from api import feedback
 from api import auth
+from api import users
 from api import cognito_users
 from api import network_capacity
 from api import provisioner
@@ -396,6 +397,30 @@ async def lifespan(app: FastAPI):
     presence_service = PresenceService(redis_client=redis_client)
     set_presence_service(presence_service)
     logger.info("Presence service initialized")
+
+    # =========================================================================
+    # User Service + Local Auth Provider
+    # Manages user profiles in Redis. In local auth mode, also initializes
+    # the file-based credential provider and auto-provisions profiles.
+    # =========================================================================
+    try:
+        from services.user_service import UserService, set_user_service
+        user_service = UserService(redis_client=redis_client)
+        await user_service.initialize()
+        set_user_service(user_service)
+
+        config = get_config()
+        if config.cognito.auth_mode == "local":
+            from services.local_auth_provider import LocalAuthProvider, set_local_auth_provider
+            local_provider = LocalAuthProvider(config.cognito.local_users_file)
+            set_local_auth_provider(local_provider)
+            provisioned = await user_service.auto_provision_from_file(
+                local_provider.list_usernames()
+            )
+            if provisioned > 0:
+                logger.info(f"Auto-provisioned {provisioned} user(s) from {config.cognito.local_users_file}")
+    except Exception as e:
+        logger.warning(f"User service initialization failed: {e}")
 
     # =========================================================================
     # OPTIONAL: Rate Limiter
@@ -1199,6 +1224,7 @@ app.include_router(profile_presets.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
+app.include_router(users.router, prefix=api_prefix)
 app.include_router(cognito_users.router, prefix=api_prefix)
 app.include_router(network_capacity.router, prefix=api_prefix)
 app.include_router(provisioner.router, prefix=api_prefix)
