@@ -1,12 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getTimingDashboard } from '../api/timing'
+import useObservability from './useObservability'
 
 function useTiming(projectId, options = {}) {
-  const { pollInterval = 10000, limit = 20 } = options
+  const { pollInterval = 10000, limit = 20, useWebSocket = true } = options
 
   const [dashboard, setDashboard] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const lastEventRef = useRef(null)
+
+  // WebSocket connection for real-time updates
+  const { connected, latestEvent } = useObservability({ autoConnect: useWebSocket })
 
   const load = useCallback(async () => {
     if (!projectId) {
@@ -29,14 +34,33 @@ function useTiming(projectId, options = {}) {
     load()
   }, [load])
 
+  // Initial fetch
   useEffect(() => {
     load()
+  }, [load])
 
-    if (pollInterval > 0 && projectId) {
+  // Handle WebSocket events for real-time updates
+  useEffect(() => {
+    if (latestEvent && latestEvent !== lastEventRef.current) {
+      lastEventRef.current = latestEvent
+      const eventType = latestEvent.type
+
+      if (eventType === 'work_status_change' ||
+          eventType === 'activity_state_change' ||
+          eventType === 'compute_registered' ||
+          eventType === 'compute_deregistered') {
+        refresh()
+      }
+    }
+  }, [latestEvent, refresh])
+
+  // Fallback polling when WebSocket is disconnected
+  useEffect(() => {
+    if ((!useWebSocket || !connected) && pollInterval > 0) {
       const interval = setInterval(load, pollInterval)
       return () => clearInterval(interval)
     }
-  }, [load, pollInterval, projectId])
+  }, [load, pollInterval, connected, useWebSocket])
 
   return {
     dashboard,

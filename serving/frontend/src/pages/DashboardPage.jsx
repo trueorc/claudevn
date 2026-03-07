@@ -101,6 +101,9 @@ function ActiveProjectDashboard() {
 
   return (
     <div className="dashboard-workspace">
+      {/* Summary cards strip */}
+      <SummaryCards />
+
       <div className="dashboard-conversation">
         {/* Empty state with prompts */}
         {messages.length === 0 && (
@@ -148,9 +151,6 @@ function ActiveProjectDashboard() {
           onSuggestedTextConsumed={handleSuggestedTextConsumed}
         />
       </div>
-
-      {/* Summary cards panel */}
-      <SummaryCards />
     </div>
   )
 }

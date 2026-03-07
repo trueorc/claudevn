@@ -31,8 +31,9 @@
 
 .summary-card-body {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
-  gap: var(--space-sm);
+  gap: var(--space-sm) var(--space-md);
 }
 
 .summary-card-stat {
@@ -150,4 +151,87 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Progress bar */
+.summary-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: var(--space-xs);
+}
+
+.summary-progress-fill {
+  height: 100%;
+  background: var(--status-online);
+  border-radius: 2px;
+  transition: width var(--transition-normal);
+}
+
+/* Focus text */
+.summary-card-focus {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: var(--space-xs);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Preset badge */
+.summary-preset-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+}
+
+.summary-preset-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* Priority pills */
+.summary-priority-row {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.summary-priority-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.summary-priority-p0 {
+  color: var(--status-offline);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.summary-priority-p1 {
+  color: var(--status-degraded);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+/* Status text */
+.summary-status-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: var(--space-xs);
+}
+
+.summary-stat-failed {
+  color: var(--status-offline);
 }
