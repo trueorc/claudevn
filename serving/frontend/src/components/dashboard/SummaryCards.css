@@ -86,6 +86,31 @@
   color: var(--primary);
 }
 
+/* Health status dot */
+.summary-card-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.summary-health-healthy {
+  background: var(--status-online);
+}
+
+.summary-health-degraded {
+  background: var(--status-degraded);
+}
+
+.summary-health-unhealthy,
+.summary-health-offline {
+  background: var(--status-offline);
+}
+
+.summary-health-unknown {
+  background: var(--text-muted);
+}
+
 /* Non-interactive card variant (e.g. TeamCard) */
 .summary-card-static {
   cursor: default;

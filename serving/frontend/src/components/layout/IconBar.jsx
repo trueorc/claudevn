@@ -11,14 +11,14 @@ import { useProjectContext } from '../../contexts/ProjectContext'
 import './IconBar.css'
 
 const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/directives', icon: Target, label: 'Directives' },
-  { to: '/plan', icon: Play, label: 'Plan' },
-  { to: '/backlog', icon: ListTodo, label: 'Backlog' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Control Center' },
+  { to: '/directives', icon: Target, label: 'Directives', projectRequired: true },
+  { to: '/plan', icon: Play, label: 'Plan', projectRequired: true },
+  { to: '/backlog', icon: ListTodo, label: 'Backlog', projectRequired: true },
   { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
   { to: '/network', icon: Radio, label: 'Network' },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
-  { to: '/timing', icon: Timer, label: 'Timing' },
+  { to: '/timing', icon: Timer, label: 'Timing', projectRequired: true },
 ]
 
 function CompactProjectSelector() {
@@ -151,18 +151,33 @@ function IconBar() {
         <div className="iconbar-divider" />
 
         <div className="iconbar-nav">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `iconbar-item ${isActive ? 'active' : ''}`
-              }
-            >
-              <Icon size={20} strokeWidth={1.5} />
-              <span className="iconbar-tooltip">{label}</span>
-            </NavLink>
-          ))}
+          {navItems.map(({ to, icon: Icon, label, projectRequired }) => {
+            const isDisabled = projectRequired && !activeProject
+            if (isDisabled) {
+              return (
+                <span
+                  key={to}
+                  className="iconbar-item iconbar-item-disabled"
+                  title={`${label} — select a project first`}
+                >
+                  <Icon size={20} strokeWidth={1.5} />
+                  <span className="iconbar-tooltip">{label} — select a project first</span>
+                </span>
+              )
+            }
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  `iconbar-item ${isActive ? 'active' : ''}`
+                }
+              >
+                <Icon size={20} strokeWidth={1.5} />
+                <span className="iconbar-tooltip">{label}</span>
+              </NavLink>
+            )
+          })}
         </div>
       </div>
 

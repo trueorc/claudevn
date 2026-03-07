@@ -3,6 +3,7 @@ import { Activity, Package, Cpu, Clock, Users } from 'lucide-react'
 import useIssues from '../../hooks/useIssues'
 import usePlanSummary from '../../hooks/usePlanSummary'
 import usePresence from '../../hooks/usePresence'
+import useSystemHealth from '../../hooks/useSystemHealth'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import UserAvatar from '../common/UserAvatar'
 import './SummaryCards.css'
@@ -131,26 +132,79 @@ function TeamCard({ users }) {
 
 function NetworkCard() {
   const navigate = useNavigate()
+  const { health, overallStatus, loading } = useSystemHealth({ pollInterval: 30000 })
+
+  const byStatus = health?.compute_registry?.by_status || {}
+  const totalCount = health?.compute_registry?.total_instances || 0
+  const onlineCount = byStatus.online || 0
+
   return (
     <button className="summary-card" onClick={() => navigate('/network')}>
       <div className="summary-card-header">
         <Cpu size={14} className="summary-card-icon" />
         <h3 className="summary-card-title">Network</h3>
+        {!loading && (
+          <span className={`summary-card-health-dot summary-health-${overallStatus || 'unknown'}`} />
+        )}
       </div>
-      <p className="summary-card-link">View health &rarr;</p>
+      {totalCount > 0 ? (
+        <div className="summary-card-body">
+          <div className="summary-card-stat">
+            <span className="summary-stat-value summary-stat-done">{onlineCount}</span>
+            <span className="summary-stat-label">online</span>
+          </div>
+          <div className="summary-card-stat">
+            <span className="summary-stat-value">{totalCount}</span>
+            <span className="summary-stat-label">total</span>
+          </div>
+        </div>
+      ) : (
+        <p className="summary-card-empty">{loading ? 'Loading...' : 'No compute nodes'}</p>
+      )}
     </button>
   )
 }
 
 function TimingCard() {
   const navigate = useNavigate()
+  const { health } = useSystemHealth({ pollInterval: 30000 })
+
+  const uptime = health?.uptime
+  const activeSessions = health?.active_sessions || 0
+
+  const formatUptime = (seconds) => {
+    if (!seconds) return null
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+    return `${Math.floor(seconds / 86400)}d`
+  }
+
+  const uptimeFormatted = formatUptime(uptime)
+
   return (
     <button className="summary-card" onClick={() => navigate('/timing')}>
       <div className="summary-card-header">
         <Clock size={14} className="summary-card-icon" />
         <h3 className="summary-card-title">Timing</h3>
       </div>
-      <p className="summary-card-link">View metrics &rarr;</p>
+      {(uptimeFormatted || activeSessions > 0) ? (
+        <div className="summary-card-body">
+          {uptimeFormatted && (
+            <div className="summary-card-stat">
+              <span className="summary-stat-value">{uptimeFormatted}</span>
+              <span className="summary-stat-label">uptime</span>
+            </div>
+          )}
+          {activeSessions > 0 && (
+            <div className="summary-card-stat">
+              <span className="summary-stat-value">{activeSessions}</span>
+              <span className="summary-stat-label">sessions</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="summary-card-empty">No timing data</p>
+      )}
     </button>
   )
 }
@@ -167,6 +221,15 @@ function SummaryCards() {
     pollInterval: 15000,
   })
   const { users } = usePresence(projectId)
+
+  if (!activeProject) {
+    return (
+      <div className="dashboard-summary-panel">
+        <TeamCard users={users} />
+        <NetworkCard />
+      </div>
+    )
+  }
 
   return (
     <div className="dashboard-summary-panel">

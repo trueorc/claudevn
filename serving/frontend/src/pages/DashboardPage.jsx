@@ -1,13 +1,11 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import usePresence from '../hooks/usePresence'
-import { createProject } from '../api/projects'
-import { createGoal } from '../api/workmap'
-import { Plus, ArrowRight, Target, Play, CheckCircle, X } from 'lucide-react'
+import { Plus, ArrowRight } from 'lucide-react'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
 import SummaryCards from '../components/dashboard/SummaryCards'
@@ -15,227 +13,7 @@ import PresenceBar from '../components/dashboard/PresenceBar'
 import '../components/directives/Conversation.css'
 import './DashboardPage.css'
 
-const GUIDED_STEPS = [
-  { number: 1, label: 'Create project' },
-  { number: 2, label: 'First directive' },
-  { number: 3, label: 'Done' },
-]
-
-function StepIndicator({ currentStep }) {
-  return (
-    <div className="guided-steps">
-      {GUIDED_STEPS.map((step, idx) => {
-        const done = currentStep > step.number
-        const active = currentStep === step.number
-        return (
-          <div key={step.number} className="guided-step-item">
-            <div className={`guided-step-dot ${active ? 'active' : ''} ${done ? 'done' : ''}`}>
-              {done ? <CheckCircle size={12} /> : <span>{step.number}</span>}
-            </div>
-            <span className={`guided-step-label ${active ? 'active' : ''}`}>{step.label}</span>
-            {idx < GUIDED_STEPS.length - 1 && <div className="guided-step-connector" />}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function GuidedSetup({ onExit }) {
-  const [step, setStep] = useState(1)
-  const [projectName, setProjectName] = useState('')
-  const [projectDescription, setProjectDescription] = useState('')
-  const [directive, setDirective] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
-  const [createdProject, setCreatedProject] = useState(null)
-  const { setActiveProject, refreshProjects } = useProjectContext()
-  const navigate = useNavigate()
-
-  const handleCreateProject = useCallback(async (e) => {
-    e.preventDefault()
-    if (!projectName.trim()) {
-      setError('Project name is required')
-      return
-    }
-    setSaving(true)
-    setError(null)
-    try {
-      const project = await createProject({
-        name: projectName.trim(),
-        description: projectDescription.trim() || '',
-        repos: [],
-      })
-      setCreatedProject(project)
-      setActiveProject(project)
-      await refreshProjects()
-      setStep(2)
-    } catch (err) {
-      setError(err.message || 'Failed to create project')
-    } finally {
-      setSaving(false)
-    }
-  }, [projectName, projectDescription, setActiveProject, refreshProjects])
-
-  const handleSubmitDirective = useCallback(async (e) => {
-    e.preventDefault()
-    if (!directive.trim()) {
-      setError('Please describe what you want to build')
-      return
-    }
-    setSaving(true)
-    setError(null)
-    try {
-      await createGoal({
-        title: directive.trim().slice(0, 500),
-        description: directive.trim(),
-        priority: 'P2',
-        project_id: createdProject.project_id,
-      })
-      setStep(3)
-    } catch (err) {
-      setError(err.message || 'Failed to submit directive')
-    } finally {
-      setSaving(false)
-    }
-  }, [directive, createdProject])
-
-  const handleSkipDirective = useCallback(() => {
-    setStep(3)
-  }, [])
-
-  const handleFinish = useCallback(() => {
-    navigate('/dashboard')
-  }, [navigate])
-
-  return (
-    <div className="guided-setup">
-      <div className="guided-setup-header">
-        <StepIndicator currentStep={step} />
-        <button className="guided-exit-btn" onClick={onExit} title="Exit setup">
-          <X size={16} />
-        </button>
-      </div>
-
-      <div className="guided-setup-body">
-        {step === 1 && (
-          <form className="guided-step-form" onSubmit={handleCreateProject}>
-            <div className="guided-step-intro">
-              <h2 className="guided-step-title">Name your project</h2>
-              <p className="guided-step-desc">A project groups your goals, backlog, and execution plan together.</p>
-            </div>
-            <div className="guided-field">
-              <label className="guided-label" htmlFor="guided-project-name">Project name</label>
-              <input
-                id="guided-project-name"
-                type="text"
-                className="guided-input"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                placeholder="e.g. My API, Mobile App, Internal Tools"
-                autoFocus
-                autoComplete="off"
-              />
-            </div>
-            <div className="guided-field">
-              <label className="guided-label" htmlFor="guided-project-desc">
-                Description <span className="guided-label-optional">(optional)</span>
-              </label>
-              <textarea
-                id="guided-project-desc"
-                className="guided-textarea"
-                value={projectDescription}
-                onChange={(e) => setProjectDescription(e.target.value)}
-                placeholder="What is this project about?"
-                rows={3}
-              />
-            </div>
-            {error && <div className="guided-error">{error}</div>}
-            <div className="guided-actions">
-              <button type="button" className="guided-btn-secondary" onClick={onExit}>
-                Cancel
-              </button>
-              <button type="submit" className="guided-btn-primary" disabled={saving}>
-                {saving ? 'Creating...' : 'Create project'}
-                {!saving && <ArrowRight size={14} />}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {step === 2 && (
-          <form className="guided-step-form" onSubmit={handleSubmitDirective}>
-            <div className="guided-step-intro">
-              <h2 className="guided-step-title">What do you want to build?</h2>
-              <p className="guided-step-desc">
-                Describe your first goal in plain language. The system will decompose it into backlog items automatically.
-              </p>
-            </div>
-            <div className="guided-field">
-              <label className="guided-label" htmlFor="guided-directive">Your directive</label>
-              <textarea
-                id="guided-directive"
-                className="guided-textarea guided-textarea-lg"
-                value={directive}
-                onChange={(e) => setDirective(e.target.value)}
-                placeholder={'e.g. "Build a user authentication system with email and OAuth support"'}
-                rows={5}
-                autoFocus
-              />
-            </div>
-            {error && <div className="guided-error">{error}</div>}
-            <div className="guided-actions">
-              <button type="button" className="guided-btn-secondary" onClick={handleSkipDirective}>
-                Skip for now
-              </button>
-              <button type="submit" className="guided-btn-primary" disabled={saving || !directive.trim()}>
-                {saving ? 'Submitting...' : 'Submit directive'}
-                {!saving && <ArrowRight size={14} />}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {step === 3 && (
-          <div className="guided-step-form">
-            <div className="guided-complete-icon">
-              <CheckCircle size={40} strokeWidth={1.5} />
-            </div>
-            <div className="guided-step-intro">
-              <h2 className="guided-step-title">
-                {createdProject?.name} is ready
-              </h2>
-              <p className="guided-step-desc">
-                {directive.trim()
-                  ? 'Your directive has been submitted. The system will analyze and decompose it into backlog items shortly.'
-                  : 'Your project is set up. Head to the directives page to describe what you want to build.'}
-              </p>
-            </div>
-            <div className="guided-complete-links">
-              <button className="guided-complete-link" onClick={() => navigate('/directives')}>
-                <Target size={14} />
-                <span>Go to Directives</span>
-                <ArrowRight size={12} />
-              </button>
-              <button className="guided-complete-link" onClick={() => navigate('/backlog')}>
-                <Play size={14} />
-                <span>View Backlog</span>
-                <ArrowRight size={12} />
-              </button>
-            </div>
-            <div className="guided-actions guided-actions-center">
-              <button type="button" className="guided-btn-primary" onClick={handleFinish}>
-                Go to Dashboard
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function NoProjectDashboard({ onNewProject }) {
+function NoProjectDashboard() {
   const { projects, setActiveProject } = useProjectContext()
   const navigate = useNavigate()
 
@@ -256,7 +34,7 @@ function NoProjectDashboard({ onNewProject }) {
         </div>
 
         <div className="dashboard-onboarding-actions">
-          <button className="dashboard-onboarding-btn dashboard-onboarding-btn-primary" onClick={onNewProject}>
+          <button className="dashboard-onboarding-btn dashboard-onboarding-btn-primary" onClick={() => navigate('/projects?create=true')}>
             <Plus size={16} />
             Create a new project
           </button>
@@ -379,36 +157,12 @@ function ActiveProjectDashboard() {
 
 function DashboardPage() {
   const { activeProject } = useProjectContext()
-  const [showGuidedSetup, setShowGuidedSetup] = useState(false)
-  const hasOnboarded = localStorage.getItem('claudevn_onboarded') === 'true'
 
-  useEffect(() => {
-    if (activeProject) {
-      localStorage.setItem('claudevn_onboarded', 'true')
-    }
-  }, [activeProject])
-
-  const handleNewProject = useCallback(() => {
-    setShowGuidedSetup(true)
-  }, [])
-
-  const handleExitSetup = useCallback(() => {
-    setShowGuidedSetup(false)
-  }, [])
-
-  if (activeProject && !showGuidedSetup) {
+  if (activeProject) {
     return <ActiveProjectDashboard />
   }
 
-  if (showGuidedSetup) {
-    return (
-      <div className="dashboard-page">
-        <GuidedSetup onExit={handleExitSetup} />
-      </div>
-    )
-  }
-
-  return <NoProjectDashboard onNewProject={handleNewProject} />
+  return <NoProjectDashboard />
 }
 
 export default DashboardPage

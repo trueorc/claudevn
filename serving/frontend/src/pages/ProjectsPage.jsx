@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, ArrowLeft, Pencil } from 'lucide-react'
 import ProjectList from '../components/projects/ProjectList'
 import RepoList from '../components/projects/RepoList'
@@ -46,8 +47,21 @@ function ProjectsPage() {
   const [removingRepo, setRemovingRepo] = useState(null)
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [cameFromNoProject, setCameFromNoProject] = useState(false)
   const { filters, setFilters } = useProjectFilters()
-  const { refreshProjects } = useProjectContext()
+  const { refreshProjects, activeProject, setActiveProject, projects } = useProjectContext()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (searchParams.get('create') === 'true') {
+      setShowCreateModal(true)
+      setCameFromNoProject(!activeProject)
+      const next = new URLSearchParams(searchParams)
+      next.delete('create')
+      setSearchParams(next, { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = () => {
     setRefreshKey((k) => k + 1)
@@ -235,8 +249,23 @@ function ProjectsPage() {
 
       <ProjectFormModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={handleRefresh}
+        onClose={() => {
+          setShowCreateModal(false)
+          setCameFromNoProject(false)
+        }}
+        onSuccess={async () => {
+          const prevIds = new Set(projects.map((p) => p.project_id))
+          const updated = await refreshProjects()
+          setRefreshKey((k) => k + 1)
+          if (cameFromNoProject) {
+            // Find the newly created project (not in previous list) and auto-select it
+            const newProject = (updated || []).find((p) => !prevIds.has(p.project_id))
+            if (newProject) {
+              setActiveProject(newProject)
+            }
+            navigate('/dashboard')
+          }
+        }}
       />
 
       <ProjectFormModal

@@ -86,6 +86,12 @@
   background: var(--primary-muted);
 }
 
+.iconbar-item-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Active indicator bar */
 .iconbar-item.active::before {
   content: '';

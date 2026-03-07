@@ -9,6 +9,16 @@
   background: var(--bg-elevated);
   border-right: 1px solid var(--border);
   overflow: hidden;
+  transition: width var(--transition-normal), min-width var(--transition-normal), opacity var(--transition-normal);
+}
+
+/* Hidden state: dashboard route — collapses to zero width */
+.chat-rail-hidden {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  border-right: none;
+  padding: 0;
 }
 
 .chat-rail-collapsed {

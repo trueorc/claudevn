@@ -64,14 +64,17 @@ function ChatRail() {
     }
   }
 
-  // Don't render on dashboard route (all hooks must be called before this return)
-  if (isDashboard) {
-    return null
-  }
+  // Build class list based on state — always render so CSS transitions can fire
+  const railClasses = [
+    'chat-rail',
+    isDashboard ? 'chat-rail-hidden' : '',
+    !isDashboard && collapsed ? 'chat-rail-collapsed' : '',
+  ].filter(Boolean).join(' ')
 
-  if (collapsed) {
-    return (
-      <div className="chat-rail chat-rail-collapsed">
+  return (
+    <div className={railClasses}>
+      {/* Collapsed icon button — visible only when collapsed and not on dashboard */}
+      {!isDashboard && collapsed && (
         <button
           className="chat-rail-expand-btn"
           onClick={() => setCollapsed(false)}
@@ -82,107 +85,108 @@ function ChatRail() {
             <span className="chat-rail-unread">{unreadCount > 9 ? '9+' : unreadCount}</span>
           )}
         </button>
-      </div>
-    )
-  }
+      )}
 
-  return (
-    <div className="chat-rail">
-      <div className="chat-rail-header">
-        <button
-          className="chat-rail-full-link"
-          onClick={() => navigate('/dashboard')}
-          title="Open full conversation"
-        >
-          <ExternalLink size={12} />
-          <span>Full view</span>
-        </button>
-        <button
-          className="chat-rail-collapse-btn"
-          onClick={() => setCollapsed(true)}
-          title="Collapse chat"
-        >
-          <ChevronLeft size={14} />
-        </button>
-      </div>
-
-      <div className="chat-rail-messages">
-        {messages.length === 0 && (
-          <div className="chat-rail-empty">
-            {activeProject ? (
-              <>
-                <p className="chat-rail-empty-text">
-                  Describe what you want to build
-                </p>
-                {prompts.length > 0 && (
-                  <div className="chat-rail-prompts">
-                    {prompts.map((prompt) => (
-                      <button
-                        key={prompt.text}
-                        className="chat-rail-prompt"
-                        onClick={() => setMessage(prompt.text)}
-                      >
-                        {prompt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="chat-rail-empty-text">Select a project</p>
-            )}
+      {/* Full rail content — visible only when expanded and not on dashboard */}
+      {!isDashboard && !collapsed && (
+        <>
+          <div className="chat-rail-header">
+            <button
+              className="chat-rail-full-link"
+              onClick={() => navigate('/dashboard')}
+              title="Open Control Center"
+            >
+              <ExternalLink size={12} />
+              <span>Full view</span>
+            </button>
+            <button
+              className="chat-rail-collapse-btn"
+              onClick={() => setCollapsed(true)}
+              title="Collapse chat"
+            >
+              <ChevronLeft size={14} />
+            </button>
           </div>
-        )}
 
-        {recentMessages.map((msg) => {
-          const isUser = msg.type === 'user' || msg.role === 'user'
-          const isError = msg.type === 'error'
-          const isThinking = msg.type === 'thinking'
-          const roleClass = isUser ? 'user' : isError ? 'error' : 'system'
-          const timestamp = msg.timestamp
-            ? (typeof msg.timestamp === 'string'
-                ? new Date(msg.timestamp)
-                : msg.timestamp instanceof Date
-                  ? msg.timestamp
-                  : new Date())
-            : new Date()
+          <div className="chat-rail-messages">
+            {messages.length === 0 && (
+              <div className="chat-rail-empty">
+                {activeProject ? (
+                  <>
+                    <p className="chat-rail-empty-text">
+                      Describe what you want to build
+                    </p>
+                    {prompts.length > 0 && (
+                      <div className="chat-rail-prompts">
+                        {prompts.map((prompt) => (
+                          <button
+                            key={prompt.text}
+                            className="chat-rail-prompt"
+                            onClick={() => setMessage(prompt.text)}
+                          >
+                            {prompt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="chat-rail-empty-text">Select a project</p>
+                )}
+              </div>
+            )}
 
-          if (isThinking) return null
+            {recentMessages.map((msg) => {
+              const isUser = msg.type === 'user' || msg.role === 'user'
+              const isError = msg.type === 'error'
+              const isThinking = msg.type === 'thinking'
+              const roleClass = isUser ? 'user' : isError ? 'error' : 'system'
+              const timestamp = msg.timestamp
+                ? (typeof msg.timestamp === 'string'
+                    ? new Date(msg.timestamp)
+                    : msg.timestamp instanceof Date
+                      ? msg.timestamp
+                      : new Date())
+                : new Date()
 
-          return (
-            <div key={msg.id} className={`chat-rail-message chat-rail-message-${roleClass}`}>
-              <p className="chat-rail-message-content">{msg.content}</p>
-              <span className="chat-rail-message-time">
-                {timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
+              if (isThinking) return null
+
+              return (
+                <div key={msg.id} className={`chat-rail-message chat-rail-message-${roleClass}`}>
+                  <p className="chat-rail-message-content">{msg.content}</p>
+                  <span className="chat-rail-message-time">
+                    {timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              )
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="chat-rail-input-area">
+            <div className="chat-rail-input-wrap">
+              <textarea
+                ref={inputRef}
+                className="chat-rail-input"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={activeProject ? 'Type a directive...' : 'Select a project'}
+                disabled={!activeProject || submitting}
+                rows={1}
+              />
+              <button
+                className="chat-rail-send-btn"
+                onClick={handleSend}
+                disabled={!message.trim() || submitting || !activeProject}
+                title="Send (Enter)"
+              >
+                <Send size={14} />
+              </button>
             </div>
-          )
-        })}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="chat-rail-input-area">
-        <div className="chat-rail-input-wrap">
-          <textarea
-            ref={inputRef}
-            className="chat-rail-input"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={activeProject ? 'Type a directive...' : 'Select a project'}
-            disabled={!activeProject || submitting}
-            rows={1}
-          />
-          <button
-            className="chat-rail-send-btn"
-            onClick={handleSend}
-            disabled={!message.trim() || submitting || !activeProject}
-            title="Send (Enter)"
-          >
-            <Send size={14} />
-          </button>
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
