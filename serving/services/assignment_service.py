@@ -488,7 +488,7 @@ class AssignmentService:
 
         # Validate status transition
         valid_transitions = {
-            WorkStatus.PENDING: [WorkStatus.ASSIGNED],
+            WorkStatus.PENDING: [WorkStatus.ASSIGNED, WorkStatus.COMPLETED],
             WorkStatus.ASSIGNED: [WorkStatus.IN_PROGRESS, WorkStatus.BLOCKED, WorkStatus.PENDING],
             WorkStatus.IN_PROGRESS: [WorkStatus.BLOCKED, WorkStatus.REVIEW, WorkStatus.COMPLETED, WorkStatus.FAILED],
             WorkStatus.BLOCKED: [WorkStatus.IN_PROGRESS, WorkStatus.PENDING],
