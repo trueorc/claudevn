@@ -22,6 +22,7 @@ from models.unified_directive import (
     UnifiedDirectiveListResponse,
 )
 from services.unified_directive_service import get_unified_directive_service
+from middleware.user_context import get_current_user, get_current_user_id as get_context_user_id
 
 router = APIRouter(prefix="/unified-directives", tags=["unified-directives"])
 
@@ -50,6 +51,16 @@ async def submit_directive(request: UnifiedDirectiveCreateRequest):
         text=request.text,
         parent_directive_id=request.parent_directive_id,
     )
+
+    # Populate user attribution
+    user_id = get_context_user_id()
+    if user_id:
+        directive.created_by = user_id
+        user = get_current_user()
+        if user:
+            directive.created_by_name = user.get("username") or user.get("email")
+        await service._save_directive_to_redis(directive)
+
     return directive
 
 
@@ -66,10 +77,17 @@ async def add_comment(
     """
     service = get_unified_directive_service()
     try:
+        user_id = get_context_user_id()
+        user = get_current_user() if user_id else None
+        created_by = user_id or "user"
+        created_by_name = (user.get("username") or user.get("email")) if user else None
+
         directive = await service.add_comment(
             project_id=project_id,
             directive_id=directive_id,
             content=request.content,
+            created_by=created_by,
+            created_by_name=created_by_name,
         )
         return directive
     except ValueError as e:
