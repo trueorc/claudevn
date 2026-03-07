@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
-import { useConversationContext } from '../contexts/ConversationContext'
+import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import usePresence from '../hooks/usePresence'
@@ -336,6 +336,10 @@ function ActiveProjectDashboard() {
     await submit(text, mode, options)
   }, [submit])
 
+  const handlePromoteToDirective = useCallback(async (msg) => {
+    await submit(msg.content, INTENT_MODES.AUTO)
+  }, [submit])
+
   return (
     <div className="dashboard-workspace">
       <div className="dashboard-conversation">
@@ -373,6 +377,7 @@ function ActiveProjectDashboard() {
           onApply={applyPending}
           onReject={rejectPending}
           onRetry={retryProcessing}
+          onPromoteToDirective={handlePromoteToDirective}
         />
 
         {/* Input */}
