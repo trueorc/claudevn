@@ -6,6 +6,7 @@ import {
   sendMessage as sendMessageApi,
   clearConversation as clearConversationApi,
 } from '../api/conversation'
+import ObservabilityWebSocket from '../services/observabilityWebSocket'
 
 const ConversationContext = createContext(null)
 
@@ -64,6 +65,18 @@ const PERSISTABLE_TYPES = new Set([
   MSG_TYPES.ERROR,
 ])
 
+// Module-level singleton WebSocket so all ConversationProvider instances
+// (if any) share a single connection and we don't reconnect on re-renders.
+let _sharedWs = null
+
+function getSharedWs() {
+  if (!_sharedWs) {
+    _sharedWs = new ObservabilityWebSocket()
+    _sharedWs.connect()
+  }
+  return _sharedWs
+}
+
 export function ConversationProvider({ children }) {
   const { activeProject } = useProjectContext()
   const projectId = activeProject?.project_id || null
@@ -75,11 +88,61 @@ export function ConversationProvider({ children }) {
   // Shown while useConversation's internal state is still empty (e.g. after page refresh).
   const [storedMessages, setStoredMessages] = useState([])
 
+  // Remote messages received via WebSocket from other users/tabs.
+  // Merged into the effective list when the live (useConversation) list has messages.
+  const [remoteMessages, setRemoteMessages] = useState([])
+
   // Track which project's stored messages we've loaded so we only load once per project.
   const loadedProjectRef = useRef(null)
 
   // Track message IDs that have already been persisted to the server so we don't double-post.
   const persistedIdsRef = useRef(new Set())
+
+  // Keep a stable ref to projectId so the WS callback (registered once) sees
+  // the current value without re-registering the handler on every project change.
+  const projectIdRef = useRef(projectId)
+  useEffect(() => {
+    projectIdRef.current = projectId
+  }, [projectId])
+
+  // Clear remote messages when the project changes.
+  useEffect(() => {
+    setRemoteMessages([])
+  }, [projectId])
+
+  // Register a single, stable WebSocket listener for conversation_message events.
+  // The handler reads projectIdRef and persistedIdsRef via closure so it always
+  // has current values without needing to be re-registered.
+  useEffect(() => {
+    const ws = getSharedWs()
+
+    const handleConversationMessage = (eventData) => {
+      // eventData shape: { project_id, message: ConversationMessage }
+      const incomingProjectId = eventData?.project_id
+      const serverMsg = eventData?.message
+      if (!serverMsg || !incomingProjectId) return
+
+      // Ignore messages for other projects.
+      if (projectIdRef.current !== incomingProjectId) return
+
+      const localMsg = serverMsgToLocal(serverMsg)
+
+      // Deduplicate: skip messages we already have (sent by this tab and
+      // already added to the live list via useConversation).
+      if (persistedIdsRef.current.has(localMsg.id)) return
+
+      // Mark as known so the outgoing-sync effect won't POST it back to the server.
+      persistedIdsRef.current.add(localMsg.id)
+
+      setRemoteMessages(prev => [...prev, localMsg])
+    }
+
+    ws.on('conversation_message', handleConversationMessage)
+
+    return () => {
+      ws.off('conversation_message', handleConversationMessage)
+    }
+  }, []) // Intentionally empty — handler is stable via refs
 
   // Load from sessionStorage when server is unavailable.
   const loadFromSession = useCallback((pid) => {
@@ -171,12 +234,30 @@ export function ConversationProvider({ children }) {
     }
     persistedIdsRef.current = new Set()
     setStoredMessages([])
+    setRemoteMessages([])
     clearConversation()
   }, [projectId, clearConversation])
 
-  // The effective message list: prefer live messages; fall back to stored messages
-  // if the live list is empty (e.g. right after a page refresh).
-  const effectiveMessages = messages.length > 0 ? messages : storedMessages
+  // Merge message sources into a single ordered list.
+  //
+  // Priority:
+  //   1. If there are live messages (useConversation is active), use those as
+  //      the base and append any remote messages not already in the live list.
+  //   2. If no live messages, show stored messages (server load / sessionStorage).
+  //
+  // Remote messages are deduplicated by id against the live list.
+  const effectiveMessages = (() => {
+    if (messages.length > 0) {
+      const liveIds = new Set(messages.map(m => m.id))
+      const newRemote = remoteMessages.filter(m => !liveIds.has(m.id))
+      if (newRemote.length === 0) return messages
+      // Merge and sort by timestamp so remote messages appear in arrival order.
+      return [...messages, ...newRemote].sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+      )
+    }
+    return storedMessages
+  })()
 
   const value = {
     ...conversation,

@@ -258,6 +258,52 @@ class ObservabilityEventBus:
 
         self.global_subscribers -= dead_global
     
+    async def _broadcast_raw(self, message: str):
+        """
+        Broadcast a pre-serialized JSON string to ALL connected WebSocket clients.
+
+        Used by services that need to push non-observability events (e.g.
+        conversation messages) over the same WebSocket channel.
+
+        Args:
+            message: Pre-serialized JSON string to send
+        """
+        if not self.subscribers and not self.global_subscribers:
+            return
+
+        sent_to: Set[WebSocket] = set()
+        dead_connections = []
+
+        for session_id, subscribers in self.subscribers.items():
+            for ws in subscribers:
+                if ws in sent_to:
+                    continue
+                try:
+                    await ws.send_text(message)
+                    sent_to.add(ws)
+                except Exception as e:
+                    logger.warning(f"Failed to send raw message to WebSocket: {e}")
+                    dead_connections.append((session_id, ws))
+
+        dead_global: Set[WebSocket] = set()
+        for ws in self.global_subscribers:
+            if ws in sent_to:
+                continue
+            try:
+                await ws.send_text(message)
+                sent_to.add(ws)
+            except Exception as e:
+                logger.warning(f"Failed to send raw message to global WebSocket: {e}")
+                dead_global.add(ws)
+
+        for session_id, ws in dead_connections:
+            if session_id in self.subscribers:
+                self.subscribers[session_id].discard(ws)
+                if not self.subscribers[session_id]:
+                    del self.subscribers[session_id]
+
+        self.global_subscribers -= dead_global
+
     def subscribe_global(self, websocket: WebSocket):
         """
         Subscribe WebSocket to all broadcast events (compute_registered, etc.).

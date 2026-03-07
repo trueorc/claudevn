@@ -1,5 +1,6 @@
 """Conversation persistence service using Redis."""
 
+import json
 import logging
 from typing import Optional
 
@@ -99,7 +100,25 @@ class ConversationService:
             except Exception as e:
                 logger.error(f"Failed to persist message for {project_id}: {e}")
 
+        await self._broadcast_message(msg)
+
         return msg
+
+    async def _broadcast_message(self, msg: ConversationMessage) -> None:
+        """Broadcast a conversation message to all WebSocket clients."""
+        try:
+            from services.observability_event_bus import get_event_bus
+            bus = get_event_bus()
+            if bus:
+                payload = json.dumps({
+                    'type': 'conversation_message',
+                    'project_id': msg.project_id,
+                    'message': msg.model_dump(mode='json'),
+                }, default=str)
+                # Reuse the _broadcast_to_all plumbing by sending raw text to all connections
+                await bus._broadcast_raw(payload)
+        except Exception as e:
+            logger.debug(f"Failed to broadcast conversation message: {e}")
 
     async def clear(self, project_id: str) -> None:
         """Clear all messages for a project conversation."""
