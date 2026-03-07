@@ -190,7 +190,7 @@ def _parse_resources(resources_header: Optional[str]) -> dict:
     """Parse resources from header string.
 
     Args:
-        resources_header: Comma-separated key=value pairs
+        resources_header: JSON string or comma-separated key=value pairs
 
     Returns:
         Dictionary of resource values
@@ -198,19 +198,37 @@ def _parse_resources(resources_header: Optional[str]) -> dict:
     if not resources_header:
         return {}
 
+    # Try JSON first (compute sends json.dumps)
+    try:
+        parsed = json.loads(resources_header)
+        if isinstance(parsed, dict):
+            # Normalize values like "16gb" -> extract numeric part
+            resources = {}
+            for key, value in parsed.items():
+                if isinstance(value, (int, float)):
+                    resources[key] = value
+                elif isinstance(value, str):
+                    numeric = "".join(c for c in value if c.isdigit() or c == ".")
+                    if numeric:
+                        resources[key] = float(numeric) if "." in numeric else int(numeric)
+                    else:
+                        resources[key] = value
+            return resources
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback: comma-separated key=value pairs
     resources = {}
     for pair in resources_header.split(","):
         if "=" in pair:
             key, value = pair.split("=", 1)
             key = key.strip()
             value = value.strip()
-            # Try to parse numeric values
             if value.isdigit():
                 resources[key] = int(value)
             elif value.replace(".", "").isdigit():
                 resources[key] = float(value)
             else:
-                # Handle values like "16gb" -> extract numeric part
                 numeric = "".join(c for c in value if c.isdigit() or c == ".")
                 if numeric:
                     if "." in numeric:
