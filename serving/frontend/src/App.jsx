@@ -53,9 +53,9 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
               <Route path="/network" element={<NetworkHealthPage />} />
               <Route path="/timing" element={<TimingPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/settings/profile" element={<Navigate to="/settings?tab=profile" replace />} />
-              <Route path="/settings/ssh-keys" element={<Navigate to="/settings?tab=ssh-keys" replace />} />
+              <Route path="/settings/profile" element={<ProfilePage />} />
+              <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
+              <Route path="/settings/general" element={<SettingsPage />} />
               <Route path="/settings/users" element={<UserManagementPage />} />
               {/* Redirects from old routes */}
               <Route path="/goals" element={<Navigate to="/directives" replace />} />
