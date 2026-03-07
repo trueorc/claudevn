@@ -1,9 +1,17 @@
 /* RightPanels — analytics/insights right column */
 
+/* Column wrapper — stretch panels to fill vertical space */
 .rp-column {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  height: 100%;
+}
+
+/* Backlog panel grows to fill available space */
+.rp-panel--grow {
+  flex: 1;
+  min-height: 0;
 }
 
 /* Base panel */

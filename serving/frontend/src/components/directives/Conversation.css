@@ -243,7 +243,10 @@
 }
 
 .conv-msg-user {
-  justify-content: flex-end;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .conv-msg-system {
@@ -1092,7 +1095,7 @@
   color: var(--text-muted);
   margin-top: var(--space-xs, 4px);
   transition: all var(--transition-fast, 0.15s ease);
-  align-self: flex-end;
+  align-self: flex-start;
   background: transparent;
   border: none;
   cursor: pointer;

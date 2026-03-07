@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  Radio, Sparkles, FolderGit2, ListTodo, Play, Target,
+  Radio, Sparkles, FolderGit2, ListTodo, Play,
   Settings, Timer, Bell, LayoutDashboard,
   ChevronDown, Check
 } from 'lucide-react'
@@ -12,7 +12,6 @@ import './IconBar.css'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Control Center' },
-  { to: '/directives', icon: Target, label: 'Directives', projectRequired: true },
   { to: '/plan', icon: Play, label: 'Plan', projectRequired: true },
   { to: '/backlog', icon: ListTodo, label: 'Backlog', projectRequired: true },
   { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },

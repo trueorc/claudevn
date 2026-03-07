@@ -3,12 +3,19 @@
    All classes are prefixed with `.lp-` to avoid conflicts.
    ============================================================ */
 
-/* Column wrapper */
+/* Column wrapper — stretch panels to fill vertical space */
 .lp-column {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
   min-width: 0;
+  height: 100%;
+}
+
+/* Execution panel grows to fill available space */
+.lp-panel--grow {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Shared panel base ── */

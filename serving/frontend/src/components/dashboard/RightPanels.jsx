@@ -181,7 +181,7 @@ function BacklogPanel({ stats }) {
 
   return (
     <button
-      className="rp-panel rp-panel-clickable"
+      className="rp-panel rp-panel-clickable rp-panel--grow"
       onClick={() => navigate('/backlog')}
       aria-label="Navigate to backlog"
     >

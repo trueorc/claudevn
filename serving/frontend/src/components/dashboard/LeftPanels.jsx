@@ -104,7 +104,7 @@ function ExecutionPanel({ planData }) {
   const extraCount = runningItems.length - displayedItems.length
 
   return (
-    <button className="lp-panel lp-panel--clickable" onClick={() => navigate('/plan')}>
+    <button className="lp-panel lp-panel--clickable lp-panel--grow" onClick={() => navigate('/plan')}>
       <div className="lp-panel-header">
         <Activity size={12} className="lp-panel-icon" />
         <span className="lp-panel-title">Execution</span>

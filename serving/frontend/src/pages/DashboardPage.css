@@ -320,6 +320,8 @@
   border-right: 1px solid var(--border);
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard-col-center {
@@ -336,6 +338,8 @@
   border-left: 1px solid var(--border);
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Welcome state inside conversation area */
