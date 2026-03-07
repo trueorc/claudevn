@@ -1067,10 +1067,35 @@ class ComputeRegistry:
             status_counts[instance.status.value] += 1
             auth_counts[instance.auth_status.value] += 1
 
+        # Aggregate hardware resources across all instances
+        total_cpu = 0
+        total_memory = 0.0
+        total_gpu = 0
+        gpu_types = set()
+        for instance in self._instances.values():
+            res = instance.capabilities.resources if instance.capabilities else None
+            if res:
+                if res.cpu_count:
+                    total_cpu += res.cpu_count
+                if res.memory_gb:
+                    total_memory += res.memory_gb
+                if res.gpu_count:
+                    total_gpu += res.gpu_count
+                if res.gpu_type:
+                    gpu_types.add(res.gpu_type)
+
+        total_resources = {
+            "cpu_count": total_cpu if total_cpu > 0 else None,
+            "memory_gb": total_memory if total_memory > 0 else None,
+            "gpu_count": total_gpu if total_gpu > 0 else None,
+            "gpu_type": ", ".join(sorted(gpu_types)) if gpu_types else None,
+        }
+
         return {
             "total_instances": len(self._instances),
             "by_status": dict(status_counts),
             "by_auth_status": dict(auth_counts),
+            "total_resources": total_resources,
             "total_agents": len([k for k in self._capability_index.keys() if k.startswith("agent:")]),
             "total_tools": len([k for k in self._capability_index.keys() if k.startswith("tool:")]),
             "total_labels": len([k for k in self._capability_index.keys() if k.startswith("label:")]),
