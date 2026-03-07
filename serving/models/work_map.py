@@ -213,6 +213,7 @@ class GoalComment(BaseModel):
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: str = Field(default="user", description="User identifier who created this comment")
+    created_by_name: Optional[str] = Field(default=None, description="Display name of the creator at time of creation")
 
 
 class GoalCommentCreateRequest(BaseModel):
@@ -508,6 +509,7 @@ class Goal(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: str = Field(default="user", description="Who created this goal")
+    created_by_name: Optional[str] = Field(default=None, description="Display name of the creator at time of creation")
 
     # Decomposition tracking
     decomposition_id: Optional[str] = Field(
@@ -867,6 +869,12 @@ class Issue(BaseModel):
 
     # Assignment
     assigned_compute_id: Optional[str] = Field(None, description="Compute instance ID if assigned")
+
+    # User attribution
+    created_by: Optional[str] = Field(None, description="User ID who created the issue")
+    created_by_name: Optional[str] = Field(None, description="Display name of creator")
+    modified_by: Optional[str] = Field(None, description="User ID who last modified")
+    modified_by_name: Optional[str] = Field(None, description="Display name of last modifier")
 
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

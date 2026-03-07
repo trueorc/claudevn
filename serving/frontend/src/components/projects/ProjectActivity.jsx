@@ -170,17 +170,25 @@ function ProjectActivity({ projectId }) {
             Recent Events
           </div>
           <div className="activity-events">
-            {events.map((event) => (
-              <div key={event.event_id} className="activity-event">
-                <EventIcon eventType={event.event_type} />
-                <div className="activity-event-content">
-                  <div className="activity-event-description">{event.description}</div>
-                  <div className="activity-event-time">
-                    {formatRelativeTime(event.timestamp)}
+            {events.map((event) => {
+              const actorName = event.metadata?.created_by_name || event.metadata?.user_name || null
+              return (
+                <div key={event.event_id} className="activity-event">
+                  <EventIcon eventType={event.event_type} />
+                  <div className="activity-event-content">
+                    <div className="activity-event-description">{event.description}</div>
+                    <div className="activity-event-time">
+                      {formatRelativeTime(event.timestamp)}
+                      {actorName && (
+                        <span style={{ marginLeft: '4px', color: 'var(--text-muted)' }}>
+                          by {actorName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>
       )}

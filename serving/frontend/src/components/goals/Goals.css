@@ -570,6 +570,12 @@
   gap: 8px;
 }
 
+.goal-attribution {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
 .goal-card-chevron {
   color: var(--text-muted);
   opacity: 0;

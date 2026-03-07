@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, ArrowLeft, Pencil } from 'lucide-react'
 import ProjectList from '../components/projects/ProjectList'
 import RepoList from '../components/projects/RepoList'
@@ -14,6 +15,7 @@ import { getProject, removeRepoFromProject } from '../api/projects'
 import { useProjectContext } from '../contexts/ProjectContext'
 import useProjectFilters from '../hooks/useProjectFilters'
 import '../components/projects/Projects.css'
+import './ProjectsPage.css'
 
 function ProjectMetadata({ metadata }) {
   if (!metadata || Object.keys(metadata).length === 0) return null
@@ -45,8 +47,21 @@ function ProjectsPage() {
   const [removingRepo, setRemovingRepo] = useState(null)
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [cameFromNoProject, setCameFromNoProject] = useState(false)
   const { filters, setFilters } = useProjectFilters()
-  const { refreshProjects } = useProjectContext()
+  const { refreshProjects, activeProject, setActiveProject, projects } = useProjectContext()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (searchParams.get('create') === 'true') {
+      setShowCreateModal(true)
+      setCameFromNoProject(!activeProject)
+      const next = new URLSearchParams(searchParams)
+      next.delete('create')
+      setSearchParams(next, { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = () => {
     setRefreshKey((k) => k + 1)
@@ -113,16 +128,10 @@ function ProjectsPage() {
     return (
       <div className="page">
         <header className="page-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="project-detail-header-row">
             <button
               onClick={() => setSelectedProject(null)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '6px',
-                borderRadius: '4px',
-                background: 'var(--bg-hover)'
-              }}
+              className="back-btn"
             >
               <ArrowLeft size={16} />
             </button>
@@ -137,16 +146,7 @@ function ProjectsPage() {
           </div>
           <button
             onClick={() => setEditingProject(selectedProject)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              background: 'var(--bg-hover)',
-              borderRadius: '6px',
-              fontSize: '13px',
-              fontWeight: 500
-            }}
+            className="btn btn-secondary"
           >
             <Pencil size={14} />
             Edit
@@ -154,44 +154,35 @@ function ProjectsPage() {
         </header>
 
         {selectedProject.description && (
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          <p className="project-detail-description">
             {selectedProject.description}
           </p>
         )}
 
         {selectedProject.labels && selectedProject.labels.length > 0 && (
-          <div style={{ marginBottom: '24px' }}>
+          <div className="project-detail-labels">
             <ProjectLabels labels={selectedProject.labels} />
           </div>
         )}
 
         {selectedProject.metadata && Object.keys(selectedProject.metadata).length > 0 && (
-          <section style={{ marginBottom: '24px' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 500, marginBottom: '12px' }}>
+          <section className="project-detail-section">
+            <h2 className="project-detail-section-title">
               Metadata
             </h2>
             <ProjectMetadata metadata={selectedProject.metadata} />
           </section>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '24px' }}>
+        <div className="project-detail-grid">
           <section>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <h2 style={{ fontSize: '14px', fontWeight: 500 }}>
+            <div className="project-detail-repo-header">
+              <h2 className="project-detail-section-title">
                 Repositories
               </h2>
               <button
                 onClick={() => setShowRepoModal(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '4px 10px',
-                  background: 'var(--bg-hover)',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  fontWeight: 500
-                }}
+                className="btn btn-sm btn-secondary"
               >
                 <Plus size={12} />
                 Add Repo
@@ -239,17 +230,7 @@ function ProjectsPage() {
         <h1 className="page-title">Projects</h1>
         <button
           onClick={() => setShowCreateModal(true)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 12px',
-            background: 'var(--primary)',
-            color: 'white',
-            borderRadius: '6px',
-            fontSize: '13px',
-            fontWeight: 500
-          }}
+          className="btn btn-primary"
         >
           <Plus size={14} />
           New Project
@@ -268,8 +249,23 @@ function ProjectsPage() {
 
       <ProjectFormModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={handleRefresh}
+        onClose={() => {
+          setShowCreateModal(false)
+          setCameFromNoProject(false)
+        }}
+        onSuccess={async () => {
+          const prevIds = new Set(projects.map((p) => p.project_id))
+          const updated = await refreshProjects()
+          setRefreshKey((k) => k + 1)
+          if (cameFromNoProject) {
+            // Find the newly created project (not in previous list) and auto-select it
+            const newProject = (updated || []).find((p) => !prevIds.has(p.project_id))
+            if (newProject) {
+              setActiveProject(newProject)
+            }
+            navigate('/dashboard')
+          }
+        }}
       />
 
       <ProjectFormModal

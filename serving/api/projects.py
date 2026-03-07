@@ -17,6 +17,7 @@ from models.work_map import ProjectDeleteResponse
 from services.project_service import get_project_service
 from services.repo_sync_service import get_repo_sync_service
 from services.work_map_service import get_work_map_service
+from middleware.user_context import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,16 @@ async def create_project(request: ProjectCreateRequest):
         Created project
     """
     service = get_project_service()
-    return await service.create_project(request)
+    project = await service.create_project(request)
+
+    # Populate user attribution
+    user = get_current_user()
+    if user:
+        project.created_by = user.get('sub')
+        project.created_by_name = user.get('username') or user.get('email')
+        await service._save_project(project)
+
+    return project
 
 
 @router.get("/{project_id}", response_model=Project)
@@ -141,6 +151,13 @@ async def update_project(project_id: str, request: ProjectUpdateRequest):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project not found: {project_id}"
         )
+
+    # Populate user attribution
+    user = get_current_user()
+    if user:
+        project.modified_by = user.get('sub')
+        project.modified_by_name = user.get('username') or user.get('email')
+        await service._save_project(project)
 
     return project
 

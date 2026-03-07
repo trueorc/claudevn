@@ -10,6 +10,7 @@ import WhyThisOrder from '../components/plan/WhyThisOrder'
 import ItemTracesPanel from '../components/plan/ItemTracesPanel'
 import IssueDetailModal from '../components/workmap/IssueDetailModal'
 import EmptyState from '../components/common/EmptyState'
+import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
 import usePlanSummary from '../hooks/usePlanSummary'
 import useBucketTree from '../hooks/useBucketTree'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
@@ -56,6 +57,7 @@ function ExecutionPlanPage() {
         <header className="page-header">
           <div className="header-content">
             <h1 className="page-title">Plan</h1>
+            <PageSubtitle>System-managed view of active and scheduled work</PageSubtitle>
           </div>
         </header>
         <EmptyState
@@ -72,6 +74,7 @@ function ExecutionPlanPage() {
       <header className="page-header">
         <div className="header-content">
           <h1 className="page-title">Plan</h1>
+          <PageSubtitle>What is running now, what is queued, and why in this order</PageSubtitle>
           <div className="plan-header-controls">
             <ProfileSwitcher
               projectId={activeProjectId}
@@ -112,6 +115,11 @@ function ExecutionPlanPage() {
           {error}
         </div>
       )}
+
+      <InlineHint hintKey="plan-read-only">
+        The execution order is determined automatically based on directive priorities, dependencies, and active profiles.
+        To influence what gets worked on, adjust priorities in the Backlog or issue a new Directive.
+      </InlineHint>
 
       <SummaryBar data={data} loading={loading} />
 

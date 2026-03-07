@@ -5,6 +5,7 @@ import useGoals, { WORKFLOW_STEPS, PROCESSING_STAGES } from './useGoals'
 
 export const MSG_TYPES = {
   USER: 'user',
+  SYSTEM: 'system',
   THINKING: 'thinking',
   GOAL_CREATED: 'goal_created',
   GOAL_PROCESSING: 'goal_processing',
@@ -13,9 +14,12 @@ export const MSG_TYPES = {
   DIRECTIVE_APPLIED: 'directive_applied',
   DIRECTIVE_REJECTED: 'directive_rejected',
   ERROR: 'error',
+  ATTENTION: 'attention',
+  PROMOTE_SUGGESTION: 'promote_suggestion',
 }
 
 export const INTENT_MODES = {
+  CHAT: 'chat',
   AUTO: 'auto',
   NEW_WORK: 'new_work',
   DIRECTIVE: 'directive',
@@ -127,23 +131,36 @@ export default function useConversation(projectId) {
     goalCompleteHandled.current = false
     const trimmed = text.trim()
 
-    addMsg(MSG_TYPES.USER, trimmed, { mode, ...options })
+    // Slash command detection — override mode and strip the command prefix
+    let effectiveMode = mode
+    let effectiveText = trimmed
+    if (trimmed.startsWith('/start ') || trimmed.startsWith('/build ') || trimmed.startsWith('/do ')) {
+      effectiveText = trimmed.replace(/^\/(start|build|do)\s+/, '')
+      effectiveMode = INTENT_MODES.NEW_WORK
+    }
+
+    addMsg(MSG_TYPES.USER, effectiveText, { mode: effectiveMode, ...options })
 
     try {
-      if (mode === INTENT_MODES.DIRECTIVE) {
+      // Chat mode: just store the message, no processing
+      if (effectiveMode === INTENT_MODES.CHAT) {
+        return { type: 'chat' }
+      }
+
+      if (effectiveMode === INTENT_MODES.DIRECTIVE) {
         const thinkingId = addMsg(MSG_TYPES.THINKING, 'Interpreting directive...').id
-        const directive = await interpretDirective(trimmed, projectId)
+        const directive = await interpretDirective(effectiveText, projectId)
         setMessages(prev => prev.filter(m => m.id !== thinkingId))
         setPendingDirective(directive)
         addMsg(MSG_TYPES.DIRECTIVE_PREVIEW, 'Here\'s what I understood:', { directive })
         return { type: 'directive', directive }
       }
 
-      if (mode === INTENT_MODES.NEW_WORK) {
+      if (effectiveMode === INTENT_MODES.NEW_WORK) {
         const thinkingId = addMsg(MSG_TYPES.THINKING, 'Creating work item...').id
         const goal = await createGoal({
-          title: trimmed.slice(0, 500),
-          description: trimmed,
+          title: effectiveText.slice(0, 500),
+          description: effectiveText,
           priority: options.priority || 'P2',
           project_id: projectId,
           ...(options.area && { area: options.area }),
@@ -160,7 +177,7 @@ export default function useConversation(projectId) {
       // Auto mode: try directive interpretation first
       const thinkingId = addMsg(MSG_TYPES.THINKING, 'Understanding your intent...').id
       try {
-        const directive = await interpretDirective(trimmed, projectId)
+        const directive = await interpretDirective(effectiveText, projectId)
         const hasAdjustments =
           directive?.interpretation?.weight_adjustments?.length > 0 ||
           directive?.interpretation?.policy_adjustments?.length > 0
@@ -180,8 +197,8 @@ export default function useConversation(projectId) {
           setMessages(prev => prev.filter(m => m.id !== thinkingId))
           const goal = {
             goal_id: backendGoalId,
-            title: directive.text?.slice(0, 200) || trimmed.slice(0, 200),
-            description: directive.text || trimmed,
+            title: directive.text?.slice(0, 200) || effectiveText.slice(0, 200),
+            description: directive.text || effectiveText,
           }
           setLastCreatedGoal(goal)
           addMsg(MSG_TYPES.GOAL_CREATED, `Created: ${goal.title}`, { goal })
@@ -197,8 +214,8 @@ export default function useConversation(projectId) {
       setMessages(prev => prev.filter(m => m.id !== thinkingId))
       const goalThinkingId = addMsg(MSG_TYPES.THINKING, 'Creating as new work...').id
       const goal = await createGoal({
-        title: trimmed.slice(0, 500),
-        description: trimmed,
+        title: effectiveText.slice(0, 500),
+        description: effectiveText,
         priority: options.priority || 'P2',
         project_id: projectId,
       })

@@ -86,6 +86,12 @@ class Issue(BaseModel):
     goal_id: Optional[str] = Field(None, description="Parent goal ID")
     parent_issue_id: Optional[str] = Field(None, description="Parent issue if subtask")
 
+    # User attribution
+    created_by: Optional[str] = Field(None, description="User ID who created the issue")
+    created_by_name: Optional[str] = Field(None, description="Display name of creator")
+    modified_by: Optional[str] = Field(None, description="User ID who last modified")
+    modified_by_name: Optional[str] = Field(None, description="Display name of last modifier")
+
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None

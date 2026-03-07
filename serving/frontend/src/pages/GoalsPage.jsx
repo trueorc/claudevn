@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, FolderOpen, MessageSquare } from 'lucide-react'
 import { getGoals, getGoalComments, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress, createGoalComment, getIssue } from '../api/workmap'
 import { useProjectContext } from '../contexts/ProjectContext'
-import useConversation, { INTENT_MODES } from '../hooks/useConversation'
+import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
+import useIssues from '../hooks/useIssues'
+import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
@@ -10,6 +12,7 @@ import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog
 import GoalCompletionCard from '../components/directives/GoalCompletionCard'
 import EmptyState from '../components/common/EmptyState'
 import Spinner from '../components/common/Spinner'
+import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
 import '../components/goals/Goals.css'
 import '../components/directives/Conversation.css'
 
@@ -36,7 +39,17 @@ function GoalsPage() {
     return stored === 'true'
   })
 
-  // Unified conversation hook
+  // Context-aware prompt suggestions
+  const [suggestedText, setSuggestedText] = useState('')
+  const { stats: issueStats } = useIssues({ useWebSocket: !!projectId, pollInterval: projectId ? 30000 : 0 })
+  const prompts = useDirectivePrompts(projectId ? issueStats : null)
+
+  // Clear suggested text when it has been consumed (input gets populated once)
+  const handleSuggestedTextConsumed = useCallback(() => {
+    setSuggestedText('')
+  }, [])
+
+  // Shared conversation context (persists across page refreshes, shared with SidePanel)
   const {
     messages,
     submitting,
@@ -48,7 +61,7 @@ function GoalsPage() {
     rejectPending,
     retryProcessing,
     clear: clearConversation,
-  } = useConversation(projectId)
+  } = useConversationContext()
 
   // Load goals list
   const loadGoals = useCallback(async () => {
@@ -238,7 +251,7 @@ function GoalsPage() {
         <div className="conv-header">
           <div className="conv-header-content">
             <h1>Directives</h1>
-            <p>Select a project to get started</p>
+            <PageSubtitle>Select a project to get started</PageSubtitle>
           </div>
         </div>
         <EmptyState
@@ -255,7 +268,9 @@ function GoalsPage() {
       <div className="conv-header">
         <div className="conv-header-content">
           <h1>Directives</h1>
-          <p>{activeProject ? `Directing ${activeProject.name}` : 'Select a project'}</p>
+          <PageSubtitle>
+            {activeProject ? `Directing ${activeProject.name}` : 'Select a project'}
+          </PageSubtitle>
         </div>
         <div className="conv-header-actions">
           {selectedGoal && (
@@ -343,11 +358,23 @@ function GoalsPage() {
                       Describe new work, shift priorities, or ask about status.
                       The system will interpret your intent and take action.
                     </p>
-                    <div className="conv-examples">
-                      <div className="conv-example">&ldquo;Build a user authentication system with OAuth&rdquo;</div>
-                      <div className="conv-example">&ldquo;Focus on testing for the API domain&rdquo;</div>
-                      <div className="conv-example">&ldquo;Deprioritize new features until bugs are resolved&rdquo;</div>
-                    </div>
+                    {prompts.length > 0 && (
+                      <div className="conv-prompt-chips">
+                        {prompts.map((prompt) => (
+                          <button
+                            key={prompt.text}
+                            className="conv-prompt-chip"
+                            onClick={() => setSuggestedText(prompt.text)}
+                          >
+                            {prompt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <InlineHint hintKey="directives-how-it-works">
+                      Directives are processed by the AI, which decomposes them into backlog issues and schedules execution.
+                      Previous directives are listed on the right — select one to add comments or review its outcome.
+                    </InlineHint>
                   </div>
                 )}
                 <ConversationTimeline
@@ -368,6 +395,8 @@ function GoalsPage() {
             submitting={submitting || addingComment}
             disabled={!!pendingDirective && !selectedGoal}
             commentMode={!!selectedGoal}
+            suggestedText={suggestedText}
+            onSuggestedTextConsumed={handleSuggestedTextConsumed}
           />
         </div>
 

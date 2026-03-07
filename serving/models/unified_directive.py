@@ -45,6 +45,7 @@ class DirectiveComment(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     created_by: str = "user"
+    created_by_name: Optional[str] = None
 
 
 class DirectiveOutcome(BaseModel):
@@ -92,6 +93,14 @@ class UnifiedDirective(BaseModel):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
+    )
+    created_by: Optional[str] = Field(
+        default=None,
+        description="User ID of the creator",
+    )
+    created_by_name: Optional[str] = Field(
+        default=None,
+        description="Display name of the creator at time of creation",
     )
 
 

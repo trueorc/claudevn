@@ -2,10 +2,13 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider } from './contexts/AppContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
+import { ConversationProvider } from './contexts/ConversationContext'
 import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
 import { ToastContainer } from './components/common/Toast'
-import Sidebar from './components/layout/Sidebar'
+import IconBar from './components/layout/IconBar'
+import ChatRail from './components/layout/ChatRail'
 import AuthExpiredBanner from './components/common/AuthExpiredBanner'
+import DashboardPage from './pages/DashboardPage'
 import NetworkHealthPage from './pages/NetworkHealthPage'
 import SkillsPage from './pages/SkillsPage'
 import ProjectsPage from './pages/ProjectsPage'
@@ -27,44 +30,48 @@ import { useAuth } from './hooks/useAuth'
 function AuthenticatedApp({ expired, expiringAt, onReauth }) {
   return (
     <ProjectProvider>
-      <div className="app">
-        <Sidebar />
-        <main className="main-content">
-          {(expired || expiringAt) && (
-            <AuthExpiredBanner
-              expired={expired}
-              expiringAt={expiringAt}
-              onReauth={onReauth}
-            />
-          )}
-          <Routes>
-            <Route path="/" element={<Navigate to="/projects" replace />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/directives" element={<GoalsPage />} />
-            <Route path="/plan" element={<ExecutionPlanPage />} />
-            <Route path="/backlog" element={<BacklogPage />} />
-            <Route path="/marketplace" element={<SkillsPage />} />
-            <Route path="/network" element={<NetworkHealthPage />} />
-            <Route path="/timing" element={<TimingPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/settings/profile" element={<ProfilePage />} />
-            <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
-            <Route path="/settings/general" element={<SettingsPage />} />
-            <Route path="/settings/users" element={<UserManagementPage />} />
-            {/* Redirects from old routes */}
-            <Route path="/goals" element={<Navigate to="/directives" replace />} />
-            <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
-            <Route path="/health" element={<Navigate to="/network" replace />} />
-            <Route path="/work" element={<Navigate to="/backlog" replace />} />
-            <Route path="/workmap" element={<Navigate to="/plan" replace />} />
-            <Route path="/traces" element={<Navigate to="/plan" replace />} />
-            <Route path="/focus" element={<Navigate to="/plan" replace />} />
-            <Route path="/capabilities" element={<Navigate to="/network" replace />} />
-            <Route path="/conflicts" element={<Navigate to="/network" replace />} />
-          </Routes>
-        </main>
-      </div>
-      <ToastContainer />
+      <ConversationProvider>
+        <div className="app">
+          <IconBar />
+          <ChatRail />
+          <main className="main-content">
+            {(expired || expiringAt) && (
+              <AuthExpiredBanner
+                expired={expired}
+                expiringAt={expiringAt}
+                onReauth={onReauth}
+              />
+            )}
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/directives" element={<GoalsPage />} />
+              <Route path="/plan" element={<ExecutionPlanPage />} />
+              <Route path="/backlog" element={<BacklogPage />} />
+              <Route path="/marketplace" element={<SkillsPage />} />
+              <Route path="/network" element={<NetworkHealthPage />} />
+              <Route path="/timing" element={<TimingPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/settings/profile" element={<ProfilePage />} />
+              <Route path="/settings/ssh-keys" element={<SSHKeysPage />} />
+              <Route path="/settings/general" element={<SettingsPage />} />
+              <Route path="/settings/users" element={<UserManagementPage />} />
+              {/* Redirects from old routes */}
+              <Route path="/goals" element={<Navigate to="/directives" replace />} />
+              <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
+              <Route path="/health" element={<Navigate to="/network" replace />} />
+              <Route path="/work" element={<Navigate to="/backlog" replace />} />
+              <Route path="/workmap" element={<Navigate to="/plan" replace />} />
+              <Route path="/traces" element={<Navigate to="/plan" replace />} />
+              <Route path="/focus" element={<Navigate to="/plan" replace />} />
+              <Route path="/capabilities" element={<Navigate to="/network" replace />} />
+              <Route path="/conflicts" element={<Navigate to="/network" replace />} />
+            </Routes>
+          </main>
+        </div>
+        <ToastContainer />
+      </ConversationProvider>
     </ProjectProvider>
   )
 }
@@ -77,7 +84,7 @@ function CognitoGate({ children }) {
       <div className="auth-setup-page">
         <div className="auth-setup-card">
           <div className="auth-setup-spinner" />
-          <p style={{ color: 'var(--text-secondary, #888)', marginTop: '1rem', fontSize: '0.9rem' }}>
+          <p style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-base)' }}>
             Connecting...
           </p>
         </div>
@@ -109,7 +116,7 @@ function ClaudeTokenGate() {
       <div className="auth-setup-page">
         <div className="auth-setup-card">
           <div className="auth-setup-spinner" />
-          <p style={{ color: 'var(--text-secondary, #888)', marginTop: '1rem', fontSize: '0.9rem' }}>
+          <p style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-base)' }}>
             Connecting...
           </p>
         </div>

@@ -66,6 +66,8 @@ from api import cognito_users
 from api import network_capacity
 from api import provisioner
 from api import timing
+from api import conversation
+from api import presence
 # MCP server for compute communication
 from mcp import get_router
 # Marketplace HTTP client (marketplace is a separate service on port 8003)
@@ -371,6 +373,29 @@ async def lifespan(app: FastAPI):
     timing_service = TimingService(redis_client=redis_client)
     set_timing_service(timing_service)
     logger.info("Timing service initialized")
+
+    # =========================================================================
+    # OPTIONAL: Conversation Service
+    # Persists project conversation messages in Redis with user attribution.
+    # Degrades gracefully if Redis unavailable (messages not stored).
+    # =========================================================================
+    from services.conversation_service import ConversationService, set_conversation_service
+    conversation_service = ConversationService(redis_client=redis_client)
+    set_conversation_service(conversation_service)
+    logger.info("Conversation service initialized")
+
+    from services.conversation_event_bridge import init_event_bridge
+    init_event_bridge()
+
+    # =========================================================================
+    # OPTIONAL: Presence Service
+    # Tracks which users are online in which project view using Redis.
+    # Degrades gracefully if Redis unavailable (returns empty presence lists).
+    # =========================================================================
+    from services.presence_service import PresenceService, set_presence_service
+    presence_service = PresenceService(redis_client=redis_client)
+    set_presence_service(presence_service)
+    logger.info("Presence service initialized")
 
     # =========================================================================
     # OPTIONAL: Rate Limiter
@@ -1085,6 +1110,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Timing service cleanup: {e}")
 
+    # Clean up conversation service
+    try:
+        from services.conversation_service import set_conversation_service
+        set_conversation_service(None)
+        logger.info("Conversation service cleaned up")
+    except Exception as e:
+        logger.debug(f"Conversation service cleanup: {e}")
+
     # Close Redis connection
     try:
         from git.redis_client import close_redis
@@ -1127,6 +1160,10 @@ app.add_middleware(RateLimitMiddleware)
 from middleware.cognito_middleware import CognitoAuthMiddleware
 app.add_middleware(CognitoAuthMiddleware)
 
+# Add user context middleware (extracts user identity for request-scoped access)
+from middleware.user_context import UserContextMiddleware
+app.add_middleware(UserContextMiddleware)
+
 
 # Include routers with /api/v1 prefix
 API_VERSION = os.getenv('API_VERSION', 'v1')
@@ -1166,6 +1203,8 @@ app.include_router(cognito_users.router, prefix=api_prefix)
 app.include_router(network_capacity.router, prefix=api_prefix)
 app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
+app.include_router(conversation.router, prefix=api_prefix)
+app.include_router(presence.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix
 # Note: Skill marketplace is a separate service on port 8003 - use MarketplaceClient

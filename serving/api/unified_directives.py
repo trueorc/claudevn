@@ -13,6 +13,8 @@ Endpoints:
 Reference: Issue #613 - Unified Directives Backend
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
 from models.unified_directive import (
@@ -22,6 +24,11 @@ from models.unified_directive import (
     UnifiedDirectiveListResponse,
 )
 from services.unified_directive_service import get_unified_directive_service
+from services.conflict_detector import get_conflict_detector
+from services.conversation_service import get_conversation_service
+from middleware.user_context import get_current_user, get_current_user_id as get_context_user_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/unified-directives", tags=["unified-directives"])
 
@@ -50,6 +57,54 @@ async def submit_directive(request: UnifiedDirectiveCreateRequest):
         text=request.text,
         parent_directive_id=request.parent_directive_id,
     )
+
+    # Populate user attribution
+    user_id = get_context_user_id()
+    display_name = None
+    if user_id:
+        directive.created_by = user_id
+        user = get_current_user()
+        if user:
+            display_name = user.get("username") or user.get("email")
+            directive.created_by_name = display_name
+        await service._save_directive_to_redis(directive)
+
+    # Conflict detection: check before recording so we don't compare against self
+    detector = get_conflict_detector()
+    conflict = detector.check_conflicts(
+        user_id=user_id or "anonymous",
+        text=request.text,
+        project_id=request.project_id,
+    )
+    detector.record_directive(
+        user_id=user_id or "anonymous",
+        display_name=display_name or user_id or "anonymous",
+        text=request.text,
+        project_id=request.project_id,
+    )
+
+    if conflict:
+        conv_service = get_conversation_service()
+        if conv_service:
+            try:
+                await conv_service.add_message(
+                    project_id=request.project_id,
+                    user_id="system",
+                    display_name="System",
+                    type="attention",
+                    content=(
+                        f"Potential conflict: {conflict['other_user']} recently directed "
+                        f"\"{conflict['other_text'][:100]}\" which may contradict this directive."
+                    ),
+                    metadata={
+                        'conflict_type': conflict['type'],
+                        'other_user': conflict['other_user'],
+                        'other_text': conflict['other_text'],
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to persist conflict attention message: {e}")
+
     return directive
 
 
@@ -66,10 +121,17 @@ async def add_comment(
     """
     service = get_unified_directive_service()
     try:
+        user_id = get_context_user_id()
+        user = get_current_user() if user_id else None
+        created_by = user_id or "user"
+        created_by_name = (user.get("username") or user.get("email")) if user else None
+
         directive = await service.add_comment(
             project_id=project_id,
             directive_id=directive_id,
             content=request.content,
+            created_by=created_by,
+            created_by_name=created_by_name,
         )
         return directive
     except ValueError as e:

@@ -1,0 +1,309 @@
+/* Chat Rail - left-side conversation panel on non-dashboard routes */
+
+.chat-rail {
+  width: 260px;
+  min-width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: width var(--transition-normal), min-width var(--transition-normal), opacity var(--transition-normal);
+}
+
+/* Hidden state: dashboard route — collapses to zero width */
+.chat-rail-hidden {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  border-right: none;
+  padding: 0;
+}
+
+.chat-rail-collapsed {
+  width: 40px;
+  min-width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--space-sm);
+}
+
+.chat-rail-expand-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.chat-rail-expand-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chat-rail-unread {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--text-on-primary);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 0 4px;
+}
+
+/* Header */
+.chat-rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border);
+  min-height: 36px;
+}
+
+.chat-rail-full-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  transition: color var(--transition-fast);
+}
+
+.chat-rail-full-link:hover {
+  color: var(--primary);
+}
+
+.chat-rail-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.chat-rail-collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Messages */
+.chat-rail-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.chat-rail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg) var(--space-sm);
+  text-align: center;
+  flex: 1;
+}
+
+.chat-rail-empty-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.chat-rail-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.chat-rail-prompt {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.chat-rail-prompt:hover {
+  background: var(--primary-muted);
+  color: var(--primary);
+}
+
+/* Message bubbles */
+.chat-rail-message {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  max-width: 100%;
+}
+
+.chat-rail-message-user {
+  background: var(--primary-muted);
+  border: 1px solid rgba(124, 58, 237, 0.1);
+  align-self: flex-end;
+}
+
+.chat-rail-message-system {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+}
+
+.chat-rail-message-error {
+  background: var(--error-alpha);
+  border: 1px solid var(--error);
+}
+
+.chat-rail-message-content {
+  font-size: var(--font-size-xs);
+  color: var(--text);
+  line-height: 1.4;
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.chat-rail-message-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+}
+
+/* Input area */
+.chat-rail-input-area {
+  padding: var(--space-sm);
+  border-top: 1px solid var(--border);
+}
+
+.chat-rail-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs);
+}
+
+.chat-rail-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family);
+  resize: none;
+  outline: none;
+  padding: 2px var(--space-xs);
+  line-height: 1.4;
+}
+
+.chat-rail-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-rail-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.chat-rail-send-btn:hover:not(:disabled) {
+  background: var(--primary);
+  color: var(--text-on-primary);
+}
+
+.chat-rail-send-btn:disabled {
+  opacity: 0.3;
+}
+
+/* Entry animation: chat sliding in from center when leaving dashboard */
+.chat-rail-enter {
+  animation: chatRailSlideIn 300ms ease-out both;
+}
+
+.chat-rail-enter .chat-rail-header,
+.chat-rail-enter .chat-rail-messages,
+.chat-rail-enter .chat-rail-input-area {
+  animation: chatRailContentFadeIn 300ms ease-out 50ms both;
+}
+
+@keyframes chatRailSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes chatRailContentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .chat-rail-enter,
+  .chat-rail-enter .chat-rail-header,
+  .chat-rail-enter .chat-rail-messages,
+  .chat-rail-enter .chat-rail-input-area {
+    animation: none;
+  }
+}
+
+/* Responsive: narrower rail on tablet */
+@media (max-width: 1199px) and (min-width: 769px) {
+  .chat-rail {
+    width: 200px;
+    min-width: 200px;
+  }
+}
+
+/* Responsive: hide on very narrow screens */
+@media (max-width: 768px) {
+  .chat-rail {
+    display: none;
+  }
+
+  .chat-rail-collapsed {
+    display: none;
+  }
+}

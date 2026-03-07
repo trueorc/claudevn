@@ -41,6 +41,7 @@ from services.goal_evaluation_service import get_goal_evaluation_service
 from services.comment_rollup_service import get_comment_rollup_service
 from services.release_service import get_release_service
 from services.bucket_tree_store import get_bucket_tree_store
+from middleware.user_context import get_current_user, get_current_user_id as get_context_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -521,6 +522,16 @@ async def create_goal(request: GoalCreateRequest):
     service = get_work_map_service()
     try:
         goal = await service.create_goal(request)
+
+        # Populate user attribution
+        user_id = get_context_user_id()
+        if user_id:
+            goal.created_by = user_id
+            user = get_current_user()
+            if user:
+                goal.created_by_name = user.get("username") or user.get("email")
+            goal_service = get_goal_service()
+            await goal_service._save_goal_to_redis(goal)
 
         # Auto-classify intent from goal text
         try:
@@ -1104,7 +1115,19 @@ async def create_goal_comment(
         )
 
     try:
+        # Populate user attribution on the request
+        user_id = get_context_user_id()
+        if user_id:
+            request.created_by = user_id
         comment = await comment_service.create_comment(goal_id, request)
+
+        # Set display name on comment if we have an authenticated user
+        if user_id:
+            user = get_current_user()
+            if user:
+                comment.created_by_name = user.get("username") or user.get("email")
+                await comment_service._save_comment_to_redis(comment)
+
         logger.info(f"Created comment {comment.comment_id} for goal {goal_id}")
 
         # Add to rollup tracking (if service available)
@@ -1444,6 +1467,14 @@ async def create_issue(request: IssueCreateRequest):
     service = get_work_map_service()
     try:
         issue = await service.create_issue(request)
+
+        # Populate user attribution
+        user = get_current_user()
+        if user:
+            issue.created_by = user.get('sub')
+            issue.created_by_name = user.get('username') or user.get('email')
+            await service._issue_service._save_issue_to_redis(issue)
+
         logger.info(f"Created issue {issue.issue_id}")
         return issue
     except Exception as e:
@@ -1613,6 +1644,13 @@ async def update_issue(issue_id: str, request: IssueUpdateRequest):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Issue '{issue_id}' not found"
         )
+
+    # Populate user attribution
+    user = get_current_user()
+    if user:
+        issue.modified_by = user.get('sub')
+        issue.modified_by_name = user.get('username') or user.get('email')
+        await service._issue_service._save_issue_to_redis(issue)
 
     return issue
 

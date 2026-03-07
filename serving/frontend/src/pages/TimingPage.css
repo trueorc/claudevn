@@ -290,12 +290,12 @@
 
 .tool-call-badge.mcp {
   background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  color: var(--color-phase-mcp);
 }
 
 .tool-call-badge.phase {
   background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
+  color: var(--color-initiative);
 }
 
 .tool-call-duration-bar {
@@ -366,17 +366,17 @@
 
 .source-badge-directive {
   background: rgba(139, 92, 246, 0.15);
-  color: #a78bfa;
+  color: var(--color-initiative);
 }
 
 .source-badge-issue {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--status-pending);
 }
 
 .source-badge-untracked {
   background: rgba(148, 163, 184, 0.15);
-  color: #94a3b8;
+  color: var(--color-phase-default);
 }
 
 /* Directive Group (nested) */
@@ -509,7 +509,7 @@
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: var(--radius-md);
-  color: #fca5a5;
+  color: var(--status-offline);
   font-size: 0.85rem;
   margin-bottom: 1rem;
 }

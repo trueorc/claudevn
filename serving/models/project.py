@@ -90,6 +90,12 @@ class Project(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # User attribution
+    created_by: Optional[str] = Field(None, description="User ID who created the project")
+    created_by_name: Optional[str] = Field(None, description="Display name of creator")
+    modified_by: Optional[str] = Field(None, description="User ID who last modified the project")
+    modified_by_name: Optional[str] = Field(None, description="Display name of last modifier")
+
     # Activity tracking
     last_activity_at: Optional[datetime] = Field(
         None, description="Timestamp of last activity in this project"

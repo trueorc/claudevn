@@ -20,13 +20,22 @@ function formatTime(isoString) {
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function UserMessage({ msg }) {
+function UserMessage({ msg, onPromoteToDirective }) {
   return (
     <div className="conv-msg conv-msg-user">
       <div className="conv-msg-bubble conv-bubble-user">
         <p className="conv-msg-text">{msg.content}</p>
         <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
       </div>
+      {onPromoteToDirective && (
+        <button
+          className="conv-promote-btn"
+          onClick={() => onPromoteToDirective(msg)}
+          title="Submit as directive"
+        >
+          <Target size={12} />
+        </button>
+      )}
     </div>
   )
 }
@@ -260,6 +269,78 @@ function DirectiveRejectedMessage({ msg }) {
   )
 }
 
+function AttentionMessage({ msg }) {
+  const isConflict = !!msg.metadata?.conflict_type
+  return (
+    <div className="conv-msg conv-msg-system">
+      <div className="conv-msg-bubble conv-bubble-system conv-attention-card">
+        <div className="conv-msg-header">
+          <AlertCircle size={14} className="conv-icon-attention" />
+          <span className="conv-msg-label">
+            {isConflict ? 'Potential conflict detected' : msg.content}
+          </span>
+        </div>
+        {isConflict && (
+          <p className="conv-attention-detail">{msg.content}</p>
+        )}
+        {!isConflict && msg.metadata?.detail && (
+          <p className="conv-attention-detail">{msg.metadata.detail}</p>
+        )}
+        {isConflict && (
+          <div className="conv-attention-actions">
+            <button className="conv-btn conv-btn-action">Keep mine</button>
+            <button className="conv-btn conv-btn-action">Discuss</button>
+            <button className="conv-btn conv-btn-dismiss-action">Not a conflict</button>
+          </div>
+        )}
+        {!isConflict && msg.metadata?.actions?.length > 0 && (
+          <div className="conv-attention-actions">
+            {msg.metadata.actions.map((action, i) => (
+              <button key={i} className="conv-btn conv-btn-action">{action.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PromoteSuggestionMessage({ msg, onPromote, onDismiss }) {
+  return (
+    <div className="conv-msg conv-msg-system">
+      <div className="conv-msg-bubble conv-bubble-system conv-promote-suggestion">
+        <div className="conv-msg-header">
+          <Sparkles size={14} className="conv-icon-suggestion" />
+          <span className="conv-msg-label">{msg.content || 'This looks like actionable work'}</span>
+        </div>
+        <div className="conv-promote-actions">
+          <button className="conv-btn conv-btn-apply" onClick={() => onPromote?.(msg)}>
+            <Check size={14} /> Create directive
+          </button>
+          <button className="conv-btn conv-btn-dismiss" onClick={() => onDismiss?.(msg)}>
+            Not now
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SystemMessage({ msg }) {
+  // Parse **bold** markers safely without dangerouslySetInnerHTML
+  const parts = msg.content.split(/\*\*(.*?)\*\*/g)
+  return (
+    <div className="conv-msg conv-msg-system-event">
+      <div className="conv-system-event">
+        <span className="conv-system-event-text">
+          {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+        </span>
+        <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
+      </div>
+    </div>
+  )
+}
+
 function ErrorMessage({ msg }) {
   return (
     <div className="conv-msg conv-msg-system">
@@ -271,7 +352,7 @@ function ErrorMessage({ msg }) {
   )
 }
 
-function ConversationTimeline({ messages, pendingDirective, applying, onApply, onReject, onRetry }) {
+function ConversationTimeline({ messages, pendingDirective, applying, onApply, onReject, onRetry, onPromoteToDirective, onDismissPromotion }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -285,7 +366,9 @@ function ConversationTimeline({ messages, pendingDirective, applying, onApply, o
       {messages.map((msg) => {
         switch (msg.type) {
           case MSG_TYPES.USER:
-            return <UserMessage key={msg.id} msg={msg} />
+            return <UserMessage key={msg.id} msg={msg} onPromoteToDirective={onPromoteToDirective} />
+          case MSG_TYPES.SYSTEM:
+            return <SystemMessage key={msg.id} msg={msg} />
           case MSG_TYPES.THINKING:
             return <ThinkingMessage key={msg.id} msg={msg} />
           case MSG_TYPES.GOAL_CREATED:
@@ -311,6 +394,10 @@ function ConversationTimeline({ messages, pendingDirective, applying, onApply, o
             return <DirectiveRejectedMessage key={msg.id} msg={msg} />
           case MSG_TYPES.ERROR:
             return <ErrorMessage key={msg.id} msg={msg} />
+          case MSG_TYPES.ATTENTION:
+            return <AttentionMessage key={msg.id} msg={msg} />
+          case MSG_TYPES.PROMOTE_SUGGESTION:
+            return <PromoteSuggestionMessage key={msg.id} msg={msg} onPromote={onPromoteToDirective} onDismiss={onDismissPromotion} />
           default:
             return null
         }

@@ -19,15 +19,15 @@ const PHASE_LABELS = {
 }
 
 const PHASE_COLORS = {
-  workspace_setup: '#3b82f6',
-  repo_clone: '#8b5cf6',
-  sdk_launch: '#f59e0b',
-  mcp_tool_call: '#10b981',
-  tool_use: '#14b8a6',
-  api_inference: '#ef4444',
-  sdk_execution: '#f97316',
-  git_push: '#6366f1',
-  total_wall_time: '#64748b'
+  workspace_setup: 'var(--color-phase-setup)',
+  repo_clone: 'var(--color-phase-clone)',
+  sdk_launch: 'var(--color-phase-launch)',
+  mcp_tool_call: 'var(--color-phase-mcp)',
+  tool_use: 'var(--color-phase-tool)',
+  api_inference: 'var(--color-phase-inference)',
+  sdk_execution: 'var(--color-phase-execution)',
+  git_push: 'var(--color-phase-push)',
+  total_wall_time: 'var(--color-phase-default)'
 }
 
 const PHASE_BG_COLORS = {
@@ -99,7 +99,7 @@ function sumEntryDurations(items) {
 }
 
 function PhasePill({ phase, toolName }) {
-  const color = PHASE_COLORS[phase] || '#94a3b8'
+  const color = PHASE_COLORS[phase] || 'var(--color-phase-default)'
   const bgColor = PHASE_BG_COLORS[phase] || 'rgba(148, 163, 184, 0.15)'
   const label = toolName || PHASE_LABELS[phase] || phase
 
@@ -149,7 +149,7 @@ function AggregateStatsTable({ aggregates }) {
                       className="stat-bar"
                       style={{
                         width: `${Math.max((stat.avg_ms / maxAvg) * 60, 3)}px`,
-                        backgroundColor: PHASE_COLORS[stat.phase] || '#94a3b8',
+                        backgroundColor: PHASE_COLORS[stat.phase] || 'var(--color-phase-default)',
                         opacity: 0.6
                       }}
                     />
@@ -232,7 +232,7 @@ function ToolCallRow({ entry, maxDuration }) {
   const duration = entry.duration_ms || 0
   const isLong = duration >= LONG_RUNNING_THRESHOLD_MS
   const barPercent = maxDuration > 0 ? Math.min((duration / maxDuration) * 100, 100) : 0
-  const color = isLong ? '#ef4444' : (PHASE_COLORS[entry.phase] || '#94a3b8')
+  const color = isLong ? 'var(--status-offline)' : (PHASE_COLORS[entry.phase] || 'var(--color-phase-default)')
 
   const meta = entry.metadata || {}
   const metaEntries = Object.entries(meta).filter(([k]) => k !== 'tool_name')

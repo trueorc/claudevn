@@ -231,6 +231,11 @@ function GoalCard({ goal, isSelected, onClick, commentCount, onDelete, onArchive
               {commentCount}
             </span>
           )}
+          {goal.created_by_name && (
+            <span className="goal-attribution">
+              by {goal.created_by_name}
+            </span>
+          )}
         </div>
         <ChevronRight size={14} className="goal-card-chevron" />
       </div>

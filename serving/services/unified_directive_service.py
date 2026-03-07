@@ -170,6 +170,7 @@ class UnifiedDirectiveService:
         directive_id: str,
         content: str,
         created_by: str = "user",
+        created_by_name: Optional[str] = None,
     ) -> UnifiedDirective:
         """Add a comment to an existing directive.
 
@@ -178,6 +179,7 @@ class UnifiedDirectiveService:
             directive_id: Directive to comment on.
             content: Comment text.
             created_by: Who created the comment.
+            created_by_name: Display name of the creator.
 
         Returns:
             Updated directive with comment appended.
@@ -194,6 +196,7 @@ class UnifiedDirectiveService:
             directive_id=directive_id,
             content=content,
             created_by=created_by,
+            created_by_name=created_by_name,
         )
         directive.comments.append(comment)
         directive.updated_at = datetime.now(timezone.utc)

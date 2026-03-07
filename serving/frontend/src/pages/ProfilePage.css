@@ -1,28 +1,30 @@
 .profile-page {
-  padding: 2rem;
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg);
   max-width: 720px;
 }
 
 .profile-title {
-  font-size: 1.5rem;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   margin-bottom: 1.5rem;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text);
 }
 
 .profile-card {
-  background: var(--bg-secondary, #1e1e1e);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   margin-bottom: 1rem;
 }
 
 .profile-card h2 {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
   margin-bottom: 1rem;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text);
 }
 
 .profile-info {
@@ -39,12 +41,12 @@
 
 .profile-label {
   min-width: 140px;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
 .profile-value {
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text);
   font-size: 0.9rem;
 }
 
@@ -58,38 +60,31 @@
 }
 
 .profile-badge.owner {
-  background: var(--accent-blue-bg, rgba(59, 130, 246, 0.15));
-  color: var(--accent-blue, #3b82f6);
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--status-pending);
 }
 
 .profile-badge.member {
-  background: var(--accent-gray-bg, rgba(156, 163, 175, 0.15));
-  color: var(--text-secondary, #888);
+  background: rgba(156, 163, 175, 0.15);
+  color: var(--text-secondary);
 }
 
-.profile-badge.online {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-}
-
-.profile-badge.offline {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-}
-
+.profile-badge.online,
+.profile-badge.authorized,
 .profile-badge.auth-authorized {
   background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  color: var(--status-online);
+}
+
+.profile-badge.offline,
+.profile-badge.auth-expired {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--status-offline);
 }
 
 .profile-badge.auth-unauthorized {
   background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-}
-
-.profile-badge.auth-expired {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  color: var(--status-degraded);
 }
 
 .profile-form {
@@ -102,22 +97,22 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
 .profile-form input {
-  background: var(--bg-primary, #121212);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 0.5rem 0.75rem;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text);
   font-size: 0.9rem;
 }
 
 .profile-form input:focus {
   outline: none;
-  border-color: var(--accent-blue, #3b82f6);
+  border-color: var(--primary);
 }
 
 .profile-actions {
@@ -128,18 +123,18 @@
 
 .profile-btn {
   padding: 0.4rem 1rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-primary, #121212);
-  color: var(--text-primary, #e0e0e0);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
   cursor: pointer;
   font-size: 0.85rem;
 }
 
 .profile-btn.primary {
-  background: var(--accent-blue, #3b82f6);
-  border-color: var(--accent-blue, #3b82f6);
-  color: white;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--text-on-primary);
 }
 
 .profile-btn:hover {
@@ -147,12 +142,12 @@
 }
 
 .profile-error {
-  color: var(--error-color, #ef4444);
+  color: var(--status-offline);
   font-size: 0.85rem;
 }
 
 .profile-empty {
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-style: italic;
 }
@@ -168,9 +163,9 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.6rem 0.75rem;
-  background: var(--bg-primary, #121212);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
 .profile-component-info {
@@ -181,10 +176,10 @@
 
 .profile-component-name {
   font-size: 0.9rem;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text);
 }
 
 .profile-component-expiry {
   font-size: 0.75rem;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }

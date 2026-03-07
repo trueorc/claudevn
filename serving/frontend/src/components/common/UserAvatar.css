@@ -1,0 +1,72 @@
+/* User Avatar */
+
+.user-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.user-avatar-sm {
+  width: 24px;
+  height: 24px;
+}
+
+.user-avatar-md {
+  width: 32px;
+  height: 32px;
+}
+
+.user-avatar-lg {
+  width: 40px;
+  height: 40px;
+}
+
+.user-avatar-initials {
+  color: var(--text-on-primary);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.user-avatar-sm .user-avatar-initials {
+  font-size: 10px;
+}
+
+.user-avatar-md .user-avatar-initials {
+  font-size: var(--font-size-xs);
+}
+
+.user-avatar-lg .user-avatar-initials {
+  font-size: var(--font-size-sm);
+}
+
+/* Status dot */
+.user-avatar-status {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-elevated);
+}
+
+.user-avatar-sm .user-avatar-status {
+  width: 8px;
+  height: 8px;
+}
+
+.user-avatar-status-online {
+  background: var(--status-online);
+}
+
+.user-avatar-status-offline {
+  background: var(--text-muted);
+}
+
+.user-avatar-status-away {
+  background: var(--status-degraded);
+}
