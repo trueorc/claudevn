@@ -270,17 +270,30 @@ function DirectiveRejectedMessage({ msg }) {
 }
 
 function AttentionMessage({ msg }) {
+  const isConflict = !!msg.metadata?.conflict_type
   return (
     <div className="conv-msg conv-msg-system">
       <div className="conv-msg-bubble conv-bubble-system conv-attention-card">
         <div className="conv-msg-header">
           <AlertCircle size={14} className="conv-icon-attention" />
-          <span className="conv-msg-label">{msg.content}</span>
+          <span className="conv-msg-label">
+            {isConflict ? 'Potential conflict detected' : msg.content}
+          </span>
         </div>
-        {msg.metadata?.detail && (
+        {isConflict && (
+          <p className="conv-attention-detail">{msg.content}</p>
+        )}
+        {!isConflict && msg.metadata?.detail && (
           <p className="conv-attention-detail">{msg.metadata.detail}</p>
         )}
-        {msg.metadata?.actions && msg.metadata.actions.length > 0 && (
+        {isConflict && (
+          <div className="conv-attention-actions">
+            <button className="conv-btn conv-btn-action">Keep mine</button>
+            <button className="conv-btn conv-btn-action">Discuss</button>
+            <button className="conv-btn conv-btn-dismiss-action">Not a conflict</button>
+          </div>
+        )}
+        {!isConflict && msg.metadata?.actions?.length > 0 && (
           <div className="conv-attention-actions">
             {msg.metadata.actions.map((action, i) => (
               <button key={i} className="conv-btn conv-btn-action">{action.label}</button>

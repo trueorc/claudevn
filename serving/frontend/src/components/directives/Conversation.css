@@ -852,6 +852,22 @@
   color: var(--text-secondary);
 }
 
+.conv-btn-dismiss-action {
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.conv-btn-dismiss-action:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
 /* =============================================================================
    System Event Messages (auto-injected from backend events)
    ============================================================================= */
