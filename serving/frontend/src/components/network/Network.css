@@ -180,6 +180,33 @@
   font-size: var(--font-size-xs);
 }
 
+/* Per-node resource metrics on cards */
+.resource-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+}
+
+.resource-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-xs);
+}
+
+.resource-metric-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.resource-metric-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 .last-seen {
   margin-top: var(--space-sm);
   font-size: var(--font-size-xs);

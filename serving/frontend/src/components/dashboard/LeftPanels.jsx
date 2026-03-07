@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Activity, Cpu, Database, Plus, Server } from 'lucide-react'
+import { Activity, Cpu, Plus, HardDrive, MemoryStick } from 'lucide-react'
 import './LeftPanels.css'
 
 // ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ function NetworkPanel({ health, overallStatus, healthLoading }) {
   const computeByStatus = health?.compute_registry?.by_status ?? {}
   const computeTotal = health?.compute_registry?.total_instances ?? 0
   const computeOnline = computeByStatus.online ?? 0
-  const totalResources = health?.compute_registry?.total_resources ?? {}
+  const totalResources = health?.compute_registry?.total_resources
 
   const marketplaceByStatus = health?.marketplace_registry?.by_status ?? {}
   const marketplaceTotal = health?.marketplace_registry?.total_instances ?? 0
@@ -230,25 +230,35 @@ function NetworkPanel({ health, overallStatus, healthLoading }) {
         {computeOnline} online / {computeTotal} total
       </p>
 
-      {(totalResources.cpu_count || totalResources.memory_gb || totalResources.gpu_count) && (
-        <div className="lp-resource-stats">
-          {totalResources.cpu_count && (
-            <span className="lp-resource-item" title="Total CPU cores">
+      {totalResources && (totalResources.cpu_count || totalResources.memory_gb || totalResources.storage_gb) && (
+        <div className="lp-resource-metrics">
+          {totalResources.cpu_count != null && (
+            <div className="lp-resource-row">
               <Cpu size={10} className="lp-resource-icon" />
-              <span>{totalResources.cpu_count} cores</span>
-            </span>
+              <span className="lp-resource-label">CPU</span>
+              <span className="lp-resource-value">{totalResources.cpu_count} cores</span>
+            </div>
           )}
-          {totalResources.memory_gb && (
-            <span className="lp-resource-item" title="Total memory">
-              <Server size={10} className="lp-resource-icon" />
-              <span>{totalResources.memory_gb} GB</span>
-            </span>
+          {totalResources.memory_gb != null && (
+            <div className="lp-resource-row">
+              <MemoryStick size={10} className="lp-resource-icon" />
+              <span className="lp-resource-label">Memory</span>
+              <span className="lp-resource-value">{totalResources.memory_gb} GB</span>
+            </div>
           )}
-          {totalResources.gpu_count > 0 && (
-            <span className="lp-resource-item" title={totalResources.gpu_type || 'GPU'}>
-              <Database size={10} className="lp-resource-icon" />
-              <span>{totalResources.gpu_count} GPU{totalResources.gpu_count > 1 ? 's' : ''}</span>
-            </span>
+          {totalResources.storage_gb != null && (
+            <div className="lp-resource-row">
+              <HardDrive size={10} className="lp-resource-icon" />
+              <span className="lp-resource-label">Disk</span>
+              <span className="lp-resource-value">{totalResources.storage_gb} GB</span>
+            </div>
+          )}
+          {totalResources.gpu_count != null && totalResources.gpu_count > 0 && (
+            <div className="lp-resource-row">
+              <Cpu size={10} className="lp-resource-icon" />
+              <span className="lp-resource-label">GPU</span>
+              <span className="lp-resource-value">{totalResources.gpu_count}</span>
+            </div>
           )}
         </div>
       )}

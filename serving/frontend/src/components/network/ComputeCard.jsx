@@ -1,14 +1,27 @@
-import { Server } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive } from 'lucide-react'
 import Card, { CardHeader, CardBody } from '../common/Card'
 import { StatusBadge } from '../common/Badge'
 import AuthBadge from '../auth/AuthBadge'
 import './Network.css'
+
+function ResourceBar({ value, max, label }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
+  const color = pct >= 90 ? 'var(--status-offline)' : pct >= 70 ? 'var(--status-degraded)' : 'var(--status-online)'
+  return (
+    <div className="resource-bar-row" title={`${label}: ${value}`}>
+      <div className="resource-bar-track">
+        <div className="resource-bar-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  )
+}
 
 function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
   const { instance_id, name, status, capabilities, last_heartbeat, project_ids, lifecycle_mode } = instance
 
   const agentCount = capabilities?.agents?.length || 0
   const toolCount = capabilities?.tools?.length || 0
+  const resources = capabilities?.resources
   const runtimes = (capabilities?.tools_available || []).filter(t => t.startsWith('runtime:'))
   const isDraining = status === 'draining'
   const isBenched = !isDraining && (!project_ids || project_ids.length === 0)
@@ -16,6 +29,8 @@ function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
   const isManaged = lifecycle_mode === 'managed'
 
   const cardClassName = `compute-card${isBenched ? ' compute-benched' : ''}${isDraining ? ' compute-draining' : ''}`
+
+  const hasResources = resources && (resources.cpu_count != null || resources.memory_gb != null || resources.storage_gb != null)
 
   return (
     <Card className={cardClassName} onClick={onClick}>
@@ -47,6 +62,34 @@ function ComputeCard({ instance, onClick, authInfo, onAuthClick }) {
             </span>
           </span>
         </div>
+        {hasResources && (
+          <div className="resource-metrics">
+            {resources.cpu_count != null && (
+              <div className="resource-metric">
+                <Cpu size={11} className="resource-metric-icon" />
+                <span className="resource-metric-value">{resources.cpu_count} CPU</span>
+              </div>
+            )}
+            {resources.memory_gb != null && (
+              <div className="resource-metric">
+                <MemoryStick size={11} className="resource-metric-icon" />
+                <span className="resource-metric-value">{resources.memory_gb} GB</span>
+              </div>
+            )}
+            {resources.storage_gb != null && (
+              <div className="resource-metric">
+                <HardDrive size={11} className="resource-metric-icon" />
+                <span className="resource-metric-value">{resources.storage_gb} GB</span>
+              </div>
+            )}
+            {resources.gpu_count > 0 && (
+              <div className="resource-metric">
+                <Cpu size={11} className="resource-metric-icon" />
+                <span className="resource-metric-value">{resources.gpu_count} GPU{resources.gpu_type ? ` (${resources.gpu_type})` : ''}</span>
+              </div>
+            )}
+          </div>
+        )}
         {runtimes.length > 0 && (
           <div className="runtime-tags">
             {runtimes.map(rt => (

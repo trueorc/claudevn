@@ -1253,7 +1253,19 @@ async def health_check():
     
     compute_stats = compute_registry.get_stats()
     marketplace_stats = marketplace_registry.get_stats()
-    
+
+    # Get aggregated resource totals from online compute instances
+    try:
+        aggregated = await compute_registry.get_aggregated_capabilities()
+        total_resources = {
+            "cpu_count": aggregated.total_resources.cpu_count,
+            "memory_gb": aggregated.total_resources.memory_gb,
+            "gpu_count": aggregated.total_resources.gpu_count,
+            "storage_gb": aggregated.total_resources.storage_gb,
+        }
+    except Exception:
+        total_resources = None
+
     # Get skill marketplace stats (via HTTP client to separate service)
     try:
         marketplace_client = get_marketplace_client()
@@ -1348,7 +1360,7 @@ async def health_check():
         "compute_registry": {
             "total_instances": compute_stats["total_instances"],
             "by_status": compute_stats["by_status"],
-            "total_resources": compute_stats.get("total_resources", {})
+            "total_resources": total_resources
         },
         "marketplace_registry": {
             "total_marketplaces": marketplace_stats["total_marketplaces"],
