@@ -236,6 +236,14 @@
   opacity: 0.3;
 }
 
+/* Responsive: narrower rail on tablet */
+@media (max-width: 1199px) and (min-width: 769px) {
+  .chat-rail {
+    width: 200px;
+    min-width: 200px;
+  }
+}
+
 /* Responsive: hide on very narrow screens */
 @media (max-width: 768px) {
   .chat-rail {

@@ -37,3 +37,16 @@
   justify-content: space-between;
   margin-bottom: var(--space-md);
 }
+
+/* Responsive project detail */
+@media (max-width: 900px) {
+  .project-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .project-detail-meta {
+    grid-template-columns: 1fr;
+  }
+}

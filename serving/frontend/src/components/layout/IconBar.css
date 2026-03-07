@@ -299,3 +299,69 @@
   font-size: var(--font-size-sm);
   font-style: italic;
 }
+
+/* Mobile: bottom tab bar */
+@media (max-width: 767px) {
+  .iconbar {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    order: 999; /* Push to bottom */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    padding: var(--space-xs) 0;
+  }
+
+  .iconbar-top {
+    flex-direction: row;
+    flex: 1;
+    justify-content: space-around;
+  }
+
+  .iconbar-bottom {
+    display: none;
+  }
+
+  .iconbar-brand {
+    display: none;
+  }
+
+  .iconbar-divider {
+    display: none;
+  }
+
+  .iconbar-nav {
+    flex-direction: row;
+    gap: 0;
+    flex: 1;
+    justify-content: space-around;
+    padding: 0;
+  }
+
+  .iconbar-item {
+    width: 44px;
+    height: 44px;
+  }
+
+  .iconbar-item.active::before {
+    display: none;
+  }
+
+  .iconbar-tooltip {
+    display: none;
+  }
+
+  .iconbar-project-selector {
+    display: none;
+  }
+
+  /* Account for bottom nav */
+  body {
+    padding-bottom: 52px;
+  }
+}

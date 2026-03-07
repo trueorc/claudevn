@@ -601,11 +601,45 @@
 }
 
 /* Responsive */
-@media (max-width: 640px) {
+@media (max-width: 767px) {
+  .dashboard-page {
+    padding: var(--space-lg) var(--space-md);
+  }
+
   .dashboard-entry-cards {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-welcome {
+    padding-top: var(--space-lg);
+  }
+
+  .dashboard-welcome-title {
+    font-size: 20px;
+  }
+
+  .dashboard-summary-panel {
+    padding: var(--space-sm);
+  }
+
+  .summary-card {
+    min-width: 120px;
+  }
+
+  .dashboard-prompt-chips {
+    max-width: 100%;
+  }
+
+  .guided-setup {
+    padding-top: var(--space-lg);
+  }
+
+  .guided-step-form {
+    padding: var(--space-lg);
+  }
+}
+
+@media (max-width: 640px) {
   .dashboard-welcome {
     padding-top: var(--space-xl);
   }

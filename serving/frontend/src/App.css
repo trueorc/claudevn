@@ -286,3 +286,36 @@ a {
   color: var(--primary);
   background: var(--primary-muted);
 }
+
+/* =============================================================================
+   Responsive Layout
+   ============================================================================= */
+
+/* Tablet: 768px - 1199px */
+@media (max-width: 1199px) {
+  :root {
+    --sidebar-width: 180px;
+    --sidepanel-width: 240px;
+    --chat-rail-width: 200px;
+  }
+}
+
+/* Mobile: < 768px */
+@media (max-width: 767px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .main-content {
+    padding-bottom: 52px;
+  }
+
+  .page {
+    padding: var(--space-md);
+  }
+
+  .page-header {
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+}
