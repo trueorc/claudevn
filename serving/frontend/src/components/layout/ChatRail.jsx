@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import { useConversationContext } from '../../contexts/ConversationContext'
 import useIssues from '../../hooks/useIssues'
 import useDirectivePrompts from '../../hooks/useDirectivePrompts'
+import useChatTransition from '../../hooks/useChatTransition'
 import { Send, ChevronLeft, MessageSquare, ExternalLink } from 'lucide-react'
 import './ChatRail.css'
 
@@ -18,15 +19,14 @@ function ChatRail() {
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
   const prevMessageCountRef = useRef(messages.length)
-  const location = useLocation()
   const navigate = useNavigate()
+  const { transitionClass, isDashboard, saveScrollPosition } = useChatTransition()
 
   // Load issue stats for context-aware prompts (only when a project is active)
   const { stats } = useIssues({ useWebSocket: !!activeProject, pollInterval: activeProject ? 30000 : 0 })
   const prompts = useDirectivePrompts(activeProject ? stats : null)
 
   const recentMessages = messages.slice(-CHATRAIL_MAX_MESSAGES)
-  const isDashboard = location.pathname === '/dashboard' || location.pathname === '/'
 
   // Track unread messages when collapsed
   useEffect(() => {
@@ -64,11 +64,20 @@ function ChatRail() {
     }
   }
 
+  // Save scroll position when transitioning to dashboard
+  const messagesContainerRef = useRef(null)
+  useEffect(() => {
+    if (isDashboard && messagesContainerRef.current) {
+      saveScrollPosition(messagesContainerRef.current.scrollTop)
+    }
+  }, [isDashboard, saveScrollPosition])
+
   // Build class list based on state — always render so CSS transitions can fire
   const railClasses = [
     'chat-rail',
     isDashboard ? 'chat-rail-hidden' : '',
     !isDashboard && collapsed ? 'chat-rail-collapsed' : '',
+    !isDashboard && !collapsed && transitionClass === 'chat-transition-to-sidebar' ? 'chat-rail-enter' : '',
   ].filter(Boolean).join(' ')
 
   return (
@@ -108,7 +117,7 @@ function ChatRail() {
             </button>
           </div>
 
-          <div className="chat-rail-messages">
+          <div className="chat-rail-messages" ref={messagesContainerRef}>
             {messages.length === 0 && (
               <div className="chat-rail-empty">
                 {activeProject ? (

@@ -246,6 +246,49 @@
   opacity: 0.3;
 }
 
+/* Entry animation: chat sliding in from center when leaving dashboard */
+.chat-rail-enter {
+  animation: chatRailSlideIn 300ms ease-out both;
+}
+
+.chat-rail-enter .chat-rail-header,
+.chat-rail-enter .chat-rail-messages,
+.chat-rail-enter .chat-rail-input-area {
+  animation: chatRailContentFadeIn 300ms ease-out 50ms both;
+}
+
+@keyframes chatRailSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes chatRailContentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .chat-rail-enter,
+  .chat-rail-enter .chat-rail-header,
+  .chat-rail-enter .chat-rail-messages,
+  .chat-rail-enter .chat-rail-input-area {
+    animation: none;
+  }
+}
+
 /* Responsive: narrower rail on tablet */
 @media (max-width: 1199px) and (min-width: 769px) {
   .chat-rail {

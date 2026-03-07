@@ -332,6 +332,38 @@
   min-width: 0;
 }
 
+/* Entry animation: chat expanding from sidebar into center when entering dashboard */
+.dashboard-col-center-enter {
+  animation: dashboardCenterSlideIn 300ms ease-out both;
+}
+
+.dashboard-col-center-enter .conv-timeline,
+.dashboard-col-center-enter .conv-input-container {
+  animation: dashboardContentFadeIn 300ms ease-out 80ms both;
+}
+
+@keyframes dashboardCenterSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes dashboardContentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .dashboard-col-right {
   overflow-y: auto;
   padding: var(--space-sm);
@@ -445,6 +477,15 @@
   font-size: var(--font-size-sm);
   color: var(--text);
   margin: 0;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-col-center-enter,
+  .dashboard-col-center-enter .conv-timeline,
+  .dashboard-col-center-enter .conv-input-container {
+    animation: none;
+  }
 }
 
 /* Responsive: tablet — collapse to 2-column (left + center, right below) */

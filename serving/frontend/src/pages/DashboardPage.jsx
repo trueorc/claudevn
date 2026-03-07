@@ -8,6 +8,7 @@ import useTiming from '../hooks/useTiming'
 import useSystemHealth from '../hooks/useSystemHealth'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import usePresence from '../hooks/usePresence'
+import useChatTransition from '../hooks/useChatTransition'
 import { Plus, ArrowRight } from 'lucide-react'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
@@ -96,6 +97,7 @@ function ActiveProjectDashboard() {
   const { health, overallStatus, loading: healthLoading } = useSystemHealth({ pollInterval: 30000 })
   const { users: presenceUsers } = usePresence(projectId || null)
   const prompts = useDirectivePrompts(activeProject ? stats : null)
+  const { transitionClass, scrollPositionRef } = useChatTransition()
 
   const [suggestedText, setSuggestedText] = useState('')
 
@@ -132,7 +134,7 @@ function ActiveProjectDashboard() {
       </div>
 
       {/* Center column — Conversation */}
-      <div className="dashboard-col-center">
+      <div className={`dashboard-col-center${transitionClass === 'chat-transition-to-center' ? ' dashboard-col-center-enter' : ''}`}>
         {messages.length === 0 && (
           <div className="dashboard-welcome-chat">
             <div className="dashboard-welcome-heading-row">
