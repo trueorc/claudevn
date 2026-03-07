@@ -560,17 +560,36 @@ class SSEEventClient:
         url = f"{self.serving_url}/api/v1/compute/register"
 
         # Build registration payload (manual construction to avoid import issues)
+        capabilities = {
+            "agents": self.capabilities,
+            "tools": [],
+            "features": [],
+            "labels": self.labels,
+            "tools_available": self.tools_available,
+        }
+
+        # Include resources if available (normalize string values like "16gb" → numeric)
+        if self.resources:
+            normalized = {}
+            for key, value in self.resources.items():
+                if isinstance(value, (int, float)):
+                    normalized[key] = value
+                elif isinstance(value, str):
+                    numeric = "".join(c for c in value if c.isdigit() or c == ".")
+                    if numeric:
+                        normalized[key] = float(numeric) if "." in numeric else int(numeric)
+            if normalized:
+                capabilities["resources"] = {
+                    "cpu_count": normalized.get("cpu"),
+                    "memory_gb": normalized.get("memory"),
+                    "gpu_count": normalized.get("gpu"),
+                }
+
         payload = {
             "instance_id": self.compute_id,
             "name": f"Compute {self.compute_id}",
             "endpoint": "sse",
-            "capabilities": {
-                "agents": self.capabilities,
-                "tools": [],
-                "features": [],
-                "labels": self.labels,
-                "tools_available": self.tools_available,
-            },
+            "capabilities": capabilities,
             "metadata": {
                 "connection_type": "sse",
                 "pre_registered": True,
