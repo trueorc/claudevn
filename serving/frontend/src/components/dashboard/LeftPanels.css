@@ -1,0 +1,382 @@
+/* ============================================================
+   LeftPanels — left column of the command center layout
+   All classes are prefixed with `.lp-` to avoid conflicts.
+   ============================================================ */
+
+/* Column wrapper */
+.lp-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/* ── Shared panel base ── */
+.lp-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  /* Reset <button> defaults when used as a button element */
+  text-align: left;
+  cursor: default;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.lp-panel--clickable {
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.lp-panel--clickable:hover {
+  border-color: var(--border-light);
+  background: color-mix(in srgb, var(--bg-elevated) 85%, var(--primary) 15%);
+}
+
+.lp-panel--clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── Panel header ── */
+.lp-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.lp-panel-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+
+.lp-panel-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Empty state ── */
+.lp-empty-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ============================================================
+   Panel 1 — Project Switcher
+   ============================================================ */
+
+.lp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.lp-icon-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-muted);
+}
+
+.lp-icon-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.lp-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  /* Thin scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.lp-project-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.lp-project-list::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 2px;
+}
+
+.lp-project-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background var(--transition-fast);
+  border-left: 2px solid transparent;
+  box-sizing: border-box;
+}
+
+.lp-project-row:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+}
+
+.lp-project-row--active {
+  border-left-color: var(--primary);
+  background: var(--primary-muted);
+}
+
+.lp-project-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lp-project-name {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ============================================================
+   Panel 2 — Execution Status
+   ============================================================ */
+
+/* Ring */
+.lp-ring-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-sm);
+}
+
+.lp-ring-container {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lp-ring-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.lp-ring-arc {
+  transition: stroke-dashoffset 500ms ease;
+}
+
+.lp-ring-label {
+  position: relative;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  /* Sits on top of the SVG via z-index stacking context */
+  z-index: 1;
+}
+
+/* Stat pills row */
+.lp-stat-pills {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+.lp-stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lp-stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lp-stat-dot--online {
+  background: var(--status-online);
+}
+
+.lp-stat-dot--pending {
+  background: var(--status-pending);
+}
+
+.lp-stat-dot--offline {
+  background: var(--status-offline);
+}
+
+.lp-stat-count {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-stat-pill-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* Running items mini-list */
+.lp-running-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.lp-running-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.lp-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-online);
+  flex-shrink: 0;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.lp-running-title {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.lp-running-more {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-left: 14px; /* align after dot + gap */
+}
+
+/* Focus summary */
+.lp-focus-summary {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-style: italic;
+  margin: var(--space-xs) 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================================
+   Panel 3 — Network Health
+   ============================================================ */
+
+/* Overall health dot in header */
+.lp-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lp-health-dot--healthy {
+  background: var(--status-online);
+}
+
+.lp-health-dot--degraded {
+  background: var(--status-degraded);
+}
+
+.lp-health-dot--unhealthy,
+.lp-health-dot--offline {
+  background: var(--status-offline);
+}
+
+.lp-health-dot--unknown {
+  background: var(--text-muted);
+}
+
+/* Compute node dot grid */
+.lp-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 14px);
+  gap: 4px;
+  margin-bottom: var(--space-sm);
+}
+
+.lp-node-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lp-node-dot--online {
+  background: var(--status-online);
+}
+
+.lp-node-dot--degraded {
+  background: var(--status-degraded);
+}
+
+.lp-node-dot--offline {
+  background: var(--status-offline);
+}
+
+.lp-node-dot--unknown {
+  background: var(--border-light);
+}
+
+/* Compact summary text */
+.lp-network-summary {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.lp-network-marketplace {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}

@@ -3,12 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
+import usePlanSummary from '../hooks/usePlanSummary'
+import useTiming from '../hooks/useTiming'
+import useSystemHealth from '../hooks/useSystemHealth'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import usePresence from '../hooks/usePresence'
 import { Plus, ArrowRight } from 'lucide-react'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
-import SummaryCards from '../components/dashboard/SummaryCards'
+import LeftPanels from '../components/dashboard/LeftPanels'
+import RightPanels from '../components/dashboard/RightPanels'
 import PresenceBar from '../components/dashboard/PresenceBar'
 import '../components/directives/Conversation.css'
 import './DashboardPage.css'
@@ -67,24 +71,32 @@ function NoProjectDashboard() {
 }
 
 function ActiveProjectDashboard() {
-  const { activeProject } = useProjectContext()
+  const { activeProject, projects, setActiveProject } = useProjectContext()
+  const navigate = useNavigate()
   const {
     messages,
     submitting,
     pendingDirective,
     applying,
-    lastCreatedGoal,
     submit,
     applyPending,
     rejectPending,
     retryProcessing,
   } = useConversationContext()
+
+  const projectId = activeProject?.project_id
+
+  // Data hooks — shared across panels
   const { stats } = useIssues({
     pollInterval: 15000,
-    filters: { project_id: activeProject?.project_id },
+    filters: { project_id: projectId },
   })
+  const { data: planData } = usePlanSummary(projectId, { pollInterval: 15000 })
+  const { aggregates, totalWorkItems } = useTiming(projectId, { pollInterval: 30000 })
+  const { health, overallStatus, loading: healthLoading } = useSystemHealth({ pollInterval: 30000 })
+  const { users: presenceUsers } = usePresence(projectId || null)
   const prompts = useDirectivePrompts(activeProject ? stats : null)
-  const { users: presenceUsers } = usePresence(activeProject?.project_id || null)
+
   const [suggestedText, setSuggestedText] = useState('')
 
   const handleSuggestedTextConsumed = useCallback(() => {
@@ -99,13 +111,28 @@ function ActiveProjectDashboard() {
     await submit(msg.content, INTENT_MODES.AUTO)
   }, [submit])
 
-  return (
-    <div className="dashboard-workspace">
-      {/* Summary cards strip */}
-      <SummaryCards />
+  const handleNewProject = useCallback(() => {
+    navigate('/projects?create=true')
+  }, [navigate])
 
-      <div className="dashboard-conversation">
-        {/* Empty state with prompts */}
+  return (
+    <div className="dashboard-command-center">
+      {/* Left column — Operations */}
+      <div className="dashboard-col-left">
+        <LeftPanels
+          projects={projects}
+          activeProject={activeProject}
+          onSelectProject={setActiveProject}
+          onNewProject={handleNewProject}
+          planData={planData}
+          health={health}
+          overallStatus={overallStatus}
+          healthLoading={healthLoading}
+        />
+      </div>
+
+      {/* Center column — Conversation */}
+      <div className="dashboard-col-center">
         {messages.length === 0 && (
           <div className="dashboard-welcome-chat">
             <div className="dashboard-welcome-heading-row">
@@ -131,7 +158,6 @@ function ActiveProjectDashboard() {
           </div>
         )}
 
-        {/* Conversation timeline */}
         <ConversationTimeline
           messages={messages}
           pendingDirective={pendingDirective}
@@ -142,13 +168,22 @@ function ActiveProjectDashboard() {
           onPromoteToDirective={handlePromoteToDirective}
         />
 
-        {/* Input */}
         <ConversationInput
           onSubmit={handleSubmit}
           submitting={submitting}
           disabled={!!pendingDirective}
           suggestedText={suggestedText}
           onSuggestedTextConsumed={handleSuggestedTextConsumed}
+        />
+      </div>
+
+      {/* Right column — Analytics */}
+      <div className="dashboard-col-right">
+        <RightPanels
+          stats={stats}
+          aggregates={aggregates}
+          totalWorkItems={totalWorkItems}
+          presenceUsers={presenceUsers}
         />
       </div>
     </div>

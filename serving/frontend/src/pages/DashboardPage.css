@@ -304,20 +304,38 @@
   opacity: 1;
 }
 
-/* Conversation Workspace (Active Project) */
-.dashboard-workspace {
+/* ============================================================
+   3-Column Command Center Layout
+   ============================================================ */
+.dashboard-command-center {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 280px 1fr 280px;
   overflow: hidden;
 }
 
-.dashboard-conversation {
+.dashboard-col-left {
+  overflow-y: auto;
+  padding: var(--space-sm);
+  border-right: 1px solid var(--border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.dashboard-col-center {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+}
+
+.dashboard-col-right {
+  overflow-y: auto;
+  padding: var(--space-sm);
+  border-left: 1px solid var(--border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
 }
 
 /* Welcome state inside conversation area */
@@ -425,10 +443,21 @@
   margin: 0;
 }
 
-/* Responsive: cards compress at narrower widths */
-@media (max-width: 900px) {
-  .summary-card {
-    min-width: 150px;
+/* Responsive: tablet — collapse to 2-column (left + center, right below) */
+@media (max-width: 1199px) {
+  .dashboard-command-center {
+    grid-template-columns: 240px 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .dashboard-col-left {
+    grid-row: 1 / -1;
+  }
+  .dashboard-col-right {
+    grid-column: 2;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow-y: visible;
+    max-height: 200px;
   }
 }
 
@@ -702,8 +731,25 @@
   color: var(--text-muted);
 }
 
-/* Responsive */
+/* Responsive — mobile: single column */
 @media (max-width: 767px) {
+  .dashboard-command-center {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .dashboard-col-left {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .dashboard-col-right {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
   .dashboard-page {
     padding: var(--space-lg) var(--space-md);
   }
@@ -718,14 +764,6 @@
 
   .dashboard-welcome-title {
     font-size: 20px;
-  }
-
-  .dashboard-summary-panel {
-    padding: var(--space-xs) var(--space-sm);
-  }
-
-  .summary-card {
-    min-width: 140px;
   }
 
   .dashboard-prompt-chips {

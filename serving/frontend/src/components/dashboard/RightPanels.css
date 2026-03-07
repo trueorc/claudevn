@@ -1,0 +1,250 @@
+/* RightPanels — analytics/insights right column */
+
+.rp-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* Base panel */
+.rp-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  width: 100%;
+  text-align: left;
+}
+
+.rp-panel-clickable {
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.rp-panel-clickable:hover {
+  border-color: var(--border-light);
+}
+
+/* Panel header */
+.rp-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.rp-panel-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.rp-panel-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 1;
+  margin: 0;
+}
+
+.rp-panel-count {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.rp-panel-empty {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── Backlog panel: donut chart ── */
+
+.rp-donut-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-sm);
+}
+
+.rp-donut-svg {
+  display: block;
+  overflow: visible;
+}
+
+.rp-donut-center-text {
+  font-size: 14px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Legend */
+.rp-donut-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.rp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rp-legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.rp-legend-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.rp-legend-count {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Priority pills */
+.rp-priority-row {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.rp-priority-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.rp-priority-p0 {
+  color: var(--status-offline);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.rp-priority-p1 {
+  color: var(--status-degraded);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+/* ── Timing panel ── */
+
+.rp-timing-metrics-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.rp-timing-metric {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+
+.rp-timing-metric-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.rp-timing-metric-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.rp-timing-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rp-timing-bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 20px;
+}
+
+.rp-timing-bar-label {
+  width: 56px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.rp-timing-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.rp-timing-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--transition-normal);
+}
+
+.rp-timing-bar-value {
+  width: 48px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ── Team panel ── */
+
+.rp-team-users {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.rp-team-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.rp-team-user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rp-team-user-name {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rp-team-user-view {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
