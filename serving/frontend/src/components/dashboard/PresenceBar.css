@@ -1,0 +1,54 @@
+/* PresenceBar — avatar row with status dots */
+
+.presence-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Stack avatars slightly when multiple users */
+.presence-bar .presence-avatar-wrapper + .presence-avatar-wrapper {
+  margin-left: -6px;
+}
+
+.presence-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: default;
+  /* Raise on hover to bring tooltip above siblings */
+  z-index: 0;
+}
+
+.presence-avatar-wrapper:hover {
+  z-index: 10;
+}
+
+/* Tooltip */
+.presence-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.presence-tooltip-name {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.presence-tooltip-view {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}

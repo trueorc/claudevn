@@ -216,11 +216,18 @@
   flex: 1;
 }
 
+.dashboard-welcome-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
 .dashboard-welcome-heading {
   font-size: var(--font-size-2xl);
   font-weight: 600;
   color: var(--text);
-  margin-bottom: var(--space-sm);
 }
 
 .dashboard-welcome-desc {

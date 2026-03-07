@@ -4,12 +4,14 @@ import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
+import usePresence from '../hooks/usePresence'
 import { createProject } from '../api/projects'
 import { createGoal } from '../api/workmap'
 import { Plus, ArrowRight, Target, Play, CheckCircle, X } from 'lucide-react'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
 import SummaryCards from '../components/dashboard/SummaryCards'
+import PresenceBar from '../components/dashboard/PresenceBar'
 import '../components/directives/Conversation.css'
 import './DashboardPage.css'
 
@@ -323,6 +325,7 @@ function ActiveProjectDashboard() {
     filters: { project_id: activeProject?.project_id },
   })
   const prompts = useDirectivePrompts(activeProject ? stats : null)
+  const { users: presenceUsers } = usePresence(activeProject?.project_id || null)
   const [suggestedText, setSuggestedText] = useState('')
 
   const handleSuggestedTextConsumed = useCallback(() => {
@@ -339,7 +342,10 @@ function ActiveProjectDashboard() {
         {/* Empty state with prompts */}
         {messages.length === 0 && (
           <div className="dashboard-welcome-chat">
-            <h2 className="dashboard-welcome-heading">{activeProject?.name}</h2>
+            <div className="dashboard-welcome-heading-row">
+              <h2 className="dashboard-welcome-heading">{activeProject?.name}</h2>
+              <PresenceBar users={presenceUsers} />
+            </div>
             <p className="dashboard-welcome-desc">
               What would you like to do? Describe new work, shift priorities, or ask about status.
             </p>

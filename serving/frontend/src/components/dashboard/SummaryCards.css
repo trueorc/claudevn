@@ -85,3 +85,44 @@
 .summary-card:hover .summary-card-link {
   color: var(--primary);
 }
+
+/* Non-interactive card variant (e.g. TeamCard) */
+.summary-card-static {
+  cursor: default;
+}
+
+/* Team card user list */
+.team-card-users {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.team-card-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.team-card-user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.team-card-user-name {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.team-card-user-view {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

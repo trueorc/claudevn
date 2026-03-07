@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
-import { Activity, Package, Cpu, Clock } from 'lucide-react'
+import { Activity, Package, Cpu, Clock, Users } from 'lucide-react'
 import useIssues from '../../hooks/useIssues'
 import usePlanSummary from '../../hooks/usePlanSummary'
+import usePresence from '../../hooks/usePresence'
 import { useProjectContext } from '../../contexts/ProjectContext'
+import UserAvatar from '../common/UserAvatar'
 import './SummaryCards.css'
 
 function PlanCard({ planData }) {
@@ -84,6 +86,49 @@ function BacklogCard({ stats }) {
   )
 }
 
+function TeamCard({ users }) {
+  if (!users || users.length === 0) {
+    return (
+      <div className="summary-card summary-card-static">
+        <div className="summary-card-header">
+          <Users size={14} className="summary-card-icon" />
+          <h3 className="summary-card-title">Team</h3>
+        </div>
+        <p className="summary-card-empty">Only you here</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="summary-card summary-card-static">
+      <div className="summary-card-header">
+        <Users size={14} className="summary-card-icon" />
+        <h3 className="summary-card-title">Team</h3>
+        <span className="summary-card-count">{users.length}</span>
+      </div>
+      <div className="team-card-users">
+        {users.map((user) => (
+          <div key={user.user_id} className="team-card-user">
+            <UserAvatar
+              userId={user.user_id}
+              displayName={user.display_name}
+              size="sm"
+              showStatus
+              status={user.status === 'online' ? 'online' : 'away'}
+            />
+            <div className="team-card-user-info">
+              <span className="team-card-user-name">{user.display_name}</span>
+              {user.current_view && (
+                <span className="team-card-user-view">{user.current_view}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function NetworkCard() {
   const navigate = useNavigate()
   return (
@@ -121,11 +166,13 @@ function SummaryCards() {
   const { data: planData } = usePlanSummary(projectId, {
     pollInterval: 15000,
   })
+  const { users } = usePresence(projectId)
 
   return (
     <div className="dashboard-summary-panel">
       <PlanCard planData={planData} />
       <BacklogCard stats={stats} />
+      <TeamCard users={users} />
       <NetworkCard />
       <TimingCard />
     </div>
