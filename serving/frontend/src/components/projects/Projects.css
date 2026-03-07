@@ -186,6 +186,36 @@
   color: var(--status-offline);
 }
 
+.project-action-btn-select {
+  gap: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--primary-muted);
+  color: var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.project-action-btn-select:hover {
+  background: var(--primary);
+  color: white;
+}
+
+.project-select-label {
+  font-size: var(--font-size-xs);
+}
+
+.project-active-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--status-online);
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: var(--radius-sm);
+}
+
 /* Repo remove button */
 .repo-remove-btn {
   display: flex;

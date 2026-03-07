@@ -1,45 +1,69 @@
 import { useNavigate } from 'react-router-dom'
-import { Activity, Cpu, Database, FlaskConical, Hammer, HardDrive, MemoryStick, Plus, Server, Shield, TrendingUp } from 'lucide-react'
+import { Activity, ChevronRight, Cpu, Database, FlaskConical, Hammer, HardDrive, MemoryStick, Plus, Server, Shield, TrendingUp } from 'lucide-react'
 import NotificationDot from '../common/NotificationDot'
 import './LeftPanels.css'
 
 // ---------------------------------------------------------------------------
-// Panel 1: Project Switcher
+// Panel 1: Project Switcher (top 3 recent projects)
 // ---------------------------------------------------------------------------
-function ProjectSwitcherPanel({ projects = [], activeProject, onSelectProject, onNewProject }) {
+function ProjectSwitcherPanel({ recentProjects = [], activeProject, onSelectProject, onNewProject }) {
+  const navigate = useNavigate()
+
+  const handleBlockClick = () => {
+    navigate('/projects')
+  }
+
+  const handleProjectClick = (e, project) => {
+    e.stopPropagation()
+    onSelectProject(project)
+  }
+
+  const handleNewClick = (e) => {
+    e.stopPropagation()
+    onNewProject()
+  }
+
   return (
-    <div className="lp-panel">
+    <button className="lp-panel lp-panel--clickable" onClick={handleBlockClick}>
       <div className="lp-panel-header">
         <span className="lp-panel-title">Projects</span>
-        <button className="lp-icon-btn" onClick={onNewProject} title="New project" aria-label="New project">
+        <span className="lp-icon-btn" onClick={handleNewClick} title="New project" aria-label="New project" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') handleNewClick(e) }}>
           <Plus size={12} />
-        </button>
+        </span>
       </div>
 
-      {projects.length === 0 ? (
+      {recentProjects.length === 0 ? (
         <p className="lp-empty-text">No projects yet</p>
       ) : (
         <div className="lp-project-list">
-          {projects.map((project) => {
+          {recentProjects.map((project) => {
             const isActive = activeProject?.project_id === project.project_id
             return (
-              <button
+              <span
                 key={project.project_id}
                 className={`lp-project-row${isActive ? ' lp-project-row--active' : ''}`}
-                onClick={() => onSelectProject(project)}
+                onClick={(e) => handleProjectClick(e, project)}
                 title={project.name}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleProjectClick(e, project) }}
               >
                 <span
                   className="lp-project-dot"
                   style={{ background: project.color || 'var(--primary)' }}
                 />
                 <span className="lp-project-name">{project.name}</span>
-              </button>
+              </span>
             )
           })}
         </div>
       )}
-    </div>
+
+      <div className="lp-all-projects-link">
+        <span>All projects</span>
+        <ChevronRight size={12} />
+      </div>
+    </button>
   )
 }
 
@@ -300,7 +324,7 @@ function NetworkPanel({ health, overallStatus, healthLoading, showNotification, 
 // Root export
 // ---------------------------------------------------------------------------
 function LeftPanels({
-  projects,
+  recentProjects,
   activeProject,
   onSelectProject,
   onNewProject,
@@ -314,7 +338,7 @@ function LeftPanels({
   return (
     <div className="lp-column">
       <ProjectSwitcherPanel
-        projects={projects}
+        recentProjects={recentProjects}
         activeProject={activeProject}
         onSelectProject={onSelectProject}
         onNewProject={onNewProject}

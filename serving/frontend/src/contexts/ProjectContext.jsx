@@ -1,14 +1,35 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
 import { getProjects, getProject } from '../api/projects'
 
 const PROJECT_STORAGE_KEY = 'claudevn_active_project_id'
+const RECENT_PROJECTS_KEY = 'claudevn_recent_project_ids'
+const MAX_RECENT_PROJECTS = 3
 
 const ProjectContext = createContext(null)
+
+function loadRecentIds() {
+  try {
+    const raw = localStorage.getItem(RECENT_PROJECTS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveRecentIds(ids) {
+  localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(ids))
+}
+
+function addToRecents(projectId, currentIds) {
+  const filtered = currentIds.filter(id => id !== projectId)
+  return [projectId, ...filtered].slice(0, MAX_RECENT_PROJECTS)
+}
 
 export function ProjectProvider({ children }) {
   const [activeProject, setActiveProjectState] = useState(null)
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
+  const [recentIds, setRecentIds] = useState(loadRecentIds)
 
   // Fetch all projects on mount
   useEffect(() => {
@@ -57,6 +78,11 @@ export function ProjectProvider({ children }) {
     setActiveProjectState(project)
     if (project) {
       localStorage.setItem(PROJECT_STORAGE_KEY, project.project_id)
+      setRecentIds(prev => {
+        const updated = addToRecents(project.project_id, prev)
+        saveRecentIds(updated)
+        return updated
+      })
     } else {
       localStorage.removeItem(PROJECT_STORAGE_KEY)
     }
@@ -88,12 +114,21 @@ export function ProjectProvider({ children }) {
     }
   }, [activeProject, setActiveProject, clearProject, projects])
 
+  // Resolve recent IDs to full project objects, filtered to those that still exist
+  const recentProjects = useMemo(() => {
+    const projectMap = new Map(projects.map(p => [p.project_id, p]))
+    return recentIds
+      .map(id => projectMap.get(id))
+      .filter(Boolean)
+  }, [recentIds, projects])
+
   const value = {
     activeProject,
     activeProjectId: activeProject?.project_id || null,
     setActiveProject,
     clearProject,
     projects,
+    recentProjects,
     refreshProjects,
     loading
   }

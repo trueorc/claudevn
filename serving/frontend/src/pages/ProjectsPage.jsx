@@ -49,7 +49,7 @@ function ProjectsPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [cameFromNoProject, setCameFromNoProject] = useState(false)
   const { filters, setFilters } = useProjectFilters()
-  const { refreshProjects, activeProject, setActiveProject, projects } = useProjectContext()
+  const { refreshProjects, activeProject, activeProjectId, setActiveProject, projects } = useProjectContext()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -244,6 +244,11 @@ function ProjectsPage() {
         onSelect={setSelectedProject}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        onSelectActive={(project) => {
+          setActiveProject(project)
+          navigate('/dashboard')
+        }}
+        activeProjectId={activeProjectId}
         filters={filters}
       />
 
