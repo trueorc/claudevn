@@ -108,7 +108,7 @@ After creating an issue, set the project board fields:
 # Get the issue's project item ID
 ITEM_ID=$(gh api graphql -f query='
 {
-  repository(owner: "Guarrdon", name: "claudevn") {
+  repository(owner: "trueorc", name: "claudevn") {
     issue(number: ISSUE_NUMBER) {
       projectItems(first: 1) {
         nodes { id }
@@ -269,7 +269,7 @@ EOF
 Issues are auto-added to the project via GitHub Actions. If not:
 
 ```bash
-gh project item-add 2 --owner Guarrdon --url https://github.com/Guarrdon/claudevn/issues/XX
+gh project item-add 2 --owner trueorc --url https://github.com/trueorc/claudevn/issues/XX
 ```
 
 ### Bulk Update Labels

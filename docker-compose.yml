@@ -11,9 +11,10 @@
 # Services:
 #   serving      → Coordination hub at http://localhost:8002
 #   marketplace  → Skill marketplace at http://localhost:8003
-#   redis        → Redis at localhost:6379
-#   python-1/2    → Python compute agents
-#   node-1        → Full-stack compute agent
+#   redis        → Redis at localhost:6379 (PR queue, branch state, auth tokens)
+#   python-1     → Code Writer & Test Automator (Python specialist)
+#   python-2     → Debugger & Security Reviewer (Python specialist)
+#   node-1       → Full-stack developer (Node.js + Python)
 #
 # Authentication:
 #   Default: AUTH_MODE=bypass (no login required, dev user assumed)
@@ -271,7 +272,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Compute Instance 3 - Documentation specialist (TEMPORARILY DISABLED)
+  # Compute Instance 3 - Documentation specialist
+  # Disabled: doc-writer skill not yet implemented. Uncomment to enable.
   # compute-3:
   #   build:
   #     context: .

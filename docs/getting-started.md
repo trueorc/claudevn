@@ -31,7 +31,7 @@ The simplest way to get started is using Docker Compose, which starts all servic
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Guarrdon/claudevn.git
+git clone https://github.com/trueorc/claudevn.git
 cd claudevn
 ```
 
@@ -50,9 +50,9 @@ This command starts:
 | **marketplace** | 8003 | Skill catalog and composition service |
 | **serving** | 8002 | Coordination hub, API, and monitoring UI |
 | **SSH Git** | 2222 | Git server for compute instances |
-| **compute-1** | 8010 | Code Writer specialist |
-| **compute-2** | 8011 | Debugger specialist |
-| **compute-3** | 8012 | Documentation Writer specialist |
+| **python-1** | — | Code Writer & Test Automator (outbound SSE to Serving) |
+| **python-2** | — | Debugger & Security Reviewer (outbound SSE to Serving) |
+| **node-1** | — | Full-stack developer (outbound SSE to Serving) |
 
 ### 3. Authenticate Claude Code
 
@@ -412,11 +412,11 @@ Now that you have ClaudeVN running:
 2. **Explore MCP tools** - See [MCP Tools Reference](design/specifications/mcp-tools.md) for the communication protocol
 3. **Author custom skills** - Check [Skill Authoring Guide](skill-authoring-guide.md) to create specialized agents
 4. **Configure advanced settings** - Review [Configuration Reference](configuration-reference.md)
-5. **Deploy to production** - See [Deployment Guide](deployment-guide.md) for production best practices
+5. **Deploy to production** - See [Distributed Deployment Guide](guides/distributed-deployment.md) for production best practices
 
 ## Getting Help
 
-- **GitHub Issues** - Report bugs or request features at [github.com/Guarrdon/claudevn/issues](https://github.com/Guarrdon/claudevn/issues)
+- **GitHub Issues** - Report bugs or request features at [github.com/trueorc/claudevn/issues](https://github.com/trueorc/claudevn/issues)
 - **Documentation** - Browse `docs/` for comprehensive guides and specifications
 - **Architecture Decisions** - See `docs/design/adr/` for design rationale
 
