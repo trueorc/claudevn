@@ -650,6 +650,23 @@ class WorkOrchestrator:
         from services.work_map_service import get_work_map_service
 
         try:
+            # Yield to decomposition/characterization tasks (highest priority).
+            # The WorkDispatcher assigns these first, but this polling loop runs
+            # independently and can steal idle computes for execution work,
+            # starving higher-priority tasks.
+            try:
+                from services.work_dispatcher import get_work_dispatcher
+                dispatcher = get_work_dispatcher()
+                depths = dispatcher.get_queue_depths()
+                if depths["decomp_queue"] > 0 or depths["char_queue"] > 0:
+                    logger.debug(
+                        f"Deferring execution dispatch: "
+                        f"{depths['decomp_queue']} decomp, {depths['char_queue']} char tasks pending"
+                    )
+                    return
+            except RuntimeError:
+                pass  # Dispatcher not initialized yet
+
             # Auto-decompose planning goals
             await self._decompose_planning_goals()
 
