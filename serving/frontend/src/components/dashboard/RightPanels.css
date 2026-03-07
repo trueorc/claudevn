@@ -282,35 +282,91 @@
 
 /* ── Timing panel ── */
 
-.rp-timing-metrics-row {
+/* Aggregate timing insights */
+.rp-timing-insights {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm) var(--space-md);
+  flex-direction: column;
+  gap: 6px;
   margin-bottom: var(--space-sm);
 }
 
-.rp-timing-metric {
+.rp-timing-insight-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rp-timing-insight-header {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-xs);
 }
 
-.rp-timing-metric-value {
-  font-size: var(--font-size-lg);
+.rp-timing-insight-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rp-timing-insight-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 0 4px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rp-timing-insight-value {
+  font-size: var(--font-size-sm);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
-.rp-timing-metric-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
+.rp-timing-insight-value--accent {
+  color: var(--primary);
+}
+
+.rp-timing-insight-bar-track {
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.rp-timing-insight-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width var(--transition-normal);
+  min-width: 2px;
+}
+
+.rp-timing-insight-bar--total {
+  background: var(--primary);
+}
+
+.rp-timing-insight-bar--issue {
+  background: #8b5cf6;
+}
+
+.rp-timing-insight-bar--directive {
+  background: #f59e0b;
 }
 
 .rp-timing-bars {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.rp-timing-bars--separated {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-xs);
 }
 
 .rp-timing-bar-row {
