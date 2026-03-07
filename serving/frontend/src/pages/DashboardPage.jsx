@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
@@ -246,59 +246,40 @@ function NoProjectDashboard({ onNewProject }) {
 
   return (
     <div className="dashboard-page">
-      <div className="dashboard-welcome">
-        <img src="/ClaudeVN-Logo-64x64.png" alt="ClaudeVN" width="48" height="48" className="dashboard-welcome-logo" />
-        <h1 className="dashboard-welcome-title">Welcome to ClaudeVN</h1>
-        <p className="dashboard-welcome-subtitle">AI-powered development orchestration</p>
-      </div>
+      <div className="dashboard-onboarding">
+        <div className="dashboard-onboarding-welcome">
+          <img src="/ClaudeVN-Logo-64x64.png" alt="ClaudeVN" width="40" height="40" className="dashboard-welcome-logo" />
+          <h1 className="dashboard-onboarding-title">Welcome to ClaudeVN</h1>
+          <p className="dashboard-onboarding-desc">
+            I'm here to help you orchestrate AI-powered development. Tell me about your project to get started.
+          </p>
+        </div>
 
-      <div className="dashboard-entry-cards">
-        <button className="dashboard-card dashboard-card-new" onClick={onNewProject}>
-          <div className="dashboard-card-icon">
-            <Plus size={28} strokeWidth={1.5} />
-          </div>
-          <div className="dashboard-card-content">
-            <h2 className="dashboard-card-title">Start New Project</h2>
-            <p className="dashboard-card-desc">
-              Define goals, let the system decompose and orchestrate execution
-            </p>
-          </div>
-          <div className="dashboard-card-action">
-            <span>Get Started</span>
-            <ArrowRight size={16} />
-          </div>
-        </button>
+        <div className="dashboard-onboarding-actions">
+          <button className="dashboard-onboarding-btn dashboard-onboarding-btn-primary" onClick={onNewProject}>
+            <Plus size={16} />
+            Create a new project
+          </button>
 
-        <div className="dashboard-card dashboard-card-continue">
-          <div className="dashboard-card-content">
-            <h2 className="dashboard-card-title">Continue Working</h2>
-            <p className="dashboard-card-desc">
-              Pick up where you left off on an existing project
-            </p>
-          </div>
-
-          {projects.length > 0 ? (
-            <div className="dashboard-project-list">
-              {projects.map((project) => (
-                <button
-                  key={project.project_id}
-                  className="dashboard-project-item"
-                  onClick={() => handleSelectProject(project)}
-                >
-                  <div className="dashboard-project-info">
+          {projects.length > 0 && (
+            <div className="dashboard-onboarding-existing">
+              <span className="dashboard-onboarding-or">or open an existing project</span>
+              <div className="dashboard-onboarding-projects">
+                {projects.map((project) => (
+                  <button
+                    key={project.project_id}
+                    className="dashboard-onboarding-project"
+                    onClick={() => handleSelectProject(project)}
+                  >
                     <span
                       className="dashboard-project-dot"
                       style={{ background: project.color || 'var(--primary)' }}
                     />
-                    <span className="dashboard-project-name">{project.name}</span>
-                  </div>
-                  <ArrowRight size={14} className="dashboard-project-arrow" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="dashboard-project-empty">
-              No projects yet — start by creating one
+                    {project.name}
+                    <ArrowRight size={12} className="dashboard-onboarding-project-arrow" />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -399,6 +380,13 @@ function ActiveProjectDashboard() {
 function DashboardPage() {
   const { activeProject } = useProjectContext()
   const [showGuidedSetup, setShowGuidedSetup] = useState(false)
+  const hasOnboarded = localStorage.getItem('claudevn_onboarded') === 'true'
+
+  useEffect(() => {
+    if (activeProject) {
+      localStorage.setItem('claudevn_onboarded', 'true')
+    }
+  }, [activeProject])
 
   const handleNewProject = useCallback(() => {
     setShowGuidedSetup(true)
