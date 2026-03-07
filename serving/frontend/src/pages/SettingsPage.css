@@ -1,4 +1,6 @@
 .settings-page {
+  flex: 1;
+  overflow-y: auto;
   padding: var(--space-lg);
   max-width: 800px;
 }

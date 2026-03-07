@@ -141,6 +141,10 @@ html, body, #root {
   padding: var(--space-lg);
 }
 
+.page-constrained {
+  max-width: 800px;
+}
+
 /* Page header */
 .page-header {
   display: flex;
