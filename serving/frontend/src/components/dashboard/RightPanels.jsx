@@ -271,23 +271,75 @@ function BacklogPanel({ stats, issues }) {
   )
 }
 
-function TimingPanel({ aggregates, totalWorkItems }) {
+function computeTimingInsights(workItems) {
+  if (!workItems || workItems.length === 0) return null
+
+  // Total project time: sum of all total_wall_time entries
+  let totalMs = 0
+  const issueTimesMap = {}
+  const directiveTimesMap = {}
+
+  for (const item of workItems) {
+    const wallEntry = item.entries?.find((e) => e.phase === 'total_wall_time' && e.duration_ms != null)
+    const wallMs = wallEntry?.duration_ms || 0
+
+    totalMs += wallMs
+
+    if (item.issue_id && wallMs > 0) {
+      if (!issueTimesMap[item.issue_id]) issueTimesMap[item.issue_id] = 0
+      issueTimesMap[item.issue_id] += wallMs
+    }
+
+    if (item.directive_id && item.directive_id !== '__system__' && wallMs > 0) {
+      if (!directiveTimesMap[item.directive_id]) directiveTimesMap[item.directive_id] = 0
+      directiveTimesMap[item.directive_id] += wallMs
+    }
+  }
+
+  const issueTimes = Object.values(issueTimesMap)
+  const directiveTimes = Object.values(directiveTimesMap)
+
+  const avgIssueMs = issueTimes.length > 0
+    ? issueTimes.reduce((a, b) => a + b, 0) / issueTimes.length
+    : null
+
+  const avgDirectiveMs = directiveTimes.length > 0
+    ? directiveTimes.reduce((a, b) => a + b, 0) / directiveTimes.length
+    : null
+
+  return {
+    totalMs,
+    avgIssueMs,
+    avgDirectiveMs,
+    issueCount: issueTimes.length,
+    directiveCount: directiveTimes.length,
+  }
+}
+
+function TimingPanel({ aggregates, totalWorkItems, workItems }) {
   const navigate = useNavigate()
 
+  const insights = computeTimingInsights(workItems)
   const wallTimeAggregate = aggregates?.find((a) => a.phase === 'total_wall_time')
-  const avgMs = wallTimeAggregate?.avg_ms ?? null
-  const p95Ms = wallTimeAggregate?.p95_ms ?? null
   const itemCount = wallTimeAggregate?.count || totalWorkItems || 0
 
-  const hasData = avgMs != null || itemCount > 0
+  const hasData = insights?.totalMs > 0 || itemCount > 0
 
-  // Build phase rows: exclude total_wall_time, take top 4 by avg_ms
+  // Build phase rows: exclude total_wall_time, take top 3 by avg_ms
   const phaseRows = (aggregates || [])
     .filter((a) => a.phase !== 'total_wall_time' && a.avg_ms != null)
     .sort((a, b) => b.avg_ms - a.avg_ms)
-    .slice(0, 4)
+    .slice(0, 3)
 
   const maxPhaseMs = phaseRows.length > 0 ? phaseRows[0].avg_ms : 1
+
+  // Compute progress bar widths for insight stats relative to longest
+  const insightValues = [
+    insights?.totalMs,
+    insights?.avgIssueMs,
+    insights?.avgDirectiveMs,
+  ].filter((v) => v != null && v > 0)
+  const maxInsightMs = insightValues.length > 0 ? Math.max(...insightValues) : 1
 
   return (
     <button
@@ -298,33 +350,68 @@ function TimingPanel({ aggregates, totalWorkItems }) {
       <div className="rp-panel-header">
         <Clock size={14} className="rp-panel-icon" />
         <h3 className="rp-panel-title">TIMING</h3>
+        {itemCount > 0 && <span className="rp-panel-count">{itemCount}</span>}
       </div>
 
       {hasData ? (
         <>
-          <div className="rp-timing-metrics-row">
-            {avgMs != null && (
-              <div className="rp-timing-metric">
-                <span className="rp-timing-metric-value">{formatDuration(avgMs)}</span>
-                <span className="rp-timing-metric-label">avg</span>
+          {/* Aggregate timing insights */}
+          <div className="rp-timing-insights">
+            {insights?.totalMs > 0 && (
+              <div className="rp-timing-insight-row">
+                <div className="rp-timing-insight-header">
+                  <span className="rp-timing-insight-label">Total Time</span>
+                  <span className="rp-timing-insight-value rp-timing-insight-value--accent">
+                    {formatDuration(insights.totalMs)}
+                  </span>
+                </div>
+                <div className="rp-timing-insight-bar-track">
+                  <div
+                    className="rp-timing-insight-bar-fill rp-timing-insight-bar--total"
+                    style={{ width: `${(insights.totalMs / maxInsightMs) * 100}%` }}
+                  />
+                </div>
               </div>
             )}
-            {p95Ms != null && (
-              <div className="rp-timing-metric">
-                <span className="rp-timing-metric-value">{formatDuration(p95Ms)}</span>
-                <span className="rp-timing-metric-label">p95</span>
+            {insights?.avgIssueMs != null && (
+              <div className="rp-timing-insight-row">
+                <div className="rp-timing-insight-header">
+                  <span className="rp-timing-insight-label">
+                    Avg / Issue
+                    <span className="rp-timing-insight-count">{insights.issueCount}</span>
+                  </span>
+                  <span className="rp-timing-insight-value">{formatDuration(insights.avgIssueMs)}</span>
+                </div>
+                <div className="rp-timing-insight-bar-track">
+                  <div
+                    className="rp-timing-insight-bar-fill rp-timing-insight-bar--issue"
+                    style={{ width: `${(insights.avgIssueMs / maxInsightMs) * 100}%` }}
+                  />
+                </div>
               </div>
             )}
-            {itemCount > 0 && (
-              <div className="rp-timing-metric">
-                <span className="rp-timing-metric-value">{itemCount}</span>
-                <span className="rp-timing-metric-label">items</span>
+            {insights?.avgDirectiveMs != null && (
+              <div className="rp-timing-insight-row">
+                <div className="rp-timing-insight-header">
+                  <span className="rp-timing-insight-label">
+                    Avg / Directive
+                    <span className="rp-timing-insight-count">{insights.directiveCount}</span>
+                  </span>
+                  <span className="rp-timing-insight-value">{formatDuration(insights.avgDirectiveMs)}</span>
+                </div>
+                <div className="rp-timing-insight-bar-track">
+                  <div
+                    className="rp-timing-insight-bar-fill rp-timing-insight-bar--directive"
+                    style={{ width: `${(insights.avgDirectiveMs / maxInsightMs) * 100}%` }}
+                  />
+                </div>
               </div>
             )}
           </div>
 
+          {/* Phase breakdown bars */}
           {phaseRows.length > 0 && (
-            <div className="rp-timing-bars">
+            <div className="rp-timing-bars rp-timing-bars--separated">
               {phaseRows.map((phase) => {
                 const pct = maxPhaseMs > 0 ? (phase.avg_ms / maxPhaseMs) * 100 : 0
                 const color = PHASE_COLORS[phase.phase] || 'var(--text-muted)'
@@ -411,14 +498,15 @@ function TeamPanel({ presenceUsers }) {
   )
 }
 
-function RightPanels({ stats, issues, aggregates, totalWorkItems, presenceUsers }) {
+function RightPanels({ stats, issues, aggregates, totalWorkItems, timingWorkItems, presenceUsers }) {
   return (
     <div className="rp-column">
       <BacklogPanel stats={stats} issues={issues} />
-      <TimingPanel aggregates={aggregates} totalWorkItems={totalWorkItems} />
+      <TimingPanel aggregates={aggregates} totalWorkItems={totalWorkItems} workItems={timingWorkItems} />
       <TeamPanel presenceUsers={presenceUsers} />
     </div>
   )
 }
 
+export { computeTimingInsights }
 export default RightPanels

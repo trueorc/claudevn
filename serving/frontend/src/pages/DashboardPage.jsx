@@ -95,7 +95,7 @@ function ActiveProjectDashboard() {
     filters: { project_id: projectId },
   })
   const { data: planData } = usePlanSummary(projectId, { pollInterval: 15000 })
-  const { aggregates, totalWorkItems } = useTiming(projectId, { pollInterval: 30000 })
+  const { aggregates, totalWorkItems, workItems: timingWorkItems } = useTiming(projectId, { pollInterval: 30000 })
   const { health, overallStatus, loading: healthLoading } = useSystemHealth({ pollInterval: 30000 })
   const { users: presenceUsers } = usePresence(projectId || null, activeProject?.name || null)
   const prompts = useDirectivePrompts(activeProject ? stats : null)
@@ -189,6 +189,7 @@ function ActiveProjectDashboard() {
           issues={backlogIssues}
           aggregates={aggregates}
           totalWorkItems={totalWorkItems}
+          timingWorkItems={timingWorkItems}
           presenceUsers={presenceUsers}
         />
       </div>
