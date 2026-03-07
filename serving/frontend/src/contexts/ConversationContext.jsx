@@ -1,6 +1,11 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { useProjectContext } from './ProjectContext'
 import useConversation, { INTENT_MODES, MSG_TYPES } from '../hooks/useConversation'
+import {
+  getConversation,
+  sendMessage as sendMessageApi,
+  clearConversation as clearConversationApi,
+} from '../api/conversation'
 
 const ConversationContext = createContext(null)
 
@@ -30,6 +35,35 @@ function deserializeMessages(raw) {
   }
 }
 
+/**
+ * Convert a server message record to the shape useConversation works with.
+ */
+function serverMsgToLocal(msg) {
+  return {
+    id: msg.message_id,
+    type: msg.type,
+    content: msg.content,
+    timestamp: msg.created_at,
+    userId: msg.user_id,
+    displayName: msg.display_name,
+    metadata: msg.metadata,
+  }
+}
+
+/**
+ * Determine which messages are safe to persist to the server.
+ * Ephemeral messages (thinking, in-flight previews) are excluded because
+ * they represent transient UI state rather than durable conversation turns.
+ */
+const PERSISTABLE_TYPES = new Set([
+  MSG_TYPES.USER,
+  MSG_TYPES.GOAL_CREATED,
+  MSG_TYPES.GOAL_COMPLETE,
+  MSG_TYPES.DIRECTIVE_APPLIED,
+  MSG_TYPES.DIRECTIVE_REJECTED,
+  MSG_TYPES.ERROR,
+])
+
 export function ConversationProvider({ children }) {
   const { activeProject } = useProjectContext()
   const projectId = activeProject?.project_id || null
@@ -37,50 +71,112 @@ export function ConversationProvider({ children }) {
   const conversation = useConversation(projectId)
   const { messages, clear: clearConversation } = conversation
 
-  // Stored messages loaded from sessionStorage when the project changes.
-  // These are shown as a "fallback" while useConversation's internal state
-  // is still empty (i.e. before the user sends any new message in this session).
+  // Stored messages loaded from server (or sessionStorage fallback) when project changes.
+  // Shown while useConversation's internal state is still empty (e.g. after page refresh).
   const [storedMessages, setStoredMessages] = useState([])
-  // Track which project's stored messages we've loaded so we only load once
+
+  // Track which project's stored messages we've loaded so we only load once per project.
   const loadedProjectRef = useRef(null)
 
-  // On project change: load stored messages for the new project
+  // Track message IDs that have already been persisted to the server so we don't double-post.
+  const persistedIdsRef = useRef(new Set())
+
+  // Load from sessionStorage when server is unavailable.
+  const loadFromSession = useCallback((pid) => {
+    const raw = sessionStorage.getItem(storageKey(pid))
+    setStoredMessages(raw ? deserializeMessages(raw) : [])
+  }, [])
+
+  // On project change: load stored messages from server, fall back to sessionStorage.
   useEffect(() => {
     if (projectId === loadedProjectRef.current) return
     loadedProjectRef.current = projectId
+    persistedIdsRef.current = new Set()
 
-    if (projectId) {
-      const raw = sessionStorage.getItem(storageKey(projectId))
-      setStoredMessages(raw ? deserializeMessages(raw) : [])
-    } else {
+    if (!projectId) {
       setStoredMessages([])
+      return
     }
-  }, [projectId])
 
-  // Persist live messages to sessionStorage whenever they change.
-  // We only persist when the live messages array is non-empty so we don't
-  // overwrite stored messages with the empty-array state that useConversation
-  // briefly emits when it clears itself on project change.
+    let cancelled = false
+
+    getConversation(projectId)
+      .then(data => {
+        if (cancelled) return
+        if (data?.messages?.length > 0) {
+          const converted = data.messages.map(serverMsgToLocal)
+          // Mark all server-loaded messages as already persisted.
+          converted.forEach(m => persistedIdsRef.current.add(m.id))
+          setStoredMessages(converted)
+        } else {
+          // Server returned empty — fall back to sessionStorage in case the
+          // user has a cached session (e.g. server was recently cleared).
+          loadFromSession(projectId)
+        }
+      })
+      .catch(err => {
+        if (cancelled) return
+        console.warn('Failed to load conversation from server, using local cache:', err)
+        loadFromSession(projectId)
+      })
+
+    return () => { cancelled = true }
+  }, [projectId, loadFromSession])
+
+  // Persist live messages to sessionStorage and, for persistable types, to the server.
+  // We only act when the live messages array is non-empty so we don't overwrite stored
+  // messages with the empty-array state that useConversation emits on project change.
   useEffect(() => {
-    if (!projectId) return
-    if (messages.length === 0) return
+    if (!projectId || messages.length === 0) return
+
+    // Write-through cache to sessionStorage.
     sessionStorage.setItem(storageKey(projectId), serializeMessages(messages))
-    // Once live messages exist, we no longer need the stored fallback
+
+    // Once live messages exist, the stored fallback is no longer needed.
     setStoredMessages([])
+
+    // POST any persistable messages that haven't been sent to the server yet.
+    messages.forEach(msg => {
+      if (!PERSISTABLE_TYPES.has(msg.type)) return
+      if (persistedIdsRef.current.has(msg.id)) return
+
+      // Mark immediately to prevent duplicate POSTs if the effect fires again
+      // before the async call completes.
+      persistedIdsRef.current.add(msg.id)
+
+      const metadata = {}
+      if (msg.mode) metadata.mode = msg.mode
+      if (msg.goal) metadata.goal = msg.goal
+      if (msg.directive) metadata.directive_id = msg.directive?.directive_id
+
+      sendMessageApi(projectId, {
+        type: msg.type,
+        content: msg.content,
+        metadata,
+      }).catch(err => {
+        console.warn('Failed to persist message to server:', err)
+        // On failure, remove from the persisted set so it can be retried.
+        persistedIdsRef.current.delete(msg.id)
+      })
+    })
   }, [messages, projectId])
+
+  // Wrap clear to also remove from sessionStorage, server, and clear stored state.
+  const clear = useCallback(() => {
+    if (projectId) {
+      sessionStorage.removeItem(storageKey(projectId))
+      clearConversationApi(projectId).catch(err => {
+        console.warn('Failed to clear conversation on server:', err)
+      })
+    }
+    persistedIdsRef.current = new Set()
+    setStoredMessages([])
+    clearConversation()
+  }, [projectId, clearConversation])
 
   // The effective message list: prefer live messages; fall back to stored messages
   // if the live list is empty (e.g. right after a page refresh).
   const effectiveMessages = messages.length > 0 ? messages : storedMessages
-
-  // Wrap clear to also remove from sessionStorage and clear our stored state
-  const clear = () => {
-    if (projectId) {
-      sessionStorage.removeItem(storageKey(projectId))
-    }
-    setStoredMessages([])
-    clearConversation()
-  }
 
   const value = {
     ...conversation,
