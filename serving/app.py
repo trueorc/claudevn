@@ -1127,6 +1127,10 @@ app.add_middleware(RateLimitMiddleware)
 from middleware.cognito_middleware import CognitoAuthMiddleware
 app.add_middleware(CognitoAuthMiddleware)
 
+# Add user context middleware (extracts user identity for request-scoped access)
+from middleware.user_context import UserContextMiddleware
+app.add_middleware(UserContextMiddleware)
+
 
 # Include routers with /api/v1 prefix
 API_VERSION = os.getenv('API_VERSION', 'v1')
