@@ -94,9 +94,9 @@ async def login(body: LoginRequest):
         raise HTTPException(status_code=503, detail="User service not available")
 
     try:
-        user, token = await service.login(username=body.username)
+        user, token = await service.login(username=body.username, password=body.password)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e))
 
     return LoginResponse(
         user_id=user.user_id,

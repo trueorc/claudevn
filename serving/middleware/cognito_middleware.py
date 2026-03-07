@@ -1,8 +1,13 @@
-"""Cognito JWT middleware for FastAPI.
+"""Authentication middleware for FastAPI.
 
-Applies Cognito token verification to all UI-facing API routes,
+Applies token verification to all UI-facing API routes,
 while allowing public routes (health, compute SSE, MCP, auth credentials)
 to pass through without authentication.
+
+Supports three auth modes:
+- cognito: Verifies Cognito JWT tokens
+- local: Verifies HMAC tokens issued by the local user service
+- bypass: No auth checks (development only)
 """
 
 import logging
@@ -27,6 +32,8 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/auth/cognito-config",   # Frontend Cognito config (needed before auth)
     "/api/v1/auth/status",           # Auth status check
     "/api/v1/marketplace/register",  # Marketplace registration
+    "/api/v1/users/login",           # User login (local auth mode)
+    "/api/v1/users/register",        # User registration (local auth mode)
 )
 
 # Non-API routes that are always public
@@ -56,10 +63,12 @@ def _is_public_route(path: str) -> bool:
 
 
 class CognitoAuthMiddleware(BaseHTTPMiddleware):
-    """Middleware that enforces Cognito JWT auth on UI-facing API routes.
+    """Middleware that enforces token auth on UI-facing API routes.
 
     In bypass mode, all requests pass through.
-    In cognito mode, non-public routes require a valid Bearer token.
+    In cognito mode, non-public routes require a valid Cognito JWT.
+    In local mode, non-public routes require a valid HMAC token
+    (issued by the local user service at login).
     """
 
     def __init__(self, app):
@@ -69,6 +78,11 @@ class CognitoAuthMiddleware(BaseHTTPMiddleware):
             logger.warning(
                 "AUTH_MODE=bypass: All API requests will be treated as authenticated. "
                 "Set AUTH_MODE=cognito for production."
+            )
+        elif config.auth_mode == "local":
+            logger.warning(
+                "AUTH_MODE=local: Using local file-based auth. "
+                "NOT for production use."
             )
         else:
             logger.info("Cognito auth enabled for UI API routes")
@@ -84,7 +98,7 @@ class CognitoAuthMiddleware(BaseHTTPMiddleware):
         if _is_public_route(request.url.path):
             return await call_next(request)
 
-        # Cognito mode - verify Bearer token
+        # Both cognito and local modes require a Bearer token
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
             return JSONResponse(
@@ -94,15 +108,28 @@ class CognitoAuthMiddleware(BaseHTTPMiddleware):
             )
 
         token = auth_header[7:]  # Strip "Bearer "
-        try:
-            from middleware.cognito_auth import _decode_cognito_token
-            _decode_cognito_token(token, config)
-        except Exception as e:
-            logger.debug("Middleware token verification failed: %s", e)
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or expired token"},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+
+        if config.auth_mode == "local":
+            # Local mode - verify HMAC token from user service
+            from services.user_service import get_user_service
+            service = get_user_service()
+            if not service or not service.verify_token(token):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or expired token"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        else:
+            # Cognito mode - verify JWT
+            try:
+                from middleware.cognito_auth import _decode_cognito_token
+                _decode_cognito_token(token, config)
+            except Exception as e:
+                logger.debug("Middleware token verification failed: %s", e)
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or expired token"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
         return await call_next(request)

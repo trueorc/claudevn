@@ -99,12 +99,13 @@ class MarketplaceConfig(BaseModel):
 
 
 class CognitoConfig(BaseModel):
-    """AWS Cognito authentication configuration."""
-    auth_mode: str = Field(default="bypass", description="Auth mode: 'cognito' or 'bypass'")
+    """Authentication configuration (supports cognito, local, and bypass modes)."""
+    auth_mode: str = Field(default="bypass", description="Auth mode: 'cognito', 'local', or 'bypass'")
     user_pool_id: str = Field(default="", description="Cognito User Pool ID")
     app_client_id: str = Field(default="", description="Cognito App Client ID")
     region: str = Field(default="us-east-1", description="AWS region for Cognito")
     admin_enabled: bool = Field(default=False, description="Enable admin user management endpoints")
+    local_users_file: str = Field(default="users.local", description="Path to local users credential file (AUTH_MODE=local)")
 
 
 class AutoDrainConfig(BaseModel):
@@ -270,13 +271,14 @@ class ServingConfig(BaseModel):
             max_compute_instances=int(os.getenv("MAX_COMPUTE_INSTANCES", "0")),
         )
 
-        # Cognito config
+        # Auth config (cognito, local, or bypass)
         cognito = CognitoConfig(
             auth_mode=os.getenv("AUTH_MODE", "bypass"),
             user_pool_id=os.getenv("COGNITO_USER_POOL_ID", ""),
             app_client_id=os.getenv("COGNITO_APP_CLIENT_ID", ""),
             region=os.getenv("COGNITO_REGION", "us-east-1"),
             admin_enabled=os.getenv("COGNITO_ADMIN_ENABLED", "false").lower() == "true",
+            local_users_file=os.getenv("LOCAL_USERS_FILE", "users.local"),
         )
 
         demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"

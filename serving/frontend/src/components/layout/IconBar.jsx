@@ -3,11 +3,12 @@ import { NavLink } from 'react-router-dom'
 import {
   Radio, Sparkles, FolderGit2, ListTodo, Play,
   Settings, Timer, Bell, LayoutDashboard,
-  ChevronDown, Check
+  LogOut
 } from 'lucide-react'
 import useSystemHealth from '../../hooks/useSystemHealth'
 import useNotifications from '../../hooks/useNotifications'
 import { useProjectContext } from '../../contexts/ProjectContext'
+import { useAuth } from '../../contexts/auth/AuthContext'
 import './IconBar.css'
 
 const navItems = [
@@ -20,8 +21,8 @@ const navItems = [
   { to: '/timing', icon: Timer, label: 'Timing', projectRequired: true },
 ]
 
-function CompactProjectSelector() {
-  const { activeProject, projects, setActiveProject, loading } = useProjectContext()
+function ProfileAvatar() {
+  const { user, logout, isBypass } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [dropdownPos, setDropdownPos] = useState(null)
   const containerRef = useRef(null)
@@ -57,52 +58,49 @@ function CompactProjectSelector() {
     }
   }, [isOpen])
 
-  const handleSelect = (project) => {
-    setActiveProject(project)
+  const displayName = user?.username || user?.email || '?'
+  const initial = displayName.charAt(0).toUpperCase()
+
+  const handleLogout = async () => {
     setIsOpen(false)
+    await logout()
+    window.location.href = '/login'
   }
 
-  const initial = activeProject ? activeProject.name.charAt(0).toUpperCase() : '?'
-  const tooltipText = activeProject ? activeProject.name : 'Select project'
-
   return (
-    <div className="iconbar-project-selector" ref={containerRef}>
+    <div className="iconbar-profile" ref={containerRef}>
       <button
         ref={triggerRef}
-        className={`iconbar-project-trigger ${activeProject ? 'has-project' : ''}`}
+        className="iconbar-profile-trigger"
         onClick={() => setIsOpen(!isOpen)}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
         aria-expanded={isOpen}
-        disabled={loading}
       >
-        <span className="iconbar-project-initial">{initial}</span>
-        <span className="iconbar-tooltip">{tooltipText}</span>
+        <span className="iconbar-profile-initial">{initial}</span>
+        <span className="iconbar-tooltip">{displayName}</span>
       </button>
 
       {isOpen && dropdownPos && (
         <div
-          className="iconbar-project-dropdown"
-          role="listbox"
+          className="iconbar-profile-dropdown"
+          role="menu"
           style={{
             bottom: `${dropdownPos.bottom}px`,
             left: `${dropdownPos.left}px`,
           }}
         >
-          <div className="iconbar-project-dropdown-header">Projects</div>
-          {projects.map((project) => (
+          <div className="iconbar-profile-dropdown-header">
+            {displayName}
+          </div>
+          {!isBypass && (
             <button
-              key={project.project_id}
-              className={`iconbar-project-option ${activeProject?.project_id === project.project_id ? 'selected' : ''}`}
-              onClick={() => handleSelect(project)}
-              role="option"
-              aria-selected={activeProject?.project_id === project.project_id}
+              className="iconbar-profile-option"
+              onClick={handleLogout}
+              role="menuitem"
             >
-              <span className="iconbar-project-option-name">{project.name}</span>
-              {activeProject?.project_id === project.project_id && <Check size={12} />}
+              <LogOut size={14} />
+              <span>Log out</span>
             </button>
-          ))}
-          {projects.length === 0 && !loading && (
-            <div className="iconbar-project-empty">No projects</div>
           )}
         </div>
       )}
@@ -210,7 +208,7 @@ function IconBar() {
 
         <div className="iconbar-divider" />
 
-        <CompactProjectSelector />
+        <ProfileAvatar />
 
         <NavLink
           to="/network"

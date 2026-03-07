@@ -178,8 +178,10 @@ class PresenceService:
             payload = json.dumps(
                 {
                     "type": "presence_update",
-                    "project_id": project_id,
-                    "users": [u.model_dump(mode="json") for u in users],
+                    "event": {
+                        "project_id": project_id,
+                        "users": [u.model_dump(mode="json") for u in users],
+                    },
                 },
                 default=str,
             )

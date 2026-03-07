@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useCognitoAuth } from '../contexts/CognitoAuthContext'
+import { useAuth } from '../contexts/auth/AuthContext'
 import './LoginPage.css'
 
 export default function ForgotPasswordPage() {
@@ -13,7 +13,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState(null)
   const [successMessage, setSuccessMessage] = useState(null)
   const navigate = useNavigate()
-  const { forgotPassword, confirmForgotPassword } = useCognitoAuth()
+  const { forgotPassword, confirmForgotPassword } = useAuth()
 
   async function handleSendCode(e) {
     e.preventDefault()

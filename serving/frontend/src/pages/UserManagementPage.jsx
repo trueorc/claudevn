@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, RotateCw, Mail, UserCheck, Clock } from 'lucide-react'
 import { useToast } from '../hooks/useToast'
-import { useCognitoAuth } from '../contexts/CognitoAuthContext'
+import { useAuth } from '../contexts/auth/AuthContext'
 import ConfirmDialog from '../components/common/ConfirmDialog'
 import { request } from '../api/index'
 import './UserManagementPage.css'
@@ -17,7 +17,7 @@ function UserManagementPage() {
   const [removeLoading, setRemoveLoading] = useState(false)
   const [resendingUser, setResendingUser] = useState(null)
   const toast = useToast()
-  const { isBypass } = useCognitoAuth()
+  const { isBypass } = useAuth()
 
   const fetchUsers = useCallback(async () => {
     try {

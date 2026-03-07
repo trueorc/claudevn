@@ -46,6 +46,41 @@ class UserService:
         await self._load_from_redis()
         logger.info(f"User service initialized with {len(self._users)} user(s)")
 
+    async def auto_provision_from_file(self, usernames: list[str]) -> int:
+        """Auto-provision profiles for users from the credential file.
+
+        Creates Redis profiles for any usernames not already registered.
+        Does NOT store passwords — only creates the app-side profile.
+
+        Args:
+            usernames: List of usernames from the credential file
+
+        Returns:
+            Number of newly provisioned users
+        """
+        provisioned = 0
+        for username in usernames:
+            if username in self._username_index:
+                continue
+
+            # First user becomes owner, rest are members
+            role = UserRole.OWNER if len(self._users) == 0 else UserRole.MEMBER
+
+            user = User(
+                username=username,
+                role=role,
+            )
+            self._users[user.user_id] = user
+            self._username_index[username] = user.user_id
+            await self._save_user_to_redis(user)
+            provisioned += 1
+            logger.info(f"Auto-provisioned user '{username}' (role={role.value})")
+
+        if provisioned > 0:
+            await self._save_username_index_to_redis()
+
+        return provisioned
+
     async def register(self, username: str, email: Optional[str] = None) -> tuple[User, str]:
         """Register a new user.
 
@@ -85,18 +120,35 @@ class UserService:
         logger.info(f"Registered user '{username}' (role={role.value}, id={user.user_id})")
         return user, token
 
-    async def login(self, username: str) -> tuple[User, str]:
+    async def login(self, username: str, password: Optional[str] = None) -> tuple[User, str]:
         """Log in an existing user.
+
+        In local auth mode, verifies password against the credential file.
+        In bypass mode, password is ignored.
 
         Args:
             username: Display name
+            password: Password (required in local auth mode)
 
         Returns:
             Tuple of (User, token_string)
 
         Raises:
-            ValueError: If username not found
+            ValueError: If username not found or credentials invalid
         """
+        # In local mode, verify credentials against the file
+        from config import get_config
+        config = get_config().cognito
+        if config.auth_mode == "local":
+            from services.local_auth_provider import get_local_auth_provider
+            provider = get_local_auth_provider()
+            if not provider:
+                raise ValueError("Local auth provider not initialized")
+            if not password:
+                raise ValueError("Password is required in local auth mode")
+            if not provider.verify(username, password):
+                raise ValueError("Invalid username or password")
+
         user_id = self._username_index.get(username)
         if not user_id:
             raise ValueError(f"User '{username}' not found")

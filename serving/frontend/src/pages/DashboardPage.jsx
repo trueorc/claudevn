@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
+import { useAuth } from '../contexts/auth/AuthContext'
 import useIssues from '../hooks/useIssues'
 import usePlanSummary from '../hooks/usePlanSummary'
 import useTiming from '../hooks/useTiming'
@@ -73,6 +74,7 @@ function NoProjectDashboard() {
 
 function ActiveProjectDashboard() {
   const { activeProject, projects, setActiveProject } = useProjectContext()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const {
     messages,
@@ -162,6 +164,7 @@ function ActiveProjectDashboard() {
 
         <ConversationTimeline
           messages={messages}
+          currentUserId={user?.sub}
           pendingDirective={pendingDirective}
           applying={applying}
           onApply={applyPending}

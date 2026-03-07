@@ -4,11 +4,20 @@
 
 export const API_BASE = '/api/v1'
 
+// Pluggable token getter — set by AuthContext after init
+let _getToken = null
+
+export function setTokenGetter(fn) {
+  _getToken = fn
+}
+
 export async function request(path, options = {}) {
   const url = `${API_BASE}${path}`
+  const token = _getToken ? await _getToken() : null
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers
     },
     ...options

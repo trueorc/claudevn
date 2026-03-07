@@ -63,7 +63,7 @@ class TestLoginEndpoint:
 
     def test_login_unknown_user(self, client):
         resp = client.post("/api/v1/users/login", json={"username": "ghost"})
-        assert resp.status_code == 404
+        assert resp.status_code == 401
 
 
 class TestProfileEndpoints:
