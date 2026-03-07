@@ -9,6 +9,7 @@ import useTiming from '../hooks/useTiming'
 import useSystemHealth from '../hooks/useSystemHealth'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import usePresence from '../hooks/usePresence'
+import useBlockNotifications from '../hooks/useBlockNotifications'
 import useChatTransition from '../hooks/useChatTransition'
 import { Plus, ArrowRight } from 'lucide-react'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
@@ -98,6 +99,13 @@ function ActiveProjectDashboard() {
   const { aggregates, totalWorkItems, workItems: timingWorkItems } = useTiming(projectId, { pollInterval: 30000 })
   const { health, overallStatus, loading: healthLoading } = useSystemHealth({ pollInterval: 30000 })
   const { users: presenceUsers } = usePresence(projectId || null, activeProject?.name || null)
+  const { notifications, acknowledge } = useBlockNotifications({
+    health,
+    overallStatus,
+    planData,
+    stats,
+    aggregates,
+  })
   const prompts = useDirectivePrompts(activeProject ? stats : null)
   const { transitionClass, scrollPositionRef } = useChatTransition()
 
@@ -132,6 +140,8 @@ function ActiveProjectDashboard() {
           health={health}
           overallStatus={overallStatus}
           healthLoading={healthLoading}
+          notifications={notifications}
+          onAcknowledge={acknowledge}
         />
       </div>
 
@@ -191,6 +201,8 @@ function ActiveProjectDashboard() {
           totalWorkItems={totalWorkItems}
           timingWorkItems={timingWorkItems}
           presenceUsers={presenceUsers}
+          notifications={notifications}
+          onAcknowledge={acknowledge}
         />
       </div>
     </div>
