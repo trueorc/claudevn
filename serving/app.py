@@ -1321,7 +1321,8 @@ async def health_check():
         "redis": redis_stats,
         "compute_registry": {
             "total_instances": compute_stats["total_instances"],
-            "by_status": compute_stats["by_status"]
+            "by_status": compute_stats["by_status"],
+            "total_resources": compute_stats.get("total_resources", {})
         },
         "marketplace_registry": {
             "total_marketplaces": marketplace_stats["total_marketplaces"],

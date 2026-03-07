@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Activity, Cpu, Plus } from 'lucide-react'
+import { Activity, Cpu, Database, Plus, Server } from 'lucide-react'
 import './LeftPanels.css'
 
 // ---------------------------------------------------------------------------
@@ -171,6 +171,7 @@ function NetworkPanel({ health, overallStatus, healthLoading }) {
   const computeByStatus = health?.compute_registry?.by_status ?? {}
   const computeTotal = health?.compute_registry?.total_instances ?? 0
   const computeOnline = computeByStatus.online ?? 0
+  const totalResources = health?.compute_registry?.total_resources ?? {}
 
   const marketplaceByStatus = health?.marketplace_registry?.by_status ?? {}
   const marketplaceTotal = health?.marketplace_registry?.total_instances ?? 0
@@ -228,6 +229,29 @@ function NetworkPanel({ health, overallStatus, healthLoading }) {
       <p className="lp-network-summary">
         {computeOnline} online / {computeTotal} total
       </p>
+
+      {(totalResources.cpu_count || totalResources.memory_gb || totalResources.gpu_count) && (
+        <div className="lp-resource-stats">
+          {totalResources.cpu_count && (
+            <span className="lp-resource-item" title="Total CPU cores">
+              <Cpu size={10} className="lp-resource-icon" />
+              <span>{totalResources.cpu_count} cores</span>
+            </span>
+          )}
+          {totalResources.memory_gb && (
+            <span className="lp-resource-item" title="Total memory">
+              <Server size={10} className="lp-resource-icon" />
+              <span>{totalResources.memory_gb} GB</span>
+            </span>
+          )}
+          {totalResources.gpu_count > 0 && (
+            <span className="lp-resource-item" title={totalResources.gpu_type || 'GPU'}>
+              <Database size={10} className="lp-resource-icon" />
+              <span>{totalResources.gpu_count} GPU{totalResources.gpu_count > 1 ? 's' : ''}</span>
+            </span>
+          )}
+        </div>
+      )}
 
       {marketplaceTotal > 0 && (
         <p className="lp-network-marketplace">

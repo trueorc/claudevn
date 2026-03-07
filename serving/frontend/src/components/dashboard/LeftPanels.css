@@ -382,6 +382,29 @@
   margin: 0;
 }
 
+/* Aggregate resource stats */
+.lp-resource-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border);
+}
+
+.lp-resource-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.lp-resource-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 .lp-network-marketplace {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
