@@ -26,6 +26,9 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/compute/connect",       # SSE registration (approval workflow gates access)
     "/api/v1/compute/register",      # Compute registration (starts in PENDING status)
     "/api/v1/compute/refresh-credentials",  # Compute credential refresh
+    "/api/v1/compute/events",        # Compute event callbacks (verified by compute registry)
+    "/api/v1/compute/decomposition/", # Decomposition result submission
+    "/api/v1/compute/characterization/", # Characterization result submission
     "/api/v1/mcp/",                  # MCP tools (uses API key auth)
     "/api/v1/auth/credentials",      # Compute credential fetching
     "/api/v1/auth/token",            # Claude token management (internal)

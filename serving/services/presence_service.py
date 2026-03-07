@@ -83,9 +83,7 @@ class PresenceService:
             raw = self._redis._redis
             # Read existing connected_at so we don't reset it on refresh
             existing_connected_at = await raw.hget(key, "connected_at")
-            connected_at = (
-                existing_connected_at.decode() if existing_connected_at else now
-            )
+            connected_at = existing_connected_at if existing_connected_at else now
 
             mapping = {
                 "user_id": user_id,
