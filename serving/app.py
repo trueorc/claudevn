@@ -69,6 +69,7 @@ from api import provisioner
 from api import timing
 from api import conversation
 from api import presence
+from api import releases
 # MCP server for compute communication
 from mcp import get_router
 # Marketplace HTTP client (marketplace is a separate service on port 8003)
@@ -1231,6 +1232,7 @@ app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
 app.include_router(conversation.router, prefix=api_prefix)
 app.include_router(presence.router, prefix=api_prefix)
+app.include_router(releases.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix
 # Note: Skill marketplace is a separate service on port 8003 - use MarketplaceClient

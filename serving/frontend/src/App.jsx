@@ -26,6 +26,7 @@ import UserManagementPage from './pages/UserManagementPage'
 import LoginPage from './pages/LoginPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import WhatsNew from './components/common/WhatsNew'
 import { useAuth } from './hooks/useAuth'
 
 function AuthenticatedApp({ expired, expiringAt, onReauth }) {
@@ -72,6 +73,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             </Routes>
           </main>
         </div>
+        <WhatsNew />
         <ToastContainer />
       </ConversationProvider>
     </ProjectProvider>
