@@ -1,12 +1,16 @@
 import { useState, useCallback } from 'react'
-import { useNavigate, NavLink } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
+import { useConversationContext } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
 import usePlanSummary from '../hooks/usePlanSummary'
-import useRecentActivity from '../hooks/useRecentActivity'
+import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import { createProject } from '../api/projects'
 import { createGoal } from '../api/workmap'
 import { Plus, ArrowRight, Target, Play, CheckCircle, X } from 'lucide-react'
+import ConversationTimeline from '../components/directives/ConversationTimeline'
+import ConversationInput from '../components/directives/ConversationInput'
+import '../components/directives/Conversation.css'
 import './DashboardPage.css'
 
 const GUIDED_STEPS = [
@@ -301,166 +305,121 @@ function NoProjectDashboard({ onNewProject }) {
   )
 }
 
-function WorkflowLanes({ stats, planData }) {
-  const defineCount = stats ? (stats.by_status?.pending || 0) + (stats.by_status?.new || 0) : 0
-  const executeActive = planData?.active_count || 0
-  const executeQueued = planData?.queued_count || 0
-  const reviewCount = stats ? (stats.by_status?.in_review || 0) + (stats.by_status?.testing || 0) : 0
-  const doneCount = stats?.by_status?.done || 0
-
-  const lanes = [
-    {
-      key: 'define',
-      icon: Target,
-      title: 'Define',
-      desc: 'Describe what you want built',
-      to: '/directives',
-      active: defineCount > 0,
-      content: defineCount > 0
-        ? `${defineCount} item${defineCount !== 1 ? 's' : ''} pending`
-        : 'No pending items',
-    },
-    {
-      key: 'execute',
-      icon: Play,
-      title: 'Execute',
-      desc: 'System builds your backlog',
-      to: '/plan',
-      active: executeActive > 0,
-      content: executeActive > 0
-        ? `${executeActive} active${executeQueued > 0 ? `, ${executeQueued} queued` : ''}`
-        : executeQueued > 0
-          ? `${executeQueued} queued`
-          : 'No active work',
-    },
-    {
-      key: 'review',
-      icon: CheckCircle,
-      title: 'Review',
-      desc: 'Review and merge results',
-      to: '/backlog',
-      active: reviewCount > 0,
-      content: reviewCount > 0
-        ? `${reviewCount} awaiting review`
-        : doneCount > 0
-          ? `${doneCount} completed`
-          : 'Nothing to review',
-    },
-  ]
-
+function SummaryCard({ title, to, content, active }) {
+  const navigate = useNavigate()
   return (
-    <div className="dashboard-lanes">
-      {lanes.map(({ key, icon: Icon, title, desc, to, active, content }) => (
-        <NavLink key={key} to={to} className={`dashboard-lane ${active ? 'has-activity' : ''}`}>
-          <div className="dashboard-lane-header">
-            <Icon size={16} strokeWidth={1.5} />
-            <span className="dashboard-lane-title">{title}</span>
-          </div>
-          <p className="dashboard-lane-desc">{desc}</p>
-          <p className="dashboard-lane-status">{content}</p>
-          <div className="dashboard-lane-link">
-            <span>Open</span>
-            <ArrowRight size={12} />
-          </div>
-        </NavLink>
-      ))}
-    </div>
-  )
-}
-
-function AttentionSection({ items, stats }) {
-  const attentionItems = []
-
-  // Blocked items
-  const blockedCount = stats?.by_status?.blocked || 0
-  if (blockedCount > 0) {
-    attentionItems.push({
-      key: 'blocked',
-      text: `${blockedCount} item${blockedCount !== 1 ? 's' : ''} blocked — may need dependency resolution`,
-      to: '/backlog',
-    })
-  }
-
-  // Uncharacterized items
-  const uncharacterized = items.filter(i => i.characterization_status === 'pending').length
-  if (uncharacterized > 0) {
-    attentionItems.push({
-      key: 'uncharacterized',
-      text: `${uncharacterized} item${uncharacterized !== 1 ? 's' : ''} awaiting characterization`,
-      to: '/backlog',
-    })
-  }
-
-  // Items ready for review
-  const reviewCount = (stats?.by_status?.in_review || 0) + (stats?.by_status?.testing || 0)
-  if (reviewCount > 0) {
-    attentionItems.push({
-      key: 'review',
-      text: `${reviewCount} item${reviewCount !== 1 ? 's' : ''} ready for review`,
-      to: '/backlog',
-    })
-  }
-
-  if (attentionItems.length === 0) return null
-
-  return (
-    <div className="dashboard-attention">
-      <h3 className="dashboard-section-title">Your attention is needed</h3>
-      <div className="dashboard-attention-list">
-        {attentionItems.slice(0, 5).map(({ key, text, to }) => (
-          <NavLink key={key} to={to} className="dashboard-attention-item">
-            <span className="dashboard-attention-text">{text}</span>
-            <ArrowRight size={12} className="dashboard-attention-arrow" />
-          </NavLink>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ActivityFeed({ items }) {
-  const { events } = useRecentActivity({ items, maxEvents: 10 })
-
-  if (events.length === 0) return null
-
-  return (
-    <div className="dashboard-activity">
-      <h3 className="dashboard-section-title">Recent Activity</h3>
-      <div className="dashboard-activity-list">
-        {events.map((event) => (
-          <div key={`${event.id}-${event.timestamp}`} className="dashboard-activity-item">
-            <span className="dashboard-activity-desc">{event.description}</span>
-            <span className="dashboard-activity-time">{event.relativeTime}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <button className={`summary-card ${active ? 'summary-card-active' : ''}`} onClick={() => navigate(to)}>
+      <h3 className="summary-card-title">{title}</h3>
+      <p className="summary-card-content">{content}</p>
+    </button>
   )
 }
 
 function ActiveProjectDashboard() {
   const { activeProject } = useProjectContext()
-  const { items, stats, loading: issuesLoading } = useIssues({
+  const {
+    messages,
+    submitting,
+    pendingDirective,
+    applying,
+    lastCreatedGoal,
+    submit,
+    applyPending,
+    rejectPending,
+    retryProcessing,
+  } = useConversationContext()
+  const { items, stats } = useIssues({
     pollInterval: 15000,
     filters: { project_id: activeProject?.project_id },
   })
-  const { data: planData, loading: planLoading } = usePlanSummary(activeProject?.project_id, {
+  const { data: planData } = usePlanSummary(activeProject?.project_id, {
     pollInterval: 15000,
   })
+  const prompts = useDirectivePrompts(activeProject ? stats : null)
+  const [suggestedText, setSuggestedText] = useState('')
+
+  const handleSuggestedTextConsumed = useCallback(() => {
+    setSuggestedText('')
+  }, [])
+
+  const handleSubmit = useCallback(async (text, mode, options) => {
+    await submit(text, mode, options)
+  }, [submit])
 
   return (
-    <div className="dashboard-page">
-      <div className="dashboard-project-header">
-        <h1 className="dashboard-project-title">{activeProject?.name}</h1>
-        {activeProject?.description && (
-          <p className="dashboard-project-desc">{activeProject.description}</p>
+    <div className="dashboard-workspace">
+      <div className="dashboard-conversation">
+        {/* Empty state with prompts */}
+        {messages.length === 0 && (
+          <div className="dashboard-welcome-chat">
+            <h2 className="dashboard-welcome-heading">{activeProject?.name}</h2>
+            <p className="dashboard-welcome-desc">
+              What would you like to do? Describe new work, shift priorities, or ask about status.
+            </p>
+            {prompts.length > 0 && (
+              <div className="dashboard-prompt-chips">
+                {prompts.map((prompt) => (
+                  <button
+                    key={prompt.text}
+                    className="dashboard-prompt-chip"
+                    onClick={() => setSuggestedText(prompt.text)}
+                  >
+                    {prompt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
+
+        {/* Conversation timeline */}
+        <ConversationTimeline
+          messages={messages}
+          pendingDirective={pendingDirective}
+          applying={applying}
+          onApply={applyPending}
+          onReject={rejectPending}
+          onRetry={retryProcessing}
+        />
+
+        {/* Input */}
+        <ConversationInput
+          onSubmit={handleSubmit}
+          submitting={submitting}
+          disabled={!!pendingDirective}
+          suggestedText={suggestedText}
+          onSuggestedTextConsumed={handleSuggestedTextConsumed}
+        />
       </div>
 
-      <div className="dashboard-active-content">
-        <WorkflowLanes stats={stats} planData={planData} />
-        <AttentionSection items={items} stats={stats} />
-        <ActivityFeed items={items} />
+      {/* Summary cards panel (placeholder for #190) */}
+      <div className="dashboard-summary-panel">
+        <SummaryCard
+          title="Plan"
+          to="/plan"
+          content={planData?.active_count > 0
+            ? `${planData.active_count} active, ${planData.queued_count || 0} queued`
+            : 'No active work'}
+          active={planData?.active_count > 0}
+        />
+        <SummaryCard
+          title="Backlog"
+          to="/backlog"
+          content={stats?.total
+            ? `${stats.total} items (${stats.by_status?.done || 0} done)`
+            : 'Empty'}
+          active={(stats?.by_status?.in_review || 0) > 0}
+        />
+        <SummaryCard
+          title="Network"
+          to="/network"
+          content="View health"
+        />
+        <SummaryCard
+          title="Timing"
+          to="/timing"
+          content="View metrics"
+        />
       </div>
     </div>
   )
