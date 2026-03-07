@@ -8,10 +8,10 @@ from api.users import get_current_user_id, get_optional_user_id
 from models.presence import HeartbeatRequest, PresenceResponse
 from services.presence_service import get_presence_service
 
-router = APIRouter(prefix="/projects/{project_id}/presence", tags=["presence"])
+router = APIRouter(tags=["presence"])
 
 
-@router.post("/heartbeat", status_code=204)
+@router.post("/projects/{project_id}/presence/heartbeat", status_code=204)
 async def heartbeat(
     project_id: str,
     body: HeartbeatRequest,
@@ -20,7 +20,6 @@ async def heartbeat(
     """Record or refresh a user's presence heartbeat for a project."""
     service = get_presence_service()
     if not service:
-        # Presence is optional — return 204 silently rather than 503
         return
 
     # Resolve display name from user service
@@ -40,10 +39,11 @@ async def heartbeat(
         user_id=user_id,
         display_name=display_name,
         current_view=body.current_view,
+        project_name=body.project_name,
     )
 
 
-@router.get("", response_model=PresenceResponse)
+@router.get("/projects/{project_id}/presence", response_model=PresenceResponse)
 async def get_presence(
     project_id: str,
     user_id: Optional[str] = Depends(get_optional_user_id),
@@ -54,4 +54,17 @@ async def get_presence(
         return PresenceResponse(users=[])
 
     users = await service.get_active_users(project_id)
+    return PresenceResponse(users=users)
+
+
+@router.get("/presence", response_model=PresenceResponse)
+async def get_global_presence(
+    user_id: Optional[str] = Depends(get_optional_user_id),
+):
+    """Get all active users globally (across all projects)."""
+    service = get_presence_service()
+    if not service:
+        return PresenceResponse(users=[])
+
+    users = await service.get_active_users()
     return PresenceResponse(users=users)

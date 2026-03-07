@@ -64,7 +64,7 @@
 }
 
 .user-avatar-status-offline {
-  background: var(--text-muted);
+  background: var(--status-offline);
 }
 
 .user-avatar-status-away {

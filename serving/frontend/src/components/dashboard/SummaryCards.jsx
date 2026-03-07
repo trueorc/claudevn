@@ -332,7 +332,7 @@ function SummaryCards() {
   const { data: planData } = usePlanSummary(projectId, {
     pollInterval: 15000,
   })
-  const { users } = usePresence(projectId)
+  const { users } = usePresence(projectId, activeProject?.name || null)
   const { aggregates, totalWorkItems } = useTiming(projectId, { pollInterval: 30000 })
 
   if (!activeProject) {

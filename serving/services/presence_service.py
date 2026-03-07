@@ -1,4 +1,4 @@
-"""Presence service — tracks which users are online in which project view."""
+"""Presence service — tracks which users are online across all projects."""
 
 import json
 import logging
@@ -9,22 +9,27 @@ from models.presence import UserPresence
 
 logger = logging.getLogger(__name__)
 
-# Redis TTL for a presence key (seconds). After this the user is considered offline.
-PRESENCE_TTL = 60
-# Boundary between "online" and "idle" (seconds since last heartbeat)
-IDLE_THRESHOLD = 30
+# Redis TTL for a presence key (seconds).  Users are removed after 3 days of
+# inactivity (no heartbeat).
+PRESENCE_TTL = 3 * 24 * 60 * 60  # 259 200 s  (3 days)
+
+# Status thresholds (seconds since last heartbeat)
+ONLINE_THRESHOLD = 60       # green:  active within last 60 s
+IDLE_THRESHOLD = 10 * 60    # yellow: 1–10 minutes since last heartbeat
+# > IDLE_THRESHOLD → red (offline), retained until PRESENCE_TTL expires
 
 
 class PresenceService:
-    """Manages per-project user presence in Redis.
+    """Manages global user presence in Redis.
 
-    Key format: ``{prefix}presence:{project_id}:{user_id}``
+    Key format: ``{prefix}presence:user:{user_id}``
 
     Each key is a Redis hash with fields:
-        user_id, project_id, display_name, current_view, connected_at, last_heartbeat
+        user_id, project_id, project_name, display_name, current_view,
+        connected_at, last_heartbeat
 
-    The key expires after PRESENCE_TTL seconds — the frontend must send
-    heartbeats at least every 30 s to keep the entry alive.
+    The key expires after PRESENCE_TTL (3 days) — the frontend must send
+    heartbeats at least every 30 s to keep the entry fresh.
     """
 
     def __init__(self, redis_client=None):
@@ -37,11 +42,18 @@ class PresenceService:
     def _prefix(self) -> str:
         return getattr(self._redis, '_prefix', 'claudevn:') if self._redis else 'claudevn:'
 
+    def _user_key(self, user_id: str) -> str:
+        return f"{self._prefix()}presence:user:{user_id}"
+
+    def _all_users_pattern(self) -> str:
+        return f"{self._prefix()}presence:user:*"
+
+    # Legacy per-project helpers (for backward compat during migration)
     def _key(self, project_id: str, user_id: str) -> str:
-        return f"{self._prefix()}presence:{project_id}:{user_id}"
+        return self._user_key(user_id)
 
     def _pattern(self, project_id: str) -> str:
-        return f"{self._prefix()}presence:{project_id}:*"
+        return self._all_users_pattern()
 
     # ------------------------------------------------------------------
     # Public API
@@ -53,16 +65,18 @@ class PresenceService:
         user_id: str,
         display_name: str,
         current_view: Optional[str] = None,
+        project_name: Optional[str] = None,
     ) -> None:
-        """Record or refresh a user's presence for *project_id*.
+        """Record or refresh a user's global presence.
 
-        Sets the Redis hash fields and refreshes the TTL to PRESENCE_TTL seconds.
-        After updating, broadcasts a ``presence_update`` event via the event bus.
+        Stores the user's current project and view so teammates can see
+        what they're working on.  The Redis key expires after PRESENCE_TTL
+        (3 days).  After updating, broadcasts a ``presence_update`` event.
         """
         if not self._redis:
             return
 
-        key = self._key(project_id, user_id)
+        key = self._user_key(user_id)
         now = datetime.now(timezone.utc).isoformat()
 
         try:
@@ -75,7 +89,8 @@ class PresenceService:
 
             mapping = {
                 "user_id": user_id,
-                "project_id": project_id,
+                "project_id": project_id or "",
+                "project_name": project_name or "",
                 "display_name": display_name,
                 "current_view": current_view or "",
                 "last_heartbeat": now,
@@ -87,25 +102,29 @@ class PresenceService:
             logger.warning(f"Presence heartbeat failed for {user_id}: {e}")
             return
 
-        # Broadcast after successful write
+        # Broadcast after successful write (global — no project filter)
         await self._broadcast_update(project_id)
 
-    async def get_active_users(self, project_id: str) -> list[UserPresence]:
-        """Return all users currently present in *project_id*.
+    async def get_active_users(self, project_id: Optional[str] = None) -> list[UserPresence]:
+        """Return all globally tracked users.
+
+        If *project_id* is given the list is filtered to users whose last
+        heartbeat was for that project.  Pass ``None`` to get everyone.
 
         Status is derived from time since last heartbeat:
-        - ``online`` — last heartbeat < IDLE_THRESHOLD seconds ago
-        - ``idle`` — last heartbeat IDLE_THRESHOLD..PRESENCE_TTL seconds ago
+        - ``online``  — within the last 60 s  (green)
+        - ``idle``    — 1–10 minutes ago       (yellow)
+        - ``offline`` — >10 minutes ago        (red, retained up to 3 days)
         """
         if not self._redis:
             return []
 
         try:
             raw = self._redis._redis
-            pattern = self._pattern(project_id)
+            pattern = self._all_users_pattern()
             keys = await raw.keys(pattern)
         except Exception as e:
-            logger.warning(f"Failed to list presence keys for {project_id}: {e}")
+            logger.warning(f"Failed to list presence keys: {e}")
             return []
 
         users: list[UserPresence] = []
@@ -134,10 +153,18 @@ class PresenceService:
                     last_hb = now
 
                 age = (now - last_hb).total_seconds()
-                if age < IDLE_THRESHOLD:
+                if age < ONLINE_THRESHOLD:
                     status = "online"
-                else:
+                elif age < IDLE_THRESHOLD:
                     status = "idle"
+                else:
+                    status = "offline"
+
+                user_project = decoded.get("project_id", "")
+
+                # Optional project filter
+                if project_id and user_project != project_id:
+                    continue
 
                 connected_at_str = decoded.get("connected_at", "")
                 try:
@@ -149,7 +176,8 @@ class PresenceService:
 
                 presence = UserPresence(
                     user_id=decoded.get("user_id", ""),
-                    project_id=decoded.get("project_id", project_id),
+                    project_id=user_project,
+                    project_name=decoded.get("project_name") or None,
                     display_name=decoded.get("display_name", "Unknown"),
                     status=status,
                     current_view=decoded.get("current_view") or None,
@@ -166,10 +194,14 @@ class PresenceService:
     # Internal broadcast
     # ------------------------------------------------------------------
 
-    async def _broadcast_update(self, project_id: str) -> None:
-        """Push a presence_update event to all WebSocket clients."""
+    async def _broadcast_update(self, project_id: Optional[str] = None) -> None:
+        """Push a presence_update event to all WebSocket clients.
+
+        Broadcasts the full global user list so every client can update its
+        team panel regardless of which project it is viewing.
+        """
         try:
-            users = await self.get_active_users(project_id)
+            users = await self.get_active_users()  # global — no filter
             from services.observability_event_bus import get_event_bus
             bus = get_event_bus()
             if not bus:
@@ -179,7 +211,7 @@ class PresenceService:
                 {
                     "type": "presence_update",
                     "event": {
-                        "project_id": project_id,
+                        "project_id": project_id or "",
                         "users": [u.model_dump(mode="json") for u in users],
                     },
                 },

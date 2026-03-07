@@ -299,6 +299,19 @@ function TimingPanel({ aggregates, totalWorkItems }) {
   )
 }
 
+function teamStatusToAvatar(status) {
+  if (status === 'online') return 'online'
+  if (status === 'idle') return 'away'
+  return 'offline'
+}
+
+function teamActivityLabel(user) {
+  const parts = []
+  if (user.project_name) parts.push(user.project_name)
+  if (user.current_view) parts.push(user.current_view)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 function TeamPanel({ presenceUsers }) {
   const users = presenceUsers || []
   const onlineCount = users.filter((u) => u.status === 'online').length
@@ -308,30 +321,37 @@ function TeamPanel({ presenceUsers }) {
       <div className="rp-panel-header">
         <Users size={14} className="rp-panel-icon" />
         <h3 className="rp-panel-title">TEAM</h3>
-        {onlineCount > 0 && <span className="rp-panel-count">{onlineCount}</span>}
+        {users.length > 0 && (
+          <span className="rp-panel-count">
+            {onlineCount > 0 ? onlineCount : users.length}
+          </span>
+        )}
       </div>
 
       {users.length === 0 ? (
         <p className="rp-panel-empty">Only you here</p>
       ) : (
         <div className="rp-team-users">
-          {users.map((user) => (
-            <div key={user.user_id} className="rp-team-user">
-              <UserAvatar
-                userId={user.user_id}
-                displayName={user.display_name}
-                size="sm"
-                showStatus
-                status={user.status === 'online' ? 'online' : 'away'}
-              />
-              <div className="rp-team-user-info">
-                <span className="rp-team-user-name">{user.display_name}</span>
-                {user.current_view && (
-                  <span className="rp-team-user-view">{user.current_view}</span>
-                )}
+          {users.map((user) => {
+            const label = teamActivityLabel(user)
+            return (
+              <div key={user.user_id} className="rp-team-user">
+                <UserAvatar
+                  userId={user.user_id}
+                  displayName={user.display_name}
+                  size="sm"
+                  showStatus
+                  status={teamStatusToAvatar(user.status)}
+                />
+                <div className="rp-team-user-info">
+                  <span className="rp-team-user-name">{user.display_name}</span>
+                  {label && (
+                    <span className="rp-team-user-view">{label}</span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

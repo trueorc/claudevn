@@ -97,7 +97,7 @@ function ActiveProjectDashboard() {
   const { data: planData } = usePlanSummary(projectId, { pollInterval: 15000 })
   const { aggregates, totalWorkItems } = useTiming(projectId, { pollInterval: 30000 })
   const { health, overallStatus, loading: healthLoading } = useSystemHealth({ pollInterval: 30000 })
-  const { users: presenceUsers } = usePresence(projectId || null)
+  const { users: presenceUsers } = usePresence(projectId || null, activeProject?.name || null)
   const prompts = useDirectivePrompts(activeProject ? stats : null)
   const { transitionClass, scrollPositionRef } = useChatTransition()
 
