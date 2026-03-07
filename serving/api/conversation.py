@@ -14,7 +14,7 @@ router = APIRouter(prefix="/projects/{project_id}/conversation", tags=["conversa
 @router.get("", response_model=ConversationResponse)
 async def get_conversation(
     project_id: str,
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=500, ge=1, le=500),
     before: Optional[str] = Query(default=None),
     user_id: Optional[str] = Depends(get_optional_user_id),
 ):

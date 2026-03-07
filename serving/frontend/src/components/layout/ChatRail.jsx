@@ -8,7 +8,18 @@ import useChatTransition from '../../hooks/useChatTransition'
 import { Send, ChevronLeft, ChevronRight, MessageSquare, ExternalLink } from 'lucide-react'
 import './ChatRail.css'
 
-const CHATRAIL_MAX_MESSAGES = 10
+const CHATRAIL_MAX_MESSAGES = 500
+
+// Message types shown in the sidebar rail — keep it focused on completed
+// outcomes and user messages. Full detail lives in the Control Center.
+const CHATRAIL_VISIBLE_TYPES = new Set([
+  'user',
+  'goal_complete',
+  'goal_processing',
+  'directive_applied',
+  'directive_rejected',
+  'error',
+])
 
 function RailProjectHeader() {
   const { activeProject } = useProjectContext()
@@ -44,7 +55,9 @@ function ChatRail() {
   const { stats } = useIssues({ useWebSocket: !!activeProject, pollInterval: activeProject ? 30000 : 0 })
   const prompts = useDirectivePrompts(activeProject ? stats : null)
 
-  const recentMessages = messages.slice(-CHATRAIL_MAX_MESSAGES)
+  const recentMessages = messages
+    .filter(m => CHATRAIL_VISIBLE_TYPES.has(m.type))
+    .slice(-CHATRAIL_MAX_MESSAGES)
 
   // Track unread messages when collapsed
   useEffect(() => {
@@ -168,7 +181,6 @@ function ChatRail() {
             {recentMessages.map((msg) => {
               const isUser = msg.type === 'user' || msg.role === 'user'
               const isError = msg.type === 'error'
-              const isThinking = msg.type === 'thinking'
               const roleClass = isUser ? 'user' : isError ? 'error' : 'system'
               const timestamp = msg.timestamp
                 ? (typeof msg.timestamp === 'string'
@@ -177,8 +189,6 @@ function ChatRail() {
                       ? msg.timestamp
                       : new Date())
                 : new Date()
-
-              if (isThinking) return null
 
               return (
                 <div key={msg.id} className={`chat-rail-message chat-rail-message-${roleClass}`}>
