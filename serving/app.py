@@ -67,6 +67,7 @@ from api import network_capacity
 from api import provisioner
 from api import timing
 from api import conversation
+from api import presence
 # MCP server for compute communication
 from mcp import get_router
 # Marketplace HTTP client (marketplace is a separate service on port 8003)
@@ -382,6 +383,19 @@ async def lifespan(app: FastAPI):
     conversation_service = ConversationService(redis_client=redis_client)
     set_conversation_service(conversation_service)
     logger.info("Conversation service initialized")
+
+    from services.conversation_event_bridge import init_event_bridge
+    init_event_bridge()
+
+    # =========================================================================
+    # OPTIONAL: Presence Service
+    # Tracks which users are online in which project view using Redis.
+    # Degrades gracefully if Redis unavailable (returns empty presence lists).
+    # =========================================================================
+    from services.presence_service import PresenceService, set_presence_service
+    presence_service = PresenceService(redis_client=redis_client)
+    set_presence_service(presence_service)
+    logger.info("Presence service initialized")
 
     # =========================================================================
     # OPTIONAL: Rate Limiter
@@ -1190,6 +1204,7 @@ app.include_router(network_capacity.router, prefix=api_prefix)
 app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
 app.include_router(conversation.router, prefix=api_prefix)
+app.include_router(presence.router, prefix=api_prefix)
 app.include_router(get_router(), prefix=api_prefix)
 app.include_router(decision_traces.router)  # Already has /api/v1 in router prefix
 # Note: Skill marketplace is a separate service on port 8003 - use MarketplaceClient

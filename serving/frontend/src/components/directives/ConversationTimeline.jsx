@@ -260,6 +260,21 @@ function DirectiveRejectedMessage({ msg }) {
   )
 }
 
+function SystemMessage({ msg }) {
+  // Parse **bold** markers safely without dangerouslySetInnerHTML
+  const parts = msg.content.split(/\*\*(.*?)\*\*/g)
+  return (
+    <div className="conv-msg conv-msg-system-event">
+      <div className="conv-system-event">
+        <span className="conv-system-event-text">
+          {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+        </span>
+        <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
+      </div>
+    </div>
+  )
+}
+
 function ErrorMessage({ msg }) {
   return (
     <div className="conv-msg conv-msg-system">
@@ -286,6 +301,8 @@ function ConversationTimeline({ messages, pendingDirective, applying, onApply, o
         switch (msg.type) {
           case MSG_TYPES.USER:
             return <UserMessage key={msg.id} msg={msg} />
+          case MSG_TYPES.SYSTEM:
+            return <SystemMessage key={msg.id} msg={msg} />
           case MSG_TYPES.THINKING:
             return <ThinkingMessage key={msg.id} msg={msg} />
           case MSG_TYPES.GOAL_CREATED:

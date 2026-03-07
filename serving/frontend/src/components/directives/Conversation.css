@@ -771,6 +771,43 @@
   opacity: 0.7;
 }
 
+/* =============================================================================
+   System Event Messages (auto-injected from backend events)
+   ============================================================================= */
+
+.conv-msg-system-event {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xs, 4px) var(--space-lg, 24px);
+}
+
+.conv-system-event {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+  padding: var(--space-xs, 4px) var(--space-md, 12px);
+  background: var(--bg-hover);
+  border-radius: var(--radius-lg, 16px);
+  font-size: var(--font-size-xs, 11px);
+  color: var(--text-secondary);
+}
+
+.conv-system-event-text {
+  line-height: 1.4;
+}
+
+.conv-system-event strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.conv-system-event .conv-msg-time {
+  display: inline;
+  margin-top: 0;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
 /* Error */
 .conv-error {
   display: flex;

@@ -5,6 +5,7 @@ import useGoals, { WORKFLOW_STEPS, PROCESSING_STAGES } from './useGoals'
 
 export const MSG_TYPES = {
   USER: 'user',
+  SYSTEM: 'system',
   THINKING: 'thinking',
   GOAL_CREATED: 'goal_created',
   GOAL_PROCESSING: 'goal_processing',
