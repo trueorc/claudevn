@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check, Settings, Timer } from 'lucide-react'
+import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check, Key, Timer } from 'lucide-react'
 import useSystemHealth from '../../hooks/useSystemHealth'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import NotificationBell from '../notifications/NotificationBell'
@@ -10,11 +10,11 @@ const navItems = [
   { to: '/network', icon: Radio, label: 'Network' },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
   { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
-  { to: '/directives', icon: Target, label: 'Directives' },
-  { to: '/plan', icon: Play, label: 'Plan' },
-  { to: '/backlog', icon: ListTodo, label: 'Backlog' },
-  { to: '/timing', icon: Timer, label: 'Timing' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/directives', icon: Target, label: 'Directives', requiresProject: true },
+  { to: '/plan', icon: Play, label: 'Plan', requiresProject: true },
+  { to: '/backlog', icon: ListTodo, label: 'Backlog', requiresProject: true },
+  { to: '/timing', icon: Timer, label: 'Timing', requiresProject: true },
+  { to: '/settings/ssh-keys', icon: Key, label: 'SSH Keys' },
 ]
 
 function ProjectSelector() {
@@ -163,7 +163,7 @@ function Sidebar() {
       <div className="sidebar-divider" />
 
       <div className="sidebar-nav">
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {navItems.filter(item => !item.requiresProject || activeProject).map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
