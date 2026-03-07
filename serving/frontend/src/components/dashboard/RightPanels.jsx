@@ -242,11 +242,18 @@ function BacklogPanel({ stats, issues }) {
             const tag = STATUS_TAG_CONFIG[issue.status]
             return (
               <div key={issue.issue_id} className="rp-issue-row">
-                {tag && (
-                  <span className={`rp-issue-tag ${tag.className}`}>{tag.label}</span>
-                )}
+                <div className="rp-issue-meta">
+                  {tag && (
+                    <span className={`rp-issue-tag ${tag.className}`}>{tag.label}</span>
+                  )}
+                  <span className="rp-issue-id">#{issue.issue_id}</span>
+                  {issue.priority && (
+                    <span className={`rp-issue-priority rp-issue-priority--${issue.priority.toLowerCase()}`}>
+                      {issue.priority}
+                    </span>
+                  )}
+                </div>
                 <span className="rp-issue-title">{issue.title}</span>
-                <span className="rp-issue-id">#{issue.issue_id}</span>
               </div>
             )
           })}
