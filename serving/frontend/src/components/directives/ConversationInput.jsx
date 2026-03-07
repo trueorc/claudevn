@@ -4,7 +4,7 @@ import { INTENT_MODES } from '../../hooks/useConversation'
 
 function ConversationInput({ onSubmit, submitting, disabled, commentMode, suggestedText, onSuggestedTextConsumed }) {
   const [text, setText] = useState('')
-  const [mode] = useState(INTENT_MODES.CHAT)
+  const [mode] = useState(INTENT_MODES.AUTO)
   const textareaRef = useRef(null)
 
   const adjustHeight = useCallback(() => {
