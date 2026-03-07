@@ -3,9 +3,10 @@ import { GitBranch, ExternalLink, Trash2, Server, RefreshCw, Upload, Link } from
 import Card, { CardBody } from '../common/Card'
 import { getRepoStatus, syncRepo, pushRepo, cloneRepo } from '../../api/sshKeys'
 import { useToast } from '../../hooks/useToast'
+import { useDisplayHostname, transformRepoUrl } from '../../hooks/useDisplayHostname'
 import './Projects.css'
 
-function LinkedRepoStatus({ projectId, repo }) {
+function LinkedRepoStatus({ projectId, repo, displayUrl }) {
   const toast = useToast()
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -100,7 +101,7 @@ function LinkedRepoStatus({ projectId, repo }) {
       <div className="linked-repo-info">
         <span className="meta-item">
           <span className="meta-label">Upstream:</span>
-          <span className="mono" style={{ fontSize: 'var(--font-size-xs)' }}>{repo.url}</span>
+          <span className="mono" style={{ fontSize: 'var(--font-size-xs)' }}>{displayUrl}</span>
         </span>
         {status && status.last_sync && (
           <span className="meta-item">
@@ -161,6 +162,8 @@ function LinkedRepoStatus({ projectId, repo }) {
 }
 
 function RepoList({ repos, onRemove, projectId }) {
+  const { displayHostname } = useDisplayHostname()
+
   if (!repos || repos.length === 0) {
     return (
       <div className="empty-repos">
@@ -171,7 +174,9 @@ function RepoList({ repos, onRemove, projectId }) {
 
   return (
     <div className="repo-list">
-      {repos.map(repo => (
+      {repos.map(repo => {
+        const displayUrl = transformRepoUrl(repo.url, displayHostname)
+        return (
         <Card key={repo.repo_id} className="repo-card">
           <CardBody>
             <div className="repo-header">
@@ -240,7 +245,7 @@ function RepoList({ repos, onRemove, projectId }) {
               {repo.is_internal && (
                 <span className="meta-item">
                   <span className="meta-label">URL:</span>
-                  <span className="mono" style={{ fontSize: 'var(--font-size-xs)' }}>{repo.url}</span>
+                  <span className="mono" style={{ fontSize: 'var(--font-size-xs)' }}>{displayUrl}</span>
                 </span>
               )}
               {repo.ssh_key_id && (
@@ -251,11 +256,12 @@ function RepoList({ repos, onRemove, projectId }) {
               )}
             </div>
             {!repo.is_internal && projectId && (
-              <LinkedRepoStatus projectId={projectId} repo={repo} />
+              <LinkedRepoStatus projectId={projectId} repo={repo} displayUrl={displayUrl} />
             )}
           </CardBody>
         </Card>
-      ))}
+        )
+      })}
     </div>
   )
 }
