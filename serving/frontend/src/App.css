@@ -31,6 +31,10 @@
   --iconbar-width: 48px;
   --sidepanel-width: 280px;
 
+  /* Chat rail dimensions */
+  --chat-rail-width: 260px;
+  --chat-rail-collapsed-width: 40px;
+
   /* Colors - dark theme */
   --primary: #7c3aed;
   --primary-hover: #6d28d9;

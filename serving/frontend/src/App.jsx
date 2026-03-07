@@ -6,7 +6,7 @@ import { ConversationProvider } from './contexts/ConversationContext'
 import { CognitoAuthProvider, useCognitoAuth } from './contexts/CognitoAuthContext'
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
-import SidePanel from './components/layout/SidePanel'
+import ChatRail from './components/layout/ChatRail'
 import AuthExpiredBanner from './components/common/AuthExpiredBanner'
 import DashboardPage from './pages/DashboardPage'
 import NetworkHealthPage from './pages/NetworkHealthPage'
@@ -33,7 +33,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
       <ConversationProvider>
         <div className="app">
           <IconBar />
-          <SidePanel />
+          <ChatRail />
           <main className="main-content">
             {(expired || expiringAt) && (
               <AuthExpiredBanner
@@ -84,7 +84,7 @@ function CognitoGate({ children }) {
       <div className="auth-setup-page">
         <div className="auth-setup-card">
           <div className="auth-setup-spinner" />
-          <p style={{ color: 'var(--text-secondary, #888)', marginTop: '1rem', fontSize: '0.9rem' }}>
+          <p style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-base)' }}>
             Connecting...
           </p>
         </div>
@@ -116,7 +116,7 @@ function ClaudeTokenGate() {
       <div className="auth-setup-page">
         <div className="auth-setup-card">
           <div className="auth-setup-spinner" />
-          <p style={{ color: 'var(--text-secondary, #888)', marginTop: '1rem', fontSize: '0.9rem' }}>
+          <p style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-base)' }}>
             Connecting...
           </p>
         </div>
