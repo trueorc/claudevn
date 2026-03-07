@@ -4,6 +4,7 @@ import { ToastProvider } from './contexts/ToastContext'
 import { ProjectProvider } from './contexts/ProjectContext'
 import { ConversationProvider } from './contexts/ConversationContext'
 import { AuthProvider, useAuth as useUserAuth } from './contexts/auth/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastContainer } from './components/common/Toast'
 import IconBar from './components/layout/IconBar'
 import ChatRail from './components/layout/ChatRail'
@@ -157,13 +158,15 @@ function ClaudeTokenGate() {
 function App() {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <AppProvider>
-          <CognitoGate>
-            <ClaudeTokenGate />
-          </CognitoGate>
-        </AppProvider>
-      </ToastProvider>
+      <ThemeProvider>
+        <ToastProvider>
+          <AppProvider>
+            <CognitoGate>
+              <ClaudeTokenGate />
+            </CognitoGate>
+          </AppProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </AuthProvider>
   )
 }
