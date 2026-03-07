@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
-import usePlanSummary from '../hooks/usePlanSummary'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
 import { createProject } from '../api/projects'
 import { createGoal } from '../api/workmap'
 import { Plus, ArrowRight, Target, Play, CheckCircle, X } from 'lucide-react'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
+import SummaryCards from '../components/dashboard/SummaryCards'
 import '../components/directives/Conversation.css'
 import './DashboardPage.css'
 
@@ -305,16 +305,6 @@ function NoProjectDashboard({ onNewProject }) {
   )
 }
 
-function SummaryCard({ title, to, content, active }) {
-  const navigate = useNavigate()
-  return (
-    <button className={`summary-card ${active ? 'summary-card-active' : ''}`} onClick={() => navigate(to)}>
-      <h3 className="summary-card-title">{title}</h3>
-      <p className="summary-card-content">{content}</p>
-    </button>
-  )
-}
-
 function ActiveProjectDashboard() {
   const { activeProject } = useProjectContext()
   const {
@@ -328,12 +318,9 @@ function ActiveProjectDashboard() {
     rejectPending,
     retryProcessing,
   } = useConversationContext()
-  const { items, stats } = useIssues({
+  const { stats } = useIssues({
     pollInterval: 15000,
     filters: { project_id: activeProject?.project_id },
-  })
-  const { data: planData } = usePlanSummary(activeProject?.project_id, {
-    pollInterval: 15000,
   })
   const prompts = useDirectivePrompts(activeProject ? stats : null)
   const [suggestedText, setSuggestedText] = useState('')
@@ -392,35 +379,8 @@ function ActiveProjectDashboard() {
         />
       </div>
 
-      {/* Summary cards panel (placeholder for #190) */}
-      <div className="dashboard-summary-panel">
-        <SummaryCard
-          title="Plan"
-          to="/plan"
-          content={planData?.active_count > 0
-            ? `${planData.active_count} active, ${planData.queued_count || 0} queued`
-            : 'No active work'}
-          active={planData?.active_count > 0}
-        />
-        <SummaryCard
-          title="Backlog"
-          to="/backlog"
-          content={stats?.total
-            ? `${stats.total} items (${stats.by_status?.done || 0} done)`
-            : 'Empty'}
-          active={(stats?.by_status?.in_review || 0) > 0}
-        />
-        <SummaryCard
-          title="Network"
-          to="/network"
-          content="View health"
-        />
-        <SummaryCard
-          title="Timing"
-          to="/timing"
-          content="View metrics"
-        />
-      </div>
+      {/* Summary cards panel */}
+      <SummaryCards />
     </div>
   )
 }

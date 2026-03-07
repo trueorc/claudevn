@@ -1,0 +1,87 @@
+/* Summary Cards Sub-styles */
+
+.summary-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.summary-card-icon {
+  color: var(--text-muted);
+}
+
+.summary-card-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+
+.summary-card-count {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.summary-card-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.summary-card-stat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+
+.summary-stat-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.summary-stat-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.summary-stat-ready {
+  color: var(--status-pending);
+}
+
+.summary-stat-blocked {
+  color: var(--status-offline);
+}
+
+.summary-stat-review {
+  color: var(--status-degraded);
+}
+
+.summary-stat-done {
+  color: var(--status-online);
+}
+
+.summary-card-empty {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.summary-card-link {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+  transition: color var(--transition-fast);
+}
+
+.summary-card:hover .summary-card-link {
+  color: var(--primary);
+}
