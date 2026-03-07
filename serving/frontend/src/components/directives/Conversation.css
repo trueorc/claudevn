@@ -405,6 +405,7 @@
   flex-direction: column;
   gap: 12px;
   border: 1px dashed var(--border);
+  border-left: 3px solid var(--status-pending, #eab308);
   background: transparent;
 }
 
@@ -574,6 +575,7 @@
 
 .conv-directive {
   border-color: rgba(249, 115, 22, 0.3);
+  border-left: 3px solid var(--primary);
 }
 
 .conv-intent-badge {
@@ -765,10 +767,89 @@
 /* Applied / Rejected states */
 .conv-applied {
   border-color: rgba(34, 197, 94, 0.3);
+  border-left: 3px solid var(--status-online, #22c55e);
 }
 
 .conv-rejected {
   opacity: 0.7;
+  border-left: 3px solid var(--status-offline, #ef4444);
+}
+
+/* =============================================================================
+   Attention Card
+   ============================================================================= */
+
+.conv-attention-card {
+  border-left: 3px solid var(--status-degraded);
+}
+
+.conv-icon-attention {
+  color: var(--status-degraded);
+}
+
+.conv-attention-detail {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: var(--space-xs) 0;
+  line-height: 1.5;
+}
+
+.conv-attention-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.conv-btn-action {
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.conv-btn-action:hover {
+  background: var(--bg-active);
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+/* =============================================================================
+   Promote Suggestion Card
+   ============================================================================= */
+
+.conv-promote-suggestion {
+  border-left: 3px solid var(--color-initiative);
+  background: var(--color-initiative-muted);
+}
+
+.conv-icon-suggestion {
+  color: var(--color-initiative);
+}
+
+.conv-promote-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.conv-btn-dismiss {
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.conv-btn-dismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
 }
 
 /* =============================================================================
@@ -982,6 +1063,36 @@
 }
 
 /* =============================================================================
+   Promote to Directive Button (hover action on user messages)
+   ============================================================================= */
+
+.conv-promote-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-muted);
+  margin-top: var(--space-xs, 4px);
+  transition: all var(--transition-fast, 0.15s ease);
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.conv-msg-user:hover .conv-promote-btn {
+  display: flex;
+}
+
+.conv-promote-btn:hover {
+  background: var(--primary-muted, rgba(99, 102, 241, 0.08));
+  color: var(--primary);
+}
+
+/* =============================================================================
    Comment display (for selected goal view)
    ============================================================================= */
 
@@ -1021,6 +1132,21 @@
   }
 }
 
+/* Mobile conversation adjustments */
+@media (max-width: 767px) {
+  .conv-input-container {
+    padding: var(--space-sm);
+  }
+
+  .conv-msg-bubble {
+    max-width: 90%;
+  }
+
+  .conv-input-hint {
+    display: none;
+  }
+}
+
 @media (max-width: 600px) {
   .conv-page {
     padding: 16px;
@@ -1036,9 +1162,5 @@
 
   .conv-msg-bubble {
     max-width: 95%;
-  }
-
-  .conv-input-hint {
-    display: none;
   }
 }
