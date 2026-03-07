@@ -155,7 +155,31 @@ function DonutChart({ statusCounts, total }) {
   )
 }
 
-function BacklogPanel({ stats }) {
+const STATUS_TAG_CONFIG = {
+  in_progress: { label: 'Active', className: 'rp-issue-tag--active' },
+  blocked: { label: 'Blocked', className: 'rp-issue-tag--blocked' },
+  failed: { label: 'Failed', className: 'rp-issue-tag--blocked' },
+  in_review: { label: 'Review', className: 'rp-issue-tag--review' },
+  testing: { label: 'Testing', className: 'rp-issue-tag--review' },
+  ready: { label: 'Ready', className: 'rp-issue-tag--ready' },
+  pending: { label: 'Ready', className: 'rp-issue-tag--ready' },
+  backlog: { label: 'Backlog', className: 'rp-issue-tag--backlog' },
+  done: { label: 'Done', className: 'rp-issue-tag--done' },
+}
+
+const STATUS_SORT_ORDER = {
+  in_progress: 0,
+  blocked: 1,
+  failed: 2,
+  in_review: 3,
+  testing: 4,
+  ready: 5,
+  pending: 6,
+  backlog: 7,
+  done: 8,
+}
+
+function BacklogPanel({ stats, issues }) {
   const navigate = useNavigate()
 
   const ready = (stats?.by_status?.ready || 0) + (stats?.by_status?.pending || 0)
@@ -178,6 +202,11 @@ function BacklogPanel({ stats }) {
   }
 
   const visibleLegend = DONUT_STATUS_CONFIG.filter((cfg) => (statusCounts[cfg.key] || 0) > 0)
+
+  // Sort issues by status priority (active/blocked first, done last)
+  const sortedIssues = [...(issues || [])].sort(
+    (a, b) => (STATUS_SORT_ORDER[a.status] ?? 99) - (STATUS_SORT_ORDER[b.status] ?? 99)
+  )
 
   return (
     <button
@@ -204,6 +233,30 @@ function BacklogPanel({ stats }) {
               <span className="rp-legend-count">{statusCounts[cfg.key]}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {sortedIssues.length > 0 && (
+        <div className="rp-issue-list">
+          {sortedIssues.map((issue) => {
+            const tag = STATUS_TAG_CONFIG[issue.status]
+            return (
+              <div key={issue.issue_id} className="rp-issue-row">
+                <div className="rp-issue-meta">
+                  {tag && (
+                    <span className={`rp-issue-tag ${tag.className}`}>{tag.label}</span>
+                  )}
+                  <span className="rp-issue-id">#{issue.issue_id}</span>
+                  {issue.priority && (
+                    <span className={`rp-issue-priority rp-issue-priority--${issue.priority.toLowerCase()}`}>
+                      {issue.priority}
+                    </span>
+                  )}
+                </div>
+                <span className="rp-issue-title">{issue.title}</span>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -358,10 +411,10 @@ function TeamPanel({ presenceUsers }) {
   )
 }
 
-function RightPanels({ stats, aggregates, totalWorkItems, presenceUsers }) {
+function RightPanels({ stats, issues, aggregates, totalWorkItems, presenceUsers }) {
   return (
     <div className="rp-column">
-      <BacklogPanel stats={stats} />
+      <BacklogPanel stats={stats} issues={issues} />
       <TimingPanel aggregates={aggregates} totalWorkItems={totalWorkItems} />
       <TeamPanel presenceUsers={presenceUsers} />
     </div>

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Activity, Cpu, Database, Plus, Server } from 'lucide-react'
+import { Activity, Cpu, Database, FlaskConical, Hammer, Plus, Server, Shield, TrendingUp } from 'lucide-react'
 import './LeftPanels.css'
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,13 @@ function ProgressRing({ pct, size = 64, strokeWidth = 6 }) {
 // ---------------------------------------------------------------------------
 // Panel 2: Execution Status
 // ---------------------------------------------------------------------------
+const PRESET_ICON_MAP = {
+  build: Hammer,
+  harden: Shield,
+  test: FlaskConical,
+  invest: TrendingUp,
+}
+
 function ExecutionPanel({ planData }) {
   const navigate = useNavigate()
 
@@ -99,6 +106,11 @@ function ExecutionPanel({ planData }) {
   const focusSummary = planData?.focus_summary
   const runningItems = planData?.running_items ?? []
 
+  const activePreset = planData?.active_preset
+  const activePresetLabel = planData?.active_preset_label
+  const activePresetColor = planData?.active_preset_color
+  const ProfileIcon = activePreset ? PRESET_ICON_MAP[activePreset] : null
+
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   const displayedItems = runningItems.slice(0, 3)
   const extraCount = runningItems.length - displayedItems.length
@@ -108,6 +120,15 @@ function ExecutionPanel({ planData }) {
       <div className="lp-panel-header">
         <Activity size={12} className="lp-panel-icon" />
         <span className="lp-panel-title">Execution</span>
+        {ProfileIcon && (
+          <span
+            className="lp-profile-indicator"
+            style={{ color: activePresetColor || 'var(--text-muted)' }}
+            title={activePresetLabel || activePreset}
+          >
+            <ProfileIcon size={14} />
+          </span>
+        )}
       </div>
 
       {/* Progress ring */}
