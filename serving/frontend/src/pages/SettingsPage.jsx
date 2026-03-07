@@ -33,7 +33,7 @@ function SettingsPage() {
   const isDirty = hostname !== displayHostname
 
   return (
-    <div className="settings-page">
+    <div className="page settings-page">
       <div className="page-header">
         <h1>Settings</h1>
       </div>
