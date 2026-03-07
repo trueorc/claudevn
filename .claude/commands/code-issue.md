@@ -332,6 +332,12 @@ echo "$OPEN_ISSUES"
 
 ### 11. Update DevBoard Status
 
+Re-fetch the project item ID (shell state from Step 3 is not preserved between commands):
+
+```bash
+ITEM_ID=$(gh api graphql -f query='{ repository(owner: "trueorc", name: "claudevn") { issue(number: {ISSUE_NUMBER}) { projectItems(first: 1) { nodes { id } } } } }' --jq '.data.repository.issue.projectItems.nodes[0].id')
+```
+
 **Single-issue mode** — set to "In Review":
 ```bash
 gh api graphql -f query="mutation { updateProjectV2ItemFieldValue(input: { projectId: \"PVT_kwDOD6FTDM4BQFhJ\" itemId: \"$ITEM_ID\" fieldId: \"PVTSSF_lADOD6FTDM4BQFhJzg-Tsck\" value: { singleSelectOptionId: \"4cc61d42\" } }) { projectV2Item { id } } }"
