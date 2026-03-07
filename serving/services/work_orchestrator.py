@@ -317,6 +317,21 @@ class WorkOrchestrator:
                 )
             for work in stale_assigned:
                 try:
+                    # If parent issue is already DONE, complete the orphan
+                    # instead of cycling it back to PENDING endlessly.
+                    issue_id = work.issue_id or (work.context.get("issue_id") if work.context else None)
+                    if issue_id:
+                        parent_issue = await work_map.get_issue(issue_id)
+                        if parent_issue and parent_issue.status == IssueStatus.DONE:
+                            await work_map.update_status(
+                                work.work_id, WorkStatus.COMPLETED
+                            )
+                            logger.info(
+                                f"Completed orphan work {work.work_id}: "
+                                f"parent issue {issue_id} is already DONE"
+                            )
+                            continue
+
                     updated = await work_map.reset_assigned_to_pending(
                         work.work_id
                     )
@@ -427,6 +442,17 @@ class WorkOrchestrator:
                 retry_after = self._retry_after.get(work.work_id)
                 if retry_after and now < retry_after:
                     continue
+
+                # Don't retry work whose parent issue is already DONE
+                issue_id = work.issue_id or (work.context.get("issue_id") if work.context else None)
+                if issue_id:
+                    parent_issue = await work_map.get_issue(issue_id)
+                    if parent_issue and parent_issue.status == IssueStatus.DONE:
+                        logger.info(
+                            f"Skipping retry for work {work.work_id}: "
+                            f"parent issue {issue_id} is already DONE"
+                        )
+                        continue
 
                 # Record the compute node that failed (before mark_work_for_retry clears assigned_to)
                 if work.assigned_to:
@@ -668,6 +694,20 @@ class WorkOrchestrator:
                         "requires manual intervention"
                     )
                     continue
+
+                # Skip (and cancel) orphan work whose parent issue is already DONE
+                issue_id = work.issue_id or (work.context.get("issue_id") if work.context else None)
+                if issue_id:
+                    parent_issue = await work_map.get_issue(issue_id)
+                    if parent_issue and parent_issue.status == IssueStatus.DONE:
+                        logger.info(
+                            f"Cancelling orphan work {work.work_id}: "
+                            f"parent issue {issue_id} is already DONE"
+                        )
+                        await work_map.update_status(
+                            work.work_id, WorkStatus.COMPLETED
+                        )
+                        continue
 
                 candidates.append(work)
 
