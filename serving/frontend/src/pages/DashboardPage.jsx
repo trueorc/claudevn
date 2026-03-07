@@ -90,7 +90,7 @@ function ActiveProjectDashboard() {
   const projectId = activeProject?.project_id
 
   // Data hooks — shared across panels
-  const { stats } = useIssues({
+  const { stats, items: backlogIssues } = useIssues({
     pollInterval: 15000,
     filters: { project_id: projectId },
   })
@@ -186,6 +186,7 @@ function ActiveProjectDashboard() {
       <div className="dashboard-col-right">
         <RightPanels
           stats={stats}
+          issues={backlogIssues}
           aggregates={aggregates}
           totalWorkItems={totalWorkItems}
           presenceUsers={presenceUsers}
