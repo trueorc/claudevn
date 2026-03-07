@@ -68,7 +68,13 @@ class ConversationEventBridge:
         if not content or not project_id:
             return
 
-        if self._should_rate_limit(project_id, metadata.get('event_type', '')):
+        # Rate-limit per (project, work_id, new_status) to prevent chat spam
+        # from work items cycling between states
+        rate_key = metadata.get('work_id', metadata.get('event_type', ''))
+        new_status = metadata.get('new_status', '')
+        if new_status:
+            rate_key = f"{rate_key}:{new_status}"
+        if self._should_rate_limit(project_id, rate_key):
             return
 
         await service.add_message(
