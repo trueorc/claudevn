@@ -70,7 +70,7 @@
 
 .dashboard-card-new:hover {
   border-color: var(--primary);
-  background: rgba(124, 58, 237, 0.04);
+  background: var(--primary-alpha);
 }
 
 .dashboard-card-icon {
@@ -138,7 +138,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-sm) var(--space-md);
-  background: var(--bg-primary, var(--bg));
+  background: var(--bg);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   transition: all var(--transition-fast);
@@ -438,7 +438,7 @@
 
 .guided-step-dot.done {
   border-color: var(--status-online);
-  background: rgba(34, 197, 94, 0.12);
+  background: var(--status-online-alpha);
   color: var(--status-online);
 }
 
@@ -585,7 +585,7 @@
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-primary);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: 500;

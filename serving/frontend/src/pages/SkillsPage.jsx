@@ -22,17 +22,7 @@ function SkillsPage() {
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 12px',
-            background: 'var(--primary)',
-            color: 'white',
-            borderRadius: '6px',
-            fontSize: '13px',
-            fontWeight: 500
-          }}
+          className="btn btn-primary"
         >
           <Plus size={14} />
           Create Skill

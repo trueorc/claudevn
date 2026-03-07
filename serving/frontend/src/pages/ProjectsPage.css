@@ -1,0 +1,39 @@
+/* Project Detail Page Styles */
+
+.project-detail-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.project-detail-description {
+  color: var(--text-secondary);
+  margin-bottom: var(--space-lg);
+}
+
+.project-detail-labels {
+  margin-bottom: var(--space-xl);
+}
+
+.project-detail-section {
+  margin-bottom: var(--space-xl);
+}
+
+.project-detail-section-title {
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  margin-bottom: var(--space-md);
+}
+
+.project-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: var(--space-xl);
+}
+
+.project-detail-repo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}

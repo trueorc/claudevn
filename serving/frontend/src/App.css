@@ -66,6 +66,43 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
+
+  /* Extended tokens for design system completeness */
+  --text-on-primary: #fff;
+  --bg-tertiary: #1e1e2e;
+  --bg-card: var(--bg-elevated);
+  --border-color: var(--border);
+  --border-subtle: #222;
+  --text-primary: var(--text);
+  --text-tertiary: #52525b;
+
+  /* Semantic accent colors */
+  --color-initiative: #8b5cf6;
+  --color-initiative-secondary: #6366f1;
+  --color-initiative-muted: rgba(139, 92, 246, 0.1);
+
+  /* Phase/category colors */
+  --color-phase-setup: #3b82f6;
+  --color-phase-clone: #8b5cf6;
+  --color-phase-launch: #f59e0b;
+  --color-phase-mcp: #10b981;
+  --color-phase-tool: #14b8a6;
+  --color-phase-inference: #ef4444;
+  --color-phase-execution: #f97316;
+  --color-phase-push: #6366f1;
+  --color-phase-default: #64748b;
+
+  /* Status alpha variants */
+  --status-online-alpha: rgba(34, 197, 94, 0.12);
+  --status-degraded-alpha: rgba(245, 158, 11, 0.12);
+  --status-offline-alpha: rgba(239, 68, 68, 0.12);
+  --status-pending-alpha: rgba(59, 130, 246, 0.12);
+  --primary-alpha: rgba(124, 58, 237, 0.04);
+  --error-alpha: rgba(239, 68, 68, 0.1);
+
+  /* Semantic aliases */
+  --success: var(--status-online);
+  --warning: var(--status-degraded);
 }
 
 /* Base styles */

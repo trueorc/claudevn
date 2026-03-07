@@ -173,7 +173,7 @@
 
 .priority-drop-zone.drop-target-active {
   border-color: var(--primary);
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--status-pending-alpha);
 }
 
 .issues-list {
@@ -325,8 +325,8 @@
 }
 
 .label-initiative {
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
-  color: white;
+  background: linear-gradient(135deg, var(--color-initiative), var(--color-initiative-secondary));
+  color: var(--text-on-primary);
   font-weight: 600;
   padding: 3px 10px;
   border-radius: 12px;
@@ -355,13 +355,13 @@
   align-items: center;
   gap: 4px;
   background: var(--primary);
-  color: white;
+  color: var(--text-on-primary);
   border: none;
 }
 
 .create-btn:hover {
   background: var(--primary-hover);
-  color: white;
+  color: var(--text-on-primary);
 }
 
 .issue-card.clickable {
