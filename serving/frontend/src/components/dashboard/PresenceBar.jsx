@@ -2,8 +2,22 @@ import { useState } from 'react'
 import UserAvatar from '../common/UserAvatar'
 import './PresenceBar.css'
 
+function statusToAvatar(status) {
+  if (status === 'online') return 'online'
+  if (status === 'idle') return 'away'
+  return 'offline'
+}
+
+function activityLabel(user) {
+  const parts = []
+  if (user.project_name) parts.push(user.project_name)
+  if (user.current_view) parts.push(user.current_view)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 function PresenceTooltip({ user }) {
-  const view = user.current_view ? `viewing ${user.current_view}` : 'online'
+  const label = activityLabel(user)
+  const view = label ? `viewing ${label}` : user.status
   return (
     <div className="presence-tooltip">
       <span className="presence-tooltip-name">{user.display_name}</span>
@@ -26,7 +40,7 @@ function PresenceAvatar({ user }) {
         displayName={user.display_name}
         size="sm"
         showStatus
-        status={user.status === 'online' ? 'online' : 'away'}
+        status={statusToAvatar(user.status)}
       />
       {showTooltip && <PresenceTooltip user={user} />}
     </div>

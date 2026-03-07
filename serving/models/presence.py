@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 class UserPresence(BaseModel):
     user_id: str
-    project_id: str
+    project_id: str = ""
+    project_name: Optional[str] = None
     display_name: str = "Unknown"
     status: str = "online"  # online, idle, offline
     current_view: Optional[str] = None  # dashboard, backlog, plan, etc.
@@ -18,6 +19,7 @@ class UserPresence(BaseModel):
 
 class HeartbeatRequest(BaseModel):
     current_view: Optional[str] = None
+    project_name: Optional[str] = None
 
 
 class PresenceResponse(BaseModel):
