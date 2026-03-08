@@ -10,6 +10,13 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class ComplexityTier(str, Enum):
+    """Complexity tier for model escalation."""
+    HAIKU = "haiku"      # Simple conversational responses
+    SONNET = "sonnet"    # Reasoning, analysis, architectural discussion
+    COMPUTE = "compute"  # Deep research requiring tool use
+
+
 class ResponseDecision(str, Enum):
     """The AI agent's decision on whether/how to respond."""
     RESPOND = "respond"
@@ -79,6 +86,24 @@ class AIChatAgentConfig(BaseModel):
         le=3600.0,
         description="Window in seconds to prevent duplicate action submissions",
     )
+    sonnet_escalations_per_hour: int = Field(
+        default=5,
+        ge=0,
+        le=50,
+        description="Max Sonnet escalations per project per hour",
+    )
+    compute_offloads_per_hour: int = Field(
+        default=2,
+        ge=0,
+        le=20,
+        description="Max compute offloads per project per hour",
+    )
+    sonnet_max_response_tokens: int = Field(
+        default=800,
+        ge=100,
+        le=4000,
+        description="Maximum tokens for Sonnet-escalated responses",
+    )
 
 
 class AgentEvaluation(BaseModel):
@@ -101,6 +126,10 @@ class AgentEvaluation(BaseModel):
     action_description: Optional[str] = Field(
         default=None,
         description="Human-readable description of the detected action",
+    )
+    complexity_tier: Optional[str] = Field(
+        default=None,
+        description="Complexity tier classification: 'haiku', 'sonnet', or 'compute'",
     )
     confidence: float = Field(
         default=0.0,
