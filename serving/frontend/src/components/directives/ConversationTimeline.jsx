@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw } from 'lucide-react'
+import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot } from 'lucide-react'
 import { MSG_TYPES } from '../../hooks/useConversation'
 import { getAvatarColor, getInitials } from '../common/UserAvatar'
 import GoalCompletionCard from './GoalCompletionCard'
@@ -79,6 +79,23 @@ function UserMessage({ msg, currentUserId, onPromoteToDirective }) {
         <span className="conv-msg-sender-name">{displayName}</span>
       </div>
       <div className="conv-msg-bubble conv-bubble-other" style={{ borderColor: color }}>
+        <p className="conv-msg-text">{msg.content}</p>
+        <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
+      </div>
+    </div>
+  )
+}
+
+function AssistantMessage({ msg }) {
+  return (
+    <div className="conv-msg conv-msg-ai">
+      <div className="conv-msg-sender">
+        <span className="conv-msg-sender-avatar conv-ai-avatar">
+          <Bot size={12} />
+        </span>
+        <span className="conv-msg-sender-name">{msg.displayName || 'Claude'}</span>
+      </div>
+      <div className="conv-msg-bubble conv-bubble-ai">
         <p className="conv-msg-text">{msg.content}</p>
         <span className="conv-msg-time">{formatTime(msg.timestamp)}</span>
       </div>
@@ -413,6 +430,8 @@ function ConversationTimeline({ messages, currentUserId, pendingDirective, apply
         switch (msg.type) {
           case MSG_TYPES.USER:
             return <UserMessage key={msg.id} msg={msg} currentUserId={currentUserId} onPromoteToDirective={onPromoteToDirective} />
+          case MSG_TYPES.ASSISTANT:
+            return <AssistantMessage key={msg.id} msg={msg} />
           case MSG_TYPES.SYSTEM:
             return <SystemMessage key={msg.id} msg={msg} />
           case MSG_TYPES.THINKING:
