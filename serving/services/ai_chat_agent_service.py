@@ -10,14 +10,17 @@ Key design decisions:
 - Haiku-first for cost-effective conversational responses
 - One evaluation at a time per project (skip if previous still running)
 - Failed evaluations logged and silently dropped
+- Action detection with directive handoff (#248)
+- Deduplication window to prevent repeated submissions
 - Fully async, non-blocking
 
-Reference: Issue #246
+Reference: Issues #246, #248
 """
 
 import asyncio
 import logging
-from typing import Dict, Optional, Set
+import time
+from typing import Dict, List, Optional, Set, Tuple
 
 from models.ai_chat_agent import AgentEvaluation, AIChatAgentConfig
 from models.claude_client import ClaudeModel
@@ -49,6 +52,8 @@ class AIChatAgentService:
         self._evaluating: Set[str] = set()
         # Per-project configs (lazy-loaded, defaults used if absent)
         self._configs: Dict[str, AIChatAgentConfig] = {}
+        # Recent action submissions for deduplication: {project_id: [(action, description, timestamp)]}
+        self._recent_actions: Dict[str, List[Tuple[str, str, float]]] = {}
         self._started = False
 
     def start(self) -> None:
@@ -64,6 +69,7 @@ class AIChatAgentService:
             task.cancel()
         self._debounce_tasks.clear()
         self._evaluating.clear()
+        self._recent_actions.clear()
         self._started = False
         logger.info("AI Chat Agent Service stopped")
 
@@ -277,13 +283,120 @@ class AIChatAgentService:
             except Exception as e:
                 logger.error(f"Failed to post AI response for {project_id}: {e}")
 
-        # Flag detected action for handoff to action detection (#248)
+        # Action detection and directive handoff (#248)
         if evaluation.detected_action:
-            logger.info(
-                f"AI agent detected action in {project_id}: "
-                f"{evaluation.detected_action} — {evaluation.action_description}"
+            await self._handle_action_handoff(project_id, evaluation)
+
+    # =========================================================================
+    # Action Detection and Directive Handoff (#248)
+    # =========================================================================
+
+    async def _handle_action_handoff(
+        self,
+        project_id: str,
+        evaluation: AgentEvaluation,
+    ) -> None:
+        """Handle detected action by submitting a directive.
+
+        Clear actions (high confidence) are submitted immediately.
+        Ambiguous actions (low confidence) rely on the conversational
+        response to ask the user for clarification — no directive submitted.
+        """
+        config = self.get_config(project_id)
+        action = evaluation.detected_action
+        description = evaluation.action_description or ""
+
+        logger.info(
+            f"AI agent detected action in {project_id}: "
+            f"{action} — {description} (confidence={evaluation.confidence:.2f})"
+        )
+
+        # Below threshold: agent already asked a clarifying question via response
+        if evaluation.confidence < config.action_confidence_threshold:
+            logger.debug(
+                f"Action confidence {evaluation.confidence:.2f} below threshold "
+                f"{config.action_confidence_threshold:.2f} — waiting for user clarification"
             )
-            # Action handoff will be implemented in #248
+            return
+
+        # Check for duplicate submissions
+        if self._is_duplicate_action(project_id, action, description, config):
+            logger.info(
+                f"Skipping duplicate action for {project_id}: {action} — {description}"
+            )
+            return
+
+        # Submit directive via UnifiedDirectiveService
+        try:
+            from services.unified_directive_service import get_unified_directive_service
+            directive_service = get_unified_directive_service()
+
+            if not directive_service:
+                logger.warning("UnifiedDirectiveService not available for action handoff")
+                return
+
+            # Build directive text from the action description and context
+            directive_text = self._build_directive_text(action, description)
+
+            directive = await directive_service.submit(
+                project_id=project_id,
+                text=directive_text,
+            )
+
+            # Record for deduplication
+            self._record_action(project_id, action, description)
+
+            logger.info(
+                f"AI agent submitted directive {directive.directive_id} "
+                f"for {project_id}: {action}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to submit directive for {project_id}: {e}"
+            )
+
+    def _build_directive_text(self, action: str, description: str) -> str:
+        """Build directive text from action type and description."""
+        if action == "adjust_priority":
+            return f"Priority adjustment: {description}"
+        # Default for create_work and any other action type
+        return description
+
+    def _is_duplicate_action(
+        self,
+        project_id: str,
+        action: str,
+        description: str,
+        config: AIChatAgentConfig,
+    ) -> bool:
+        """Check if a similar action was recently submitted."""
+        now = time.monotonic()
+        window = config.action_dedup_window_seconds
+        recent = self._recent_actions.get(project_id, [])
+
+        # Clean expired entries
+        recent = [(a, d, t) for a, d, t in recent if now - t < window]
+        self._recent_actions[project_id] = recent
+
+        # Check for matching action type
+        for prev_action, prev_desc, _ in recent:
+            if prev_action == action and prev_desc == description:
+                return True
+
+        return False
+
+    def _record_action(
+        self,
+        project_id: str,
+        action: str,
+        description: str,
+    ) -> None:
+        """Record an action submission for deduplication."""
+        now = time.monotonic()
+        if project_id not in self._recent_actions:
+            self._recent_actions[project_id] = []
+        self._recent_actions[project_id].append((action, description, now))
 
     # =========================================================================
     # Summary Update (background)
