@@ -14,7 +14,7 @@ Key design decisions:
 - Deduplication window to prevent repeated submissions
 - Fully async, non-blocking
 
-Reference: Issues #246, #248
+Reference: Issues #246, #248, #249
 """
 
 import asyncio
@@ -22,7 +22,7 @@ import logging
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
-from models.ai_chat_agent import AgentEvaluation, AIChatAgentConfig
+from models.ai_chat_agent import AgentEvaluation, AIChatAgentConfig, ComplexityTier
 from models.claude_client import ClaudeModel
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,9 @@ class AIChatAgentService:
         self._configs: Dict[str, AIChatAgentConfig] = {}
         # Recent action submissions for deduplication: {project_id: [(action, description, timestamp)]}
         self._recent_actions: Dict[str, List[Tuple[str, str, float]]] = {}
+        # Escalation rate limiting: {project_id: [timestamps]}
+        self._sonnet_usage: Dict[str, List[float]] = {}
+        self._compute_usage: Dict[str, List[float]] = {}
         self._started = False
 
     def start(self) -> None:
@@ -70,6 +73,8 @@ class AIChatAgentService:
         self._debounce_tasks.clear()
         self._evaluating.clear()
         self._recent_actions.clear()
+        self._sonnet_usage.clear()
+        self._compute_usage.clear()
         self._started = False
         logger.info("AI Chat Agent Service stopped")
 
@@ -226,7 +231,7 @@ class AIChatAgentService:
             context_summary=summary.summary_text or None,
         )
 
-        # Call Haiku
+        # Call Haiku for initial evaluation (cheap meta-evaluation)
         try:
             from services.claude_client import get_claude_client
             client = get_claude_client()
@@ -243,6 +248,23 @@ class AIChatAgentService:
         except Exception as e:
             logger.warning(f"AI evaluation failed for {project_id}: {e}")
             return
+
+        # Check if escalation is needed (#249)
+        tier = self._resolve_complexity_tier(evaluation, project_id, config)
+
+        if tier == ComplexityTier.SONNET and evaluation.should_respond:
+            evaluation = await self._escalate_to_sonnet(
+                project_id, config, system_prompt, eval_prompt, evaluation
+            )
+        elif tier == ComplexityTier.COMPUTE and evaluation.should_respond:
+            # Compute offload: fall back to Sonnet for now (compute dispatch is a future extension)
+            logger.info(
+                f"Compute offload requested for {project_id} — "
+                f"falling back to Sonnet (compute dispatch not yet implemented)"
+            )
+            evaluation = await self._escalate_to_sonnet(
+                project_id, config, system_prompt, eval_prompt, evaluation
+            )
 
         # Act on the evaluation
         await self._handle_evaluation(project_id, evaluation)
@@ -286,6 +308,126 @@ class AIChatAgentService:
         # Action detection and directive handoff (#248)
         if evaluation.detected_action:
             await self._handle_action_handoff(project_id, evaluation)
+
+    # =========================================================================
+    # Model Escalation (#249)
+    # =========================================================================
+
+    def _resolve_complexity_tier(
+        self,
+        evaluation: AgentEvaluation,
+        project_id: str,
+        config: AIChatAgentConfig,
+    ) -> ComplexityTier:
+        """Resolve the effective complexity tier, applying rate limits."""
+        raw_tier = evaluation.complexity_tier
+        if not raw_tier or raw_tier == ComplexityTier.HAIKU.value:
+            return ComplexityTier.HAIKU
+
+        if raw_tier == ComplexityTier.COMPUTE.value:
+            if not self._check_rate_limit(
+                self._compute_usage, project_id, config.compute_offloads_per_hour
+            ):
+                logger.info(
+                    f"Compute offload rate limit reached for {project_id} — downgrading to sonnet"
+                )
+                raw_tier = ComplexityTier.SONNET.value
+            else:
+                return ComplexityTier.COMPUTE
+
+        if raw_tier == ComplexityTier.SONNET.value:
+            if not self._check_rate_limit(
+                self._sonnet_usage, project_id, config.sonnet_escalations_per_hour
+            ):
+                logger.info(
+                    f"Sonnet escalation rate limit reached for {project_id} — staying on haiku"
+                )
+                return ComplexityTier.HAIKU
+            return ComplexityTier.SONNET
+
+        return ComplexityTier.HAIKU
+
+    async def _escalate_to_sonnet(
+        self,
+        project_id: str,
+        config: AIChatAgentConfig,
+        system_prompt: str,
+        eval_prompt: str,
+        haiku_evaluation: AgentEvaluation,
+    ) -> AgentEvaluation:
+        """Re-evaluate with Sonnet for a more capable response.
+
+        Posts a "Thinking..." indicator, calls Sonnet, then returns
+        the upgraded evaluation.
+        """
+        logger.info(f"Escalating to Sonnet for {project_id}")
+
+        # Post thinking indicator
+        await self._post_thinking_indicator(project_id)
+
+        # Record usage for rate limiting
+        self._record_rate_limit(self._sonnet_usage, project_id)
+
+        try:
+            from services.claude_client import get_claude_client
+            client = get_claude_client()
+
+            response = await client.complete(
+                prompt=eval_prompt,
+                system=system_prompt,
+                model=ClaudeModel.SONNET_4.value,
+                max_tokens=config.sonnet_max_response_tokens,
+                temperature=0.3,
+            )
+
+            from services.ai_chat_prompt_service import get_ai_chat_prompt_service
+            prompt_service = get_ai_chat_prompt_service()
+            return prompt_service.parse_evaluation_response(response.content)
+        except Exception as e:
+            logger.warning(f"Sonnet escalation failed for {project_id}: {e}")
+            # Fall back to Haiku evaluation
+            return haiku_evaluation
+
+    async def _post_thinking_indicator(self, project_id: str) -> None:
+        """Post a 'Thinking...' indicator message."""
+        try:
+            from services.conversation_service import get_conversation_service
+            conv_service = get_conversation_service()
+            if conv_service:
+                await conv_service.add_message(
+                    project_id=project_id,
+                    user_id=AI_AGENT_USER_ID,
+                    display_name=AI_AGENT_DISPLAY_NAME,
+                    type="thinking",
+                    content="Thinking...",
+                )
+        except Exception as e:
+            logger.debug(f"Failed to post thinking indicator for {project_id}: {e}")
+
+    def _check_rate_limit(
+        self,
+        usage_dict: Dict[str, List[float]],
+        project_id: str,
+        max_per_hour: int,
+    ) -> bool:
+        """Check if rate limit allows another request. Returns True if allowed."""
+        now = time.monotonic()
+        hour_ago = now - 3600
+        timestamps = usage_dict.get(project_id, [])
+        # Clean expired entries
+        timestamps = [t for t in timestamps if t > hour_ago]
+        usage_dict[project_id] = timestamps
+        return len(timestamps) < max_per_hour
+
+    def _record_rate_limit(
+        self,
+        usage_dict: Dict[str, List[float]],
+        project_id: str,
+    ) -> None:
+        """Record a usage event for rate limiting."""
+        if project_id not in usage_dict:
+            usage_dict[project_id] = []
+        usage_dict[project_id].append(time.monotonic())
 
     # =========================================================================
     # Action Detection and Directive Handoff (#248)

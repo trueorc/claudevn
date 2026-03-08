@@ -132,12 +132,21 @@ Evaluate the messages above and decide:
 2. If responding, what should you say? Keep it concise (1-3 sentences for chat, more only if explaining something technical).
 3. Is there an actionable work intent? Only flag this if the intent is clear and specific.
 
+4. What complexity tier does this require?
+   - "haiku": Simple conversational responses, status updates, acknowledgments
+   - "sonnet": Questions requiring reasoning, multi-step analysis, code explanation, architectural discussion
+   - "compute": Deep research requiring codebase investigation, file reading, log analysis, comparative analysis
+
+Indicators for sonnet: "why", "how should we", "compare", "explain the architecture", "what's the best approach"
+Indicators for compute: "look at the code", "find where", "check the logs", "investigate the bug", "search for"
+
 Respond with JSON only:
 {
   "should_respond": true/false,
   "response": "your response text or null",
   "detected_action": "create_work" | "adjust_priority" | null,
   "action_description": "human-readable description of the action or null",
+  "complexity_tier": "haiku" | "sonnet" | "compute",
   "confidence": 0.0-1.0,
   "reasoning": "brief internal reasoning"
 }

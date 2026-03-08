@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from models.ai_chat_agent import AgentEvaluation, AIChatAgentConfig, AssertivenesLevel
+from models.ai_chat_agent import AgentEvaluation, AIChatAgentConfig, AssertivenesLevel, ComplexityTier
 from services.ai_chat_agent_service import (
     AIChatAgentService,
     AI_AGENT_USER_ID,
@@ -528,6 +528,272 @@ class TestActionHandoff:
         """adjust_priority actions get prefixed."""
         text = service._build_directive_text("adjust_priority", "Bump auth to P0")
         assert text == "Priority adjustment: Bump auth to P0"
+
+
+# =============================================================================
+# Model Escalation (#249)
+# =============================================================================
+
+
+class TestComplexityTier:
+    """Tests for complexity tier resolution."""
+
+    def test_haiku_tier_default(self, service):
+        """No complexity_tier defaults to haiku."""
+        evaluation = AgentEvaluation(should_respond=True, confidence=0.8)
+        config = service.get_config("proj-1")
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.HAIKU
+
+    def test_haiku_tier_explicit(self, service):
+        """Explicit haiku tier stays haiku."""
+        evaluation = AgentEvaluation(
+            should_respond=True, complexity_tier="haiku", confidence=0.8,
+        )
+        config = service.get_config("proj-1")
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.HAIKU
+
+    def test_sonnet_tier(self, service):
+        """Sonnet tier is resolved when within rate limit."""
+        evaluation = AgentEvaluation(
+            should_respond=True, complexity_tier="sonnet", confidence=0.8,
+        )
+        config = service.get_config("proj-1")
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.SONNET
+
+    def test_compute_tier(self, service):
+        """Compute tier is resolved when within rate limit."""
+        evaluation = AgentEvaluation(
+            should_respond=True, complexity_tier="compute", confidence=0.8,
+        )
+        config = service.get_config("proj-1")
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.COMPUTE
+
+    def test_sonnet_rate_limit_downgrades_to_haiku(self, service):
+        """When sonnet rate limit exceeded, downgrade to haiku."""
+        config = AIChatAgentConfig(sonnet_escalations_per_hour=2)
+        service.set_config("proj-1", config)
+
+        # Exhaust rate limit
+        now = time.monotonic()
+        service._sonnet_usage["proj-1"] = [now, now]
+
+        evaluation = AgentEvaluation(
+            should_respond=True, complexity_tier="sonnet", confidence=0.8,
+        )
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.HAIKU
+
+    def test_compute_rate_limit_downgrades_to_sonnet(self, service):
+        """When compute rate limit exceeded, downgrade to sonnet."""
+        config = AIChatAgentConfig(compute_offloads_per_hour=1)
+        service.set_config("proj-1", config)
+
+        now = time.monotonic()
+        service._compute_usage["proj-1"] = [now]
+
+        evaluation = AgentEvaluation(
+            should_respond=True, complexity_tier="compute", confidence=0.8,
+        )
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.SONNET
+
+    def test_compute_and_sonnet_both_exhausted_falls_to_haiku(self, service):
+        """When both compute and sonnet exhausted, fall to haiku."""
+        config = AIChatAgentConfig(
+            compute_offloads_per_hour=1,
+            sonnet_escalations_per_hour=1,
+        )
+        service.set_config("proj-1", config)
+
+        now = time.monotonic()
+        service._compute_usage["proj-1"] = [now]
+        service._sonnet_usage["proj-1"] = [now]
+
+        evaluation = AgentEvaluation(
+            should_respond=True, complexity_tier="compute", confidence=0.8,
+        )
+        tier = service._resolve_complexity_tier(evaluation, "proj-1", config)
+        assert tier == ComplexityTier.HAIKU
+
+
+class TestSonnetEscalation:
+    """Tests for Sonnet model escalation."""
+
+    @pytest.mark.asyncio
+    async def test_escalation_posts_thinking_indicator(self, service):
+        """Sonnet escalation should post a thinking indicator."""
+        mock_conv = MagicMock()
+        mock_conv.add_message = AsyncMock()
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"should_respond": true, "response": "Deep analysis...", "confidence": 0.9}'
+        mock_client.complete = AsyncMock(return_value=mock_response)
+
+        haiku_eval = AgentEvaluation(
+            should_respond=True, response="placeholder", confidence=0.8,
+        )
+
+        with patch(
+            "services.conversation_service.get_conversation_service",
+            return_value=mock_conv,
+        ):
+            with patch(
+                "services.claude_client.get_claude_client",
+                return_value=mock_client,
+            ):
+                with patch(
+                    "services.ai_chat_prompt_service.get_ai_chat_prompt_service",
+                ) as mock_prompt_svc:
+                    mock_prompt_svc.return_value.parse_evaluation_response.return_value = (
+                        AgentEvaluation(
+                            should_respond=True,
+                            response="Deep analysis...",
+                            confidence=0.9,
+                        )
+                    )
+                    config = service.get_config("proj-1")
+                    result = await service._escalate_to_sonnet(
+                        "proj-1", config, "system", "eval", haiku_eval
+                    )
+
+        # Check thinking indicator was posted
+        mock_conv.add_message.assert_awaited_once()
+        call_kwargs = mock_conv.add_message.call_args.kwargs
+        assert call_kwargs["type"] == "thinking"
+        assert call_kwargs["content"] == "Thinking..."
+
+    @pytest.mark.asyncio
+    async def test_escalation_uses_sonnet_model(self, service):
+        """Escalation should use Sonnet model."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"should_respond": true, "response": "Answer", "confidence": 0.9}'
+        mock_client.complete = AsyncMock(return_value=mock_response)
+
+        haiku_eval = AgentEvaluation(
+            should_respond=True, response="placeholder", confidence=0.8,
+        )
+
+        with patch.object(service, '_post_thinking_indicator', new_callable=AsyncMock):
+            with patch(
+                "services.claude_client.get_claude_client",
+                return_value=mock_client,
+            ):
+                with patch(
+                    "services.ai_chat_prompt_service.get_ai_chat_prompt_service",
+                ) as mock_prompt_svc:
+                    mock_prompt_svc.return_value.parse_evaluation_response.return_value = (
+                        AgentEvaluation(should_respond=True, response="Answer", confidence=0.9)
+                    )
+                    config = service.get_config("proj-1")
+                    await service._escalate_to_sonnet(
+                        "proj-1", config, "system", "eval", haiku_eval
+                    )
+
+        # Verify Sonnet model was used
+        call_kwargs = mock_client.complete.call_args.kwargs
+        assert "sonnet" in call_kwargs["model"]
+
+    @pytest.mark.asyncio
+    async def test_escalation_records_rate_limit(self, service):
+        """Escalation should record usage for rate limiting."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"should_respond": true, "response": "Answer", "confidence": 0.9}'
+        mock_client.complete = AsyncMock(return_value=mock_response)
+
+        haiku_eval = AgentEvaluation(
+            should_respond=True, response="placeholder", confidence=0.8,
+        )
+
+        with patch.object(service, '_post_thinking_indicator', new_callable=AsyncMock):
+            with patch(
+                "services.claude_client.get_claude_client",
+                return_value=mock_client,
+            ):
+                with patch(
+                    "services.ai_chat_prompt_service.get_ai_chat_prompt_service",
+                ) as mock_prompt_svc:
+                    mock_prompt_svc.return_value.parse_evaluation_response.return_value = (
+                        AgentEvaluation(should_respond=True, response="Answer", confidence=0.9)
+                    )
+                    config = service.get_config("proj-1")
+                    await service._escalate_to_sonnet(
+                        "proj-1", config, "system", "eval", haiku_eval
+                    )
+
+        assert len(service._sonnet_usage.get("proj-1", [])) == 1
+
+    @pytest.mark.asyncio
+    async def test_escalation_fallback_on_error(self, service):
+        """On Sonnet failure, should fall back to Haiku evaluation."""
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock(side_effect=Exception("API error"))
+
+        haiku_eval = AgentEvaluation(
+            should_respond=True, response="Haiku answer", confidence=0.7,
+        )
+
+        with patch.object(service, '_post_thinking_indicator', new_callable=AsyncMock):
+            with patch(
+                "services.claude_client.get_claude_client",
+                return_value=mock_client,
+            ):
+                config = service.get_config("proj-1")
+                result = await service._escalate_to_sonnet(
+                    "proj-1", config, "system", "eval", haiku_eval
+                )
+
+        # Should return the original haiku evaluation
+        assert result.response == "Haiku answer"
+
+    def test_stop_clears_escalation_state(self):
+        """Stop should clear rate limiting state."""
+        svc = AIChatAgentService()
+        svc.start()
+        svc._sonnet_usage["proj-1"] = [time.monotonic()]
+        svc._compute_usage["proj-1"] = [time.monotonic()]
+        svc.stop()
+        assert len(svc._sonnet_usage) == 0
+        assert len(svc._compute_usage) == 0
+
+
+class TestRateLimiting:
+    """Tests for rate limiting helpers."""
+
+    def test_check_rate_limit_allows_within_limit(self, service):
+        """Should allow when under the limit."""
+        assert service._check_rate_limit(
+            service._sonnet_usage, "proj-1", 5
+        ) is True
+
+    def test_check_rate_limit_blocks_at_limit(self, service):
+        """Should block when at the limit."""
+        now = time.monotonic()
+        service._sonnet_usage["proj-1"] = [now] * 5
+        assert service._check_rate_limit(
+            service._sonnet_usage, "proj-1", 5
+        ) is False
+
+    def test_check_rate_limit_cleans_expired(self, service):
+        """Should clean expired entries and allow new ones."""
+        old = time.monotonic() - 3700  # More than 1 hour ago
+        service._sonnet_usage["proj-1"] = [old] * 5
+        assert service._check_rate_limit(
+            service._sonnet_usage, "proj-1", 5
+        ) is True
+        # Expired entries should be cleaned
+        assert len(service._sonnet_usage["proj-1"]) == 0
+
+    def test_record_rate_limit(self, service):
+        """Should record a timestamp."""
+        service._record_rate_limit(service._sonnet_usage, "proj-1")
+        assert len(service._sonnet_usage["proj-1"]) == 1
 
 
 # =============================================================================
