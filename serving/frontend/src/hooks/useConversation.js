@@ -125,7 +125,7 @@ export default function useConversation(projectId) {
     }
   }, [goalError, addMsg, removeByType])
 
-  const submit = useCallback(async (text, mode = INTENT_MODES.AUTO, options = {}) => {
+  const submit = useCallback(async (text, mode = INTENT_MODES.CHAT, options = {}) => {
     if (!projectId || !text.trim() || submitting) return null
     setSubmitting(true)
     goalCompleteHandled.current = false

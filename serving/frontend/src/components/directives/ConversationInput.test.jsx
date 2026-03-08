@@ -24,7 +24,7 @@ describe('ConversationInput', () => {
   it('renders mode buttons when not in commentMode', () => {
     render(<ConversationInput {...defaultProps} />)
 
-    expect(screen.getByText('Auto')).toBeDefined()
+    expect(screen.getByText('Chat')).toBeDefined()
     expect(screen.getByText('New Work')).toBeDefined()
     expect(screen.getByText('Directive')).toBeDefined()
   })
@@ -32,7 +32,7 @@ describe('ConversationInput', () => {
   it('hides mode buttons in commentMode', () => {
     render(<ConversationInput {...defaultProps} commentMode={true} />)
 
-    expect(screen.queryByText('Auto')).toBeNull()
+    expect(screen.queryByText('Chat')).toBeNull()
     expect(screen.queryByText('New Work')).toBeNull()
     expect(screen.queryByText('Directive')).toBeNull()
   })
@@ -46,23 +46,18 @@ describe('ConversationInput', () => {
     expect(textarea.value).toBe('Hello world')
   })
 
-  it('submits with text and mode on send button click', () => {
+  it('submits with chat mode by default', () => {
     const onSubmit = vi.fn()
     render(<ConversationInput {...defaultProps} onSubmit={onSubmit} />)
 
     const textarea = screen.getByRole('textbox')
     fireEvent.change(textarea, { target: { value: 'Build feature' } })
 
-    // Find the send button (last button in the input row)
-    const sendBtn = screen.getByRole('button', { name: '' })
-      || screen.getAllByRole('button').find(btn => btn.classList.contains('conv-send-btn'))
-
-    // Click the send button
     const buttons = screen.getAllByRole('button')
     const sendButton = buttons.find(b => b.className.includes('conv-send-btn'))
     fireEvent.click(sendButton)
 
-    expect(onSubmit).toHaveBeenCalledWith('Build feature', 'auto', { priority: undefined })
+    expect(onSubmit).toHaveBeenCalledWith('Build feature', 'chat', { priority: undefined })
   })
 
   it('submits with Cmd+Enter', () => {
@@ -73,7 +68,7 @@ describe('ConversationInput', () => {
     fireEvent.change(textarea, { target: { value: 'Test submit' } })
     fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
 
-    expect(onSubmit).toHaveBeenCalledWith('Test submit', 'auto', { priority: undefined })
+    expect(onSubmit).toHaveBeenCalledWith('Test submit', 'chat', { priority: undefined })
   })
 
   it('submits with Ctrl+Enter', () => {
@@ -84,7 +79,7 @@ describe('ConversationInput', () => {
     fireEvent.change(textarea, { target: { value: 'Test submit' } })
     fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
 
-    expect(onSubmit).toHaveBeenCalledWith('Test submit', 'auto', { priority: undefined })
+    expect(onSubmit).toHaveBeenCalledWith('Test submit', 'chat', { priority: undefined })
   })
 
   it('clears text after submit', () => {
@@ -124,7 +119,6 @@ describe('ConversationInput', () => {
     render(<ConversationInput {...defaultProps} onSubmit={onSubmit} submitting={true} />)
 
     const textarea = screen.getByRole('textbox')
-    // textarea should be disabled during submitting
     expect(textarea.disabled).toBe(true)
   })
 
@@ -152,10 +146,10 @@ describe('ConversationInput', () => {
     expect(onSubmit).toHaveBeenCalledWith('Comment', 'new_work', { priority: undefined })
   })
 
-  it('shows correct placeholder for auto mode', () => {
+  it('shows correct placeholder for chat mode', () => {
     render(<ConversationInput {...defaultProps} />)
     const textarea = screen.getByRole('textbox')
-    expect(textarea.placeholder).toContain('Tell me what you need')
+    expect(textarea.placeholder).toContain('Type a message')
   })
 
   it('shows correct placeholder for directive mode', () => {
@@ -184,7 +178,7 @@ describe('ConversationInput', () => {
     expect(screen.queryByText('Options')).toBeNull()
   })
 
-  it('shows options toggle in auto mode', () => {
+  it('shows options toggle in chat mode', () => {
     render(<ConversationInput {...defaultProps} />)
     expect(screen.getByText('Options')).toBeDefined()
   })
@@ -192,11 +186,9 @@ describe('ConversationInput', () => {
   it('toggles priority select on options click', () => {
     render(<ConversationInput {...defaultProps} />)
 
-    // Options button exists
     const optionsBtn = screen.getByText('Options')
     fireEvent.click(optionsBtn)
 
-    // Priority select should appear
     expect(screen.getByDisplayValue('Priority')).toBeDefined()
   })
 
@@ -204,25 +196,22 @@ describe('ConversationInput', () => {
     const onSubmit = vi.fn()
     render(<ConversationInput {...defaultProps} onSubmit={onSubmit} />)
 
-    // Open options
     fireEvent.click(screen.getByText('Options'))
 
-    // Select priority
     const select = screen.getByDisplayValue('Priority')
     fireEvent.change(select, { target: { value: 'P0' } })
 
-    // Submit
     const textarea = screen.getByRole('textbox')
     fireEvent.change(textarea, { target: { value: 'Urgent work' } })
     fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
 
-    expect(onSubmit).toHaveBeenCalledWith('Urgent work', 'auto', { priority: 'P0' })
+    expect(onSubmit).toHaveBeenCalledWith('Urgent work', 'chat', { priority: 'P0' })
   })
 
   it('disables mode buttons while submitting', () => {
     render(<ConversationInput {...defaultProps} submitting={true} />)
 
-    const modeButtons = ['Auto', 'New Work', 'Directive'].map(label => screen.getByText(label))
+    const modeButtons = ['Chat', 'New Work', 'Directive'].map(label => screen.getByText(label))
     modeButtons.forEach(btn => {
       expect(btn.disabled).toBe(true)
     })
