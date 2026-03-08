@@ -67,6 +67,18 @@ class AIChatAgentConfig(BaseModel):
         default="",
         description="Optional per-project personality adjustment (appended to system prompt)",
     )
+    action_confidence_threshold: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence to auto-submit a detected action as a directive",
+    )
+    action_dedup_window_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=3600.0,
+        description="Window in seconds to prevent duplicate action submissions",
+    )
 
 
 class AgentEvaluation(BaseModel):

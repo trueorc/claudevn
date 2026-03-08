@@ -1,10 +1,11 @@
 """Tests for AI Chat Agent Service.
 
 Covers message handling, debounce mechanism, evaluation flow,
-response posting, and edge cases.
+response posting, action detection handoff, and edge cases.
 """
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -274,14 +275,14 @@ class TestHandleEvaluation:
             assert call_kwargs["content"] == "I can help with that."
 
     @pytest.mark.asyncio
-    async def test_detected_action_logged(self, service):
-        """When action is detected, it should be logged (handoff to #248)."""
+    async def test_detected_action_triggers_handoff(self, service):
+        """When action is detected, it should trigger the handoff flow."""
         evaluation = AgentEvaluation(
             should_respond=True,
-            response="Should I create a work item for that?",
+            response="I'll create a work item for that.",
             detected_action="create_work",
             action_description="Create auth refactoring task",
-            confidence=0.8,
+            confidence=0.85,
         )
 
         mock_conv = MagicMock()
@@ -291,9 +292,12 @@ class TestHandleEvaluation:
             "services.conversation_service.get_conversation_service",
             return_value=mock_conv,
         ):
-            # Should not raise — action detection logged for #248
-            await service._handle_evaluation("proj-1", evaluation)
-            mock_conv.add_message.assert_awaited_once()
+            with patch.object(
+                service, '_handle_action_handoff', new_callable=AsyncMock
+            ) as mock_handoff:
+                await service._handle_evaluation("proj-1", evaluation)
+                mock_conv.add_message.assert_awaited_once()
+                mock_handoff.assert_awaited_once_with("proj-1", evaluation)
 
     @pytest.mark.asyncio
     async def test_handles_conv_service_error(self, service):
@@ -313,6 +317,217 @@ class TestHandleEvaluation:
         ):
             # Should not raise
             await service._handle_evaluation("proj-1", evaluation)
+
+
+# =============================================================================
+# Action Handoff (#248)
+# =============================================================================
+
+
+class TestActionHandoff:
+    """Tests for action detection and directive handoff."""
+
+    @pytest.mark.asyncio
+    async def test_submits_directive_for_high_confidence_action(self, service):
+        """High confidence action should submit a directive."""
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            response="I'll create that for you.",
+            detected_action="create_work",
+            action_description="Create auth refactoring task",
+            confidence=0.85,
+        )
+
+        mock_directive_service = MagicMock()
+        mock_directive = MagicMock()
+        mock_directive.directive_id = "udir_test123"
+        mock_directive_service.submit = AsyncMock(return_value=mock_directive)
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+            return_value=mock_directive_service,
+        ):
+            await service._handle_action_handoff("proj-1", evaluation)
+            mock_directive_service.submit.assert_awaited_once_with(
+                project_id="proj-1",
+                text="Create auth refactoring task",
+            )
+
+    @pytest.mark.asyncio
+    async def test_skips_directive_below_confidence_threshold(self, service):
+        """Low confidence action should NOT submit a directive."""
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            response="Are you thinking of creating a task for that?",
+            detected_action="create_work",
+            action_description="Maybe create auth task",
+            confidence=0.5,  # Below default threshold of 0.75
+        )
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+        ) as mock_get:
+            await service._handle_action_handoff("proj-1", evaluation)
+            mock_get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_custom_confidence_threshold(self, service):
+        """Custom threshold should be respected."""
+        service.set_config("proj-1", AIChatAgentConfig(
+            action_confidence_threshold=0.9,
+        ))
+
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            response="I'll set that up.",
+            detected_action="create_work",
+            action_description="Create deployment pipeline",
+            confidence=0.85,  # Above default but below custom threshold
+        )
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+        ) as mock_get:
+            await service._handle_action_handoff("proj-1", evaluation)
+            mock_get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_deduplication_prevents_repeat_submission(self, service):
+        """Same action+description should not be submitted twice."""
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            response="Creating that now.",
+            detected_action="create_work",
+            action_description="Create auth refactoring task",
+            confidence=0.85,
+        )
+
+        mock_directive_service = MagicMock()
+        mock_directive = MagicMock()
+        mock_directive.directive_id = "udir_test123"
+        mock_directive_service.submit = AsyncMock(return_value=mock_directive)
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+            return_value=mock_directive_service,
+        ):
+            # First submission — should go through
+            await service._handle_action_handoff("proj-1", evaluation)
+            assert mock_directive_service.submit.await_count == 1
+
+            # Second submission — should be deduplicated
+            await service._handle_action_handoff("proj-1", evaluation)
+            assert mock_directive_service.submit.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_different_actions_not_deduplicated(self, service):
+        """Different action descriptions should both be submitted."""
+        mock_directive_service = MagicMock()
+        mock_directive = MagicMock()
+        mock_directive.directive_id = "udir_test123"
+        mock_directive_service.submit = AsyncMock(return_value=mock_directive)
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+            return_value=mock_directive_service,
+        ):
+            eval1 = AgentEvaluation(
+                should_respond=True,
+                detected_action="create_work",
+                action_description="Create auth task",
+                confidence=0.85,
+            )
+            await service._handle_action_handoff("proj-1", eval1)
+
+            eval2 = AgentEvaluation(
+                should_respond=True,
+                detected_action="create_work",
+                action_description="Create deploy task",
+                confidence=0.85,
+            )
+            await service._handle_action_handoff("proj-1", eval2)
+
+            assert mock_directive_service.submit.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_priority_adjustment_directive_text(self, service):
+        """Priority adjustment actions should have prefixed text."""
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            detected_action="adjust_priority",
+            action_description="Bump auth task to P0",
+            confidence=0.85,
+        )
+
+        mock_directive_service = MagicMock()
+        mock_directive = MagicMock()
+        mock_directive.directive_id = "udir_test123"
+        mock_directive_service.submit = AsyncMock(return_value=mock_directive)
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+            return_value=mock_directive_service,
+        ):
+            await service._handle_action_handoff("proj-1", evaluation)
+            call_kwargs = mock_directive_service.submit.call_args.kwargs
+            assert call_kwargs["text"] == "Priority adjustment: Bump auth task to P0"
+
+    @pytest.mark.asyncio
+    async def test_handles_directive_service_unavailable(self, service):
+        """Should not crash if directive service is unavailable."""
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            detected_action="create_work",
+            action_description="Create task",
+            confidence=0.85,
+        )
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+            return_value=None,
+        ):
+            # Should not raise
+            await service._handle_action_handoff("proj-1", evaluation)
+
+    @pytest.mark.asyncio
+    async def test_handles_directive_submission_error(self, service):
+        """Should not crash if directive submission fails."""
+        evaluation = AgentEvaluation(
+            should_respond=True,
+            detected_action="create_work",
+            action_description="Create task",
+            confidence=0.85,
+        )
+
+        mock_directive_service = MagicMock()
+        mock_directive_service.submit = AsyncMock(
+            side_effect=Exception("Service unavailable")
+        )
+
+        with patch(
+            "services.unified_directive_service.get_unified_directive_service",
+            return_value=mock_directive_service,
+        ):
+            # Should not raise
+            await service._handle_action_handoff("proj-1", evaluation)
+
+    def test_stop_clears_recent_actions(self):
+        """Stop should clear deduplication state."""
+        svc = AIChatAgentService()
+        svc.start()
+        svc._recent_actions["proj-1"] = [("create_work", "task", time.monotonic())]
+        svc.stop()
+        assert len(svc._recent_actions) == 0
+
+    def test_build_directive_text_create_work(self, service):
+        """create_work actions use description directly."""
+        text = service._build_directive_text("create_work", "Build auth system")
+        assert text == "Build auth system"
+
+    def test_build_directive_text_adjust_priority(self, service):
+        """adjust_priority actions get prefixed."""
+        text = service._build_directive_text("adjust_priority", "Bump auth to P0")
+        assert text == "Priority adjustment: Bump auth to P0"
 
 
 # =============================================================================
