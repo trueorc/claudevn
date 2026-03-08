@@ -13,7 +13,7 @@ class ConversationMessage(BaseModel):
     project_id: str
     user_id: str = "system"
     display_name: str = "System"
-    type: str = "user"  # user, system, thinking, goal_created, goal_processing, goal_complete, directive_preview, directive_applied, directive_rejected, error
+    type: str = "user"  # user, assistant, system, thinking, goal_created, goal_processing, goal_complete, directive_preview, directive_applied, directive_rejected, error
     content: str
     metadata: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
