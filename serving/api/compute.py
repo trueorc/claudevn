@@ -864,17 +864,22 @@ async def _handle_rejection_redispatch(event: ComputeEventRequest) -> None:
         _track_rejection_for_orchestrator(task_id, rejecting_compute)
         return
 
-    # Re-dispatch to the new compute
+    # Re-dispatch to the new compute — rewrite branch name for the new assignee
+    # Branch format is {type}/{issue_id}/{compute_id}, so replace the last segment
+    original_branch = work_data["branch_name"]
+    branch_parts = original_branch.rsplit("/", 1)
+    new_branch = f"{branch_parts[0]}/{new_connection.compute_id}" if len(branch_parts) == 2 else original_branch
+
     logger.info(
         f"Re-dispatching rejected task {task_id} from {rejecting_compute} "
-        f"to {new_connection.compute_id}"
+        f"to {new_connection.compute_id} (branch: {original_branch} -> {new_branch})"
     )
     success = await sse_manager.send_work_assigned(
         compute_id=new_connection.compute_id,
         task_id=work_data["task_id"],
         title=work_data["title"],
         description=work_data["description"],
-        branch_name=work_data["branch_name"],
+        branch_name=new_branch,
         skills=work_data["skills"],
         context=work_data["context"],
         mcp_config=work_data["mcp_config"],
