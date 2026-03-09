@@ -80,9 +80,7 @@ class TestBuildSystemPrompt:
     def test_response_rules_present(self, service):
         prompt = service.build_system_prompt("Test")
         assert "ALWAYS respond" in prompt
-        assert "LIKELY respond" in prompt
-        assert "MAYBE respond" in prompt
-        assert "NEVER respond" in prompt
+        assert "Stay SILENT" in prompt
 
     def test_action_detection_rules_present(self, service):
         prompt = service.build_system_prompt("Test")
@@ -233,20 +231,20 @@ class TestConversationScenarios:
         """Scenario: User asks the AI a direct question.
         Expected: AI should always respond."""
         prompt = service.build_system_prompt("Test")
-        # The prompt should instruct the agent to always respond to direct questions
-        assert "Someone directly addresses you" in prompt
+        # The prompt should instruct the agent to always respond to questions
+        assert "asks a question" in prompt
 
     def test_scenario_user_to_user_social(self, service):
         """Scenario: Two users chatting socially.
         Expected: AI should stay silent."""
         prompt = service.build_system_prompt("Test")
-        assert "social/casual chat" in prompt
+        assert "back-and-forth exchange with each other" in prompt
 
     def test_scenario_debating_approach(self, service):
         """Scenario: Two users debating a technical approach.
         Expected: AI should wait, maybe contribute if stuck."""
         prompt = service.build_system_prompt("Test")
-        assert "ongoing human-to-human exchange" in prompt
+        assert "back-and-forth exchange" in prompt
 
     def test_scenario_clear_action_intent(self, service):
         """Scenario: User says 'Let's build the auth module'.
@@ -266,7 +264,8 @@ class TestConversationScenarios:
         """Scenario: Multiple messages in quick succession.
         Expected: AI should wait for the pause (debounce)."""
         prompt = service.build_system_prompt("Test")
-        assert "wait for the pause" in prompt
+        # Debounce is handled at the service layer, prompt just instructs response behavior
+        assert "respond by default" in prompt
 
     def test_scenario_user_corrects_ai(self, service):
         """Scenario: User tells the AI to stop or corrects it.
@@ -279,7 +278,7 @@ class TestConversationScenarios:
         """Scenario: A question goes unanswered after the silence window.
         Expected: AI should likely respond."""
         prompt = service.build_system_prompt("Test")
-        assert "question about the project or system goes unanswered" in prompt
+        assert "asks a question" in prompt
 
     def test_scenario_mixed_conversation(self, service):
         """Scenario: Social + technical + actionable in one thread.
@@ -287,7 +286,7 @@ class TestConversationScenarios:
         prompt = service.build_system_prompt("Test")
         # All categories are covered in the prompt
         assert "ALWAYS respond" in prompt
-        assert "NEVER respond" in prompt
+        assert "Stay SILENT" in prompt
         assert "Action Detection" in prompt
 
 
@@ -303,7 +302,7 @@ class TestAIChatAgentConfig:
         config = AIChatAgentConfig()
         assert config.enabled is True
         assert config.assertiveness == AssertivenesLevel.BALANCED
-        assert config.debounce_seconds == 4.0
+        assert config.debounce_seconds == 0.8
         assert config.max_response_tokens == 300
         assert config.context_window_messages == 20
         assert config.personality_note == ""
@@ -320,7 +319,7 @@ class TestAIChatAgentConfig:
 
     def test_debounce_bounds(self):
         with pytest.raises(Exception):
-            AIChatAgentConfig(debounce_seconds=0.5)
+            AIChatAgentConfig(debounce_seconds=0.05)
         with pytest.raises(Exception):
             AIChatAgentConfig(debounce_seconds=31.0)
 

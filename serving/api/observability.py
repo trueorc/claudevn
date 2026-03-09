@@ -150,10 +150,24 @@ async def observability_stream(
                 
                 logger.info(f"WebSocket unsubscribed from {len(session_ids)} session(s)")
             
+            elif action == 'typing':
+                # User typing state change — notify AI agent
+                project_id = message.get('project_id')
+                user_id = message.get('user_id')
+                is_typing = message.get('is_typing', False)
+                if project_id and user_id:
+                    try:
+                        from services.ai_chat_agent_service import get_ai_chat_agent_service
+                        agent = get_ai_chat_agent_service()
+                        if agent:
+                            agent.on_typing(project_id, user_id, is_typing)
+                    except Exception:
+                        pass  # Best-effort, don't break the WebSocket
+
             elif action == 'pong':
                 # Heartbeat response (no action needed)
                 pass
-            
+
             else:
                 # Unknown action
                 await websocket.send_text(json.dumps({

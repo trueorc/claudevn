@@ -70,7 +70,7 @@ class TestConfig:
         config = service.get_config("proj-1")
         assert config.enabled is True
         assert config.assertiveness == AssertivenesLevel.BALANCED
-        assert config.debounce_seconds == 4.0
+        assert config.debounce_seconds == 0.8
 
     def test_set_config(self, service):
         config = AIChatAgentConfig(
@@ -133,7 +133,7 @@ class TestOnMessage:
                 return_value=mock_ctx,
             ):
                 await service.on_message("proj-1", "user-1", "user", "hello")
-                mock_reset.assert_called_once_with("proj-1", 4.0)
+                mock_reset.assert_called_once_with("proj-1", 0.8)
 
     @pytest.mark.asyncio
     async def test_records_message_for_context_tracking(self, service):
@@ -761,6 +761,68 @@ class TestSonnetEscalation:
         svc.stop()
         assert len(svc._sonnet_usage) == 0
         assert len(svc._compute_usage) == 0
+
+
+class TestSignalMarkerParsing:
+    """Tests for inline signal marker parsing."""
+
+    def test_no_markers(self, service):
+        """Plain text should pass through unchanged."""
+        text = "I can help with that."
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert clean == "I can help with that."
+        assert action is None
+        assert escalate is False
+
+    def test_action_marker_parsed(self, service):
+        """Action marker should be extracted and stripped."""
+        text = "Should I create a work item for that?\n[ACTION:create_work:0.85] Create auth refactor task"
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert clean == "Should I create a work item for that?"
+        assert action is not None
+        assert action[0] == "create_work"
+        assert action[1] == 0.85
+        assert action[2] == "Create auth refactor task"
+        assert escalate is False
+
+    def test_escalate_marker_parsed(self, service):
+        """Escalate marker should be detected and stripped."""
+        text = "Let me look into that more deeply.\n[ESCALATE:sonnet]"
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert clean == "Let me look into that more deeply."
+        assert action is None
+        assert escalate is True
+
+    def test_both_markers(self, service):
+        """Both action and escalation markers together."""
+        text = "I'll create that and investigate.\n[ACTION:create_work:0.90] Build auth system\n[ESCALATE:sonnet]"
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert clean == "I'll create that and investigate."
+        assert action is not None
+        assert action[0] == "create_work"
+        assert escalate is True
+
+    def test_adjust_priority_action(self, service):
+        """Priority adjustment action type."""
+        text = "I'll bump that up.\n[ACTION:adjust_priority:0.80] Bump auth to P0"
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert action[0] == "adjust_priority"
+        assert action[1] == 0.80
+        assert action[2] == "Bump auth to P0"
+
+    def test_invalid_confidence_not_matched(self, service):
+        """Non-numeric confidence value should not match the pattern."""
+        text = "Test\n[ACTION:create_work:invalid] Do thing"
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert action is None
+
+    def test_marker_only_response(self, service):
+        """Response that is only markers should result in empty clean text."""
+        text = "[ACTION:create_work:0.85] Do thing\n[ESCALATE:sonnet]"
+        clean, action, escalate = service._parse_signal_markers(text)
+        assert clean == ""
+        assert action is not None
+        assert escalate is True
 
 
 class TestRateLimiting:

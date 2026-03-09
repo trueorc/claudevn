@@ -53,10 +53,16 @@ class AIChatAgentConfig(BaseModel):
         description="How proactive the agent should be in conversations",
     )
     debounce_seconds: float = Field(
-        default=4.0,
-        ge=1.0,
+        default=0.8,
+        ge=0.1,
         le=30.0,
-        description="Seconds of silence before the agent evaluates messages",
+        description="Seconds of silence after last message before the agent evaluates (short when typing-aware)",
+    )
+    typing_hold_seconds: float = Field(
+        default=2.0,
+        ge=0.5,
+        le=10.0,
+        description="Seconds to wait after user stops typing before evaluating",
     )
     max_response_tokens: int = Field(
         default=300,

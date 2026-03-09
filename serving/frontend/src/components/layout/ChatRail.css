@@ -192,6 +192,12 @@
   align-self: flex-end;
 }
 
+.chat-rail-message-assistant {
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  align-self: flex-start;
+}
+
 .chat-rail-message-system {
   background: var(--bg-hover);
   border: 1px solid var(--border);

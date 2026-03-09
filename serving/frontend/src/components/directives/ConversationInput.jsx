@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Send } from 'lucide-react'
 import { INTENT_MODES } from '../../hooks/useConversation'
+import ConversationContext from '../../contexts/ConversationContext'
+import { useContext } from 'react'
 
 const MODE_OPTIONS = [
   { value: INTENT_MODES.CHAT, label: 'Chat' },
@@ -15,6 +17,8 @@ const PLACEHOLDERS = {
 }
 
 function ConversationInput({ onSubmit, submitting, disabled, commentMode, suggestedText, onSuggestedTextConsumed }) {
+  const conversationCtx = useContext(ConversationContext)
+  const sendTypingStatus = conversationCtx?.sendTypingStatus
   const [text, setText] = useState('')
   const [mode, setMode] = useState(INTENT_MODES.CHAT)
   const [showOptions, setShowOptions] = useState(false)
@@ -42,12 +46,18 @@ function ConversationInput({ onSubmit, submitting, disabled, commentMode, sugges
     }
   }, [suggestedText]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleTextChange = useCallback((e) => {
+    setText(e.target.value)
+    sendTypingStatus?.(e.target.value.length > 0)
+  }, [sendTypingStatus])
+
   const handleSubmit = useCallback(() => {
     if (!text.trim() || submitting || disabled) return
     const effectiveMode = commentMode ? INTENT_MODES.NEW_WORK : mode
+    sendTypingStatus?.(false)
     onSubmit(text.trim(), effectiveMode, { priority })
     setText('')
-  }, [text, mode, submitting, disabled, commentMode, priority, onSubmit])
+  }, [text, mode, submitting, disabled, commentMode, priority, onSubmit, sendTypingStatus])
 
   const handleKeyDown = useCallback((e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -84,7 +94,7 @@ function ConversationInput({ onSubmit, submitting, disabled, commentMode, sugges
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={handleTextChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={submitting || disabled}

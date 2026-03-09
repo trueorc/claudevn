@@ -145,10 +145,22 @@ export function ConversationProvider({ children }) {
       })
     }
 
+    const handleMessageRemoved = (eventData) => {
+      const removedProjectId = eventData?.project_id
+      const removedMessageId = eventData?.message_id
+      if (!removedProjectId || !removedMessageId) return
+      if (projectIdRef.current !== removedProjectId) return
+
+      // Remove from remote messages
+      setRemoteMessages(prev => prev.filter(m => m.id !== removedMessageId))
+    }
+
     ws.on('conversation_message', handleConversationMessage)
+    ws.on('conversation_message_removed', handleMessageRemoved)
 
     return () => {
       ws.off('conversation_message', handleConversationMessage)
+      ws.off('conversation_message_removed', handleMessageRemoved)
     }
   }, []) // Intentionally empty — handler is stable via refs
 
@@ -239,6 +251,34 @@ export function ConversationProvider({ children }) {
     })
   }, [messages, projectId])
 
+  // Send typing status to the backend via WebSocket.
+  // The AI agent uses this to hold off evaluation while the user is composing.
+  const typingTimerRef = useRef(null)
+
+  const sendTypingStatus = useCallback((isTyping) => {
+    if (!projectId || !currentUserId) return
+    const ws = getSharedWs()
+    ws.send({
+      action: 'typing',
+      project_id: projectId,
+      user_id: currentUserId,
+      is_typing: isTyping,
+    })
+
+    // Auto-clear typing after 3s of no calls (safety net)
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    if (isTyping) {
+      typingTimerRef.current = setTimeout(() => {
+        ws.send({
+          action: 'typing',
+          project_id: projectId,
+          user_id: currentUserId,
+          is_typing: false,
+        })
+      }, 3000)
+    }
+  }, [projectId, currentUserId])
+
   // Wrap clear to also remove from sessionStorage, server, and clear stored state.
   const clear = useCallback(() => {
     if (projectId) {
@@ -291,6 +331,7 @@ export function ConversationProvider({ children }) {
     messages: effectiveMessages,
     clear,
     projectId,
+    sendTypingStatus,
   }
 
   return (

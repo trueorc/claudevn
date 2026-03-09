@@ -19,6 +19,7 @@ Reference: Issues #246, #248, #249
 
 import asyncio
 import logging
+import re
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -32,7 +33,14 @@ AI_AGENT_USER_ID = "ai-agent"
 AI_AGENT_DISPLAY_NAME = "Claude"
 
 # Default debounce (can be overridden per project via AIChatAgentConfig)
-DEFAULT_DEBOUNCE_SECONDS = 4.0
+DEFAULT_DEBOUNCE_SECONDS = 0.8
+
+# Signal marker patterns parsed from Claude's response
+_ACTION_PATTERN = re.compile(
+    r'^\[ACTION:(create_work|adjust_priority):([0-9.]+)\]\s*(.+)$',
+    re.MULTILINE,
+)
+_ESCALATE_PATTERN = re.compile(r'^\[ESCALATE:sonnet\]\s*$', re.MULTILINE)
 
 
 class AIChatAgentService:
@@ -57,6 +65,8 @@ class AIChatAgentService:
         # Escalation rate limiting: {project_id: [timestamps]}
         self._sonnet_usage: Dict[str, List[float]] = {}
         self._compute_usage: Dict[str, List[float]] = {}
+        # Typing state: {project_id: set of user_ids currently typing}
+        self._typing_users: Dict[str, Set[str]] = {}
         self._started = False
 
     def start(self) -> None:
@@ -102,15 +112,20 @@ class AIChatAgentService:
         Ignores messages from the AI agent itself to prevent loops.
         Resets the debounce timer for the project.
         """
+        logger.info(f"on_message called: project={project_id}, user={user_id}, type={message_type}")
+
         if not self._started:
+            logger.warning("Agent not started, ignoring message")
             return
 
         # Ignore our own messages to prevent feedback loops
         if user_id == AI_AGENT_USER_ID:
+            logger.info("Ignoring own message (AI agent)")
             return
 
         # Only react to user messages (not system, thinking, etc.)
         if message_type not in ("user", "assistant"):
+            logger.info(f"Ignoring message type: {message_type}")
             return
 
         config = self.get_config(project_id)
@@ -121,6 +136,7 @@ class AIChatAgentService:
         try:
             from services.ai_chat_context_service import get_ai_chat_context_service
             context_service = get_ai_chat_context_service()
+            logger.info(f"Context service available: {context_service is not None}")
             if context_service:
                 needs_summary = await context_service.record_message(project_id)
                 if needs_summary:
@@ -128,10 +144,48 @@ class AIChatAgentService:
                         self._update_summary(project_id)
                     )
         except Exception as e:
-            logger.debug(f"Context tracking failed for {project_id}: {e}")
+            logger.warning(f"Context tracking failed for {project_id}: {e}", exc_info=True)
 
-        # Reset debounce timer
+        # Clear typing state for this user (they just sent a message)
+        typing_set = self._typing_users.get(project_id)
+        if typing_set:
+            typing_set.discard(user_id)
+
+        # Reset debounce timer — use short delay if no one is typing
         self._reset_debounce(project_id, config.debounce_seconds)
+
+    # =========================================================================
+    # Typing Awareness
+    # =========================================================================
+
+    def on_typing(self, project_id: str, user_id: str, is_typing: bool) -> None:
+        """Called when a user's typing state changes.
+
+        While any user is typing, the debounce timer is held off.
+        When all users stop typing, the debounce starts.
+        """
+        if user_id == AI_AGENT_USER_ID:
+            return
+
+        if project_id not in self._typing_users:
+            self._typing_users[project_id] = set()
+
+        if is_typing:
+            self._typing_users[project_id].add(user_id)
+            # Cancel any pending debounce — user is still composing
+            existing = self._debounce_tasks.get(project_id)
+            if existing and not existing.done():
+                existing.cancel()
+                logger.debug(f"Debounce paused for {project_id} — {user_id} is typing")
+        else:
+            self._typing_users[project_id].discard(user_id)
+            # If no one is typing anymore and we have a pending message,
+            # the debounce will restart on next message. No action needed here
+            # because the message send (on_message) handles debounce start.
+
+    def _is_anyone_typing(self, project_id: str) -> bool:
+        """Check if any user is currently typing in a project."""
+        return bool(self._typing_users.get(project_id))
 
     # =========================================================================
     # Debounce
@@ -153,7 +207,23 @@ class AIChatAgentService:
         """Wait for the debounce period, then trigger evaluation."""
         current_task = asyncio.current_task()
         try:
+            logger.info(f"Debounce timer started for {project_id} ({delay}s)")
             await asyncio.sleep(delay)
+
+            # If someone started typing during the debounce, wait for them
+            config = self.get_config(project_id)
+            if self._is_anyone_typing(project_id):
+                logger.info(f"User still typing in {project_id}, extending wait")
+                # Wait up to typing_hold_seconds for them to finish
+                waited = 0.0
+                poll_interval = 0.3
+                while self._is_anyone_typing(project_id) and waited < config.typing_hold_seconds:
+                    await asyncio.sleep(poll_interval)
+                    waited += poll_interval
+                # Small grace period after typing stops
+                await asyncio.sleep(0.5)
+
+            logger.info(f"Debounce fired for {project_id}, starting evaluation")
             await self._evaluate(project_id)
         except asyncio.CancelledError:
             pass  # Timer was reset by a new message
@@ -187,7 +257,8 @@ class AIChatAgentService:
             self._evaluating.discard(project_id)
 
     async def _run_evaluation(self, project_id: str) -> None:
-        """Core evaluation logic."""
+        """Respond to the conversation directly (single-pass, no meta-evaluation)."""
+        logger.info(f"_run_evaluation START for {project_id}")
         config = self.get_config(project_id)
 
         # Get services
@@ -198,13 +269,29 @@ class AIChatAgentService:
         prompt_service = get_ai_chat_prompt_service()
 
         if not context_service or not prompt_service:
-            logger.debug("Context or prompt service not available, skipping evaluation")
+            logger.warning("Context or prompt service not available, skipping")
             return
 
-        # Get project name
-        project_name = await self._get_project_name(project_id)
+        # Get recent messages
+        recent = await context_service.get_recent_messages(
+            project_id,
+            limit=config.context_window_messages,
+        )
+        if not recent:
+            logger.warning(f"No recent messages for {project_id}, skipping")
+            return
 
-        # Build system prompt
+        # Check if the latest message is from the AI agent (nothing new to respond to)
+        last_msg = recent[-1]
+        if last_msg.get("user_id") == AI_AGENT_USER_ID:
+            logger.info(f"Last message is from AI agent, skipping")
+            return
+
+        # Post thinking indicator immediately
+        thinking_msg_id = await self._post_thinking_indicator(project_id)
+
+        # Build context
+        project_name = await self._get_project_name(project_id)
         summary = await context_service.get_summary(project_id)
         active_goals = await self._get_active_goals(project_id)
 
@@ -215,59 +302,187 @@ class AIChatAgentService:
             active_goals=active_goals,
         )
 
-        # Get recent messages for evaluation
-        recent = await context_service.get_recent_messages(
-            project_id,
-            limit=config.context_window_messages,
-        )
-
-        if not recent:
-            logger.debug(f"No recent messages for {project_id}, skipping evaluation")
-            return
-
-        # Build evaluation prompt
-        eval_prompt = prompt_service.build_evaluation_prompt(
+        # Build a direct conversation prompt (no JSON evaluation)
+        conversation_text = prompt_service.build_conversation_prompt(
             messages=recent,
             context_summary=summary.summary_text or None,
         )
 
-        # Call Haiku for initial evaluation (cheap meta-evaluation)
+        # Call Haiku directly for a natural response
         try:
             from services.claude_client import get_claude_client
             client = get_claude_client()
+            logger.info(f"Calling Claude CLI (model={ClaudeModel.HAIKU_35.value})")
 
             response = await client.complete(
-                prompt=eval_prompt,
+                prompt=conversation_text,
                 system=system_prompt,
                 model=ClaudeModel.HAIKU_35.value,
                 max_tokens=config.max_response_tokens,
                 temperature=0.3,
             )
-
-            evaluation = prompt_service.parse_evaluation_response(response.content)
+            logger.info(f"Claude response received ({len(response.content)} chars)")
         except Exception as e:
-            logger.warning(f"AI evaluation failed for {project_id}: {e}")
+            logger.warning(f"AI response failed for {project_id}: {e}", exc_info=True)
+            await self._remove_thinking_indicator(project_id, thinking_msg_id)
             return
 
-        # Check if escalation is needed (#249)
-        tier = self._resolve_complexity_tier(evaluation, project_id, config)
+        response_text = response.content.strip()
+        if not response_text:
+            logger.info(f"Empty response for {project_id}, skipping")
+            await self._remove_thinking_indicator(project_id, thinking_msg_id)
+            return
 
-        if tier == ComplexityTier.SONNET and evaluation.should_respond:
-            evaluation = await self._escalate_to_sonnet(
-                project_id, config, system_prompt, eval_prompt, evaluation
+        # Parse and strip signal markers before posting
+        clean_text, action_info, should_escalate = self._parse_signal_markers(response_text)
+
+        # Remove thinking indicator and post the actual response
+        await self._remove_thinking_indicator(project_id, thinking_msg_id)
+
+        try:
+            from services.conversation_service import get_conversation_service
+            conv_service = get_conversation_service()
+            if conv_service:
+                await conv_service.add_message(
+                    project_id=project_id,
+                    user_id=AI_AGENT_USER_ID,
+                    display_name=AI_AGENT_DISPLAY_NAME,
+                    type="assistant",
+                    content=clean_text,
+                )
+                logger.info(f"AI agent responded in {project_id}")
+        except Exception as e:
+            logger.error(f"Failed to post AI response for {project_id}: {e}")
+
+        # Handle action detection (fire-and-forget)
+        if action_info:
+            action_type, confidence, description = action_info
+            evaluation = AgentEvaluation(
+                should_respond=True,
+                response=clean_text,
+                detected_action=action_type,
+                action_description=description,
+                confidence=confidence,
             )
-        elif tier == ComplexityTier.COMPUTE and evaluation.should_respond:
-            # Compute offload: fall back to Sonnet for now (compute dispatch is a future extension)
-            logger.info(
-                f"Compute offload requested for {project_id} — "
-                f"falling back to Sonnet (compute dispatch not yet implemented)"
-            )
-            evaluation = await self._escalate_to_sonnet(
-                project_id, config, system_prompt, eval_prompt, evaluation
+            asyncio.create_task(self._handle_action_handoff(project_id, evaluation))
+
+        # Handle escalation (background Sonnet follow-up)
+        if should_escalate:
+            asyncio.create_task(
+                self._handle_escalation_followup(
+                    project_id, config, system_prompt, recent, clean_text,
+                )
             )
 
-        # Act on the evaluation
-        await self._handle_evaluation(project_id, evaluation)
+    def _parse_signal_markers(
+        self, response_text: str
+    ) -> tuple:
+        """Parse inline signal markers from Claude's response.
+
+        Returns (clean_text, action_info, should_escalate) where:
+        - clean_text: response with markers stripped
+        - action_info: (action_type, confidence, description) or None
+        - should_escalate: bool
+        """
+        action_info = None
+        should_escalate = False
+
+        # Check for action marker
+        action_match = _ACTION_PATTERN.search(response_text)
+        if action_match:
+            action_type = action_match.group(1)
+            try:
+                confidence = float(action_match.group(2))
+            except ValueError:
+                confidence = 0.0
+            description = action_match.group(3).strip()
+            action_info = (action_type, confidence, description)
+
+        # Check for escalation marker
+        if _ESCALATE_PATTERN.search(response_text):
+            should_escalate = True
+
+        # Strip all markers from the response
+        clean = _ACTION_PATTERN.sub('', response_text)
+        clean = _ESCALATE_PATTERN.sub('', clean)
+        clean = clean.strip()
+
+        return clean, action_info, should_escalate
+
+    async def _handle_escalation_followup(
+        self,
+        project_id: str,
+        config: AIChatAgentConfig,
+        system_prompt: str,
+        recent_messages: list,
+        haiku_response: str,
+    ) -> None:
+        """Background Sonnet follow-up for deeper analysis.
+
+        Posts a thinking indicator, calls Sonnet, then posts the
+        upgraded response. Zero latency impact on initial Haiku response.
+        """
+        logger.info(f"Background Sonnet escalation for {project_id}")
+
+        # Rate limit check
+        if not self._check_rate_limit(
+            self._sonnet_usage, project_id, config.sonnet_escalations_per_hour
+        ):
+            logger.info(f"Sonnet rate limit reached for {project_id}, skipping escalation")
+            return
+
+        self._record_rate_limit(self._sonnet_usage, project_id)
+
+        thinking_msg_id = await self._post_thinking_indicator(project_id)
+
+        try:
+            from services.ai_chat_prompt_service import get_ai_chat_prompt_service
+            from services.claude_client import get_claude_client
+
+            prompt_service = get_ai_chat_prompt_service()
+            client = get_claude_client()
+
+            # Build a follow-up prompt that includes the Haiku response
+            conversation_text = prompt_service.build_conversation_prompt(
+                messages=recent_messages,
+                context_summary=None,
+            )
+            followup_prompt = (
+                f"{conversation_text}\n\n"
+                f"You previously gave this quick response:\n\"{haiku_response}\"\n\n"
+                f"Now provide a more thorough, detailed analysis. "
+                f"Be substantive but concise. Do not repeat the quick response."
+            )
+
+            response = await client.complete(
+                prompt=followup_prompt,
+                system=system_prompt,
+                model=ClaudeModel.SONNET_4.value,
+                max_tokens=config.sonnet_max_response_tokens,
+                temperature=0.3,
+            )
+
+            followup_text = response.content.strip()
+            # Strip any markers from the Sonnet response too
+            followup_text, _, _ = self._parse_signal_markers(followup_text)
+
+            await self._remove_thinking_indicator(project_id, thinking_msg_id)
+
+            if followup_text:
+                from services.conversation_service import get_conversation_service
+                conv_service = get_conversation_service()
+                if conv_service:
+                    await conv_service.add_message(
+                        project_id=project_id,
+                        user_id=AI_AGENT_USER_ID,
+                        display_name=AI_AGENT_DISPLAY_NAME,
+                        type="assistant",
+                        content=followup_text,
+                    )
+                    logger.info(f"Sonnet follow-up posted for {project_id}")
+        except Exception as e:
+            logger.warning(f"Sonnet escalation failed for {project_id}: {e}")
+            await self._remove_thinking_indicator(project_id, thinking_msg_id)
 
     async def _handle_evaluation(
         self,
@@ -388,21 +603,50 @@ class AIChatAgentService:
             # Fall back to Haiku evaluation
             return haiku_evaluation
 
-    async def _post_thinking_indicator(self, project_id: str) -> None:
-        """Post a 'Thinking...' indicator message."""
+    async def _post_thinking_indicator(self, project_id: str) -> Optional[str]:
+        """Post a 'Thinking...' indicator message. Returns the message_id."""
         try:
             from services.conversation_service import get_conversation_service
             conv_service = get_conversation_service()
             if conv_service:
-                await conv_service.add_message(
+                msg = await conv_service.add_message(
                     project_id=project_id,
                     user_id=AI_AGENT_USER_ID,
                     display_name=AI_AGENT_DISPLAY_NAME,
                     type="thinking",
                     content="Thinking...",
                 )
+                return msg.message_id
         except Exception as e:
             logger.debug(f"Failed to post thinking indicator for {project_id}: {e}")
+        return None
+
+    async def _remove_thinking_indicator(
+        self, project_id: str, message_id: Optional[str]
+    ) -> None:
+        """Remove a thinking indicator message from the conversation."""
+        if not message_id:
+            return
+        try:
+            from services.conversation_service import get_conversation_service
+            conv_service = get_conversation_service()
+            if conv_service and hasattr(conv_service, 'remove_message'):
+                await conv_service.remove_message(project_id, message_id)
+            # Also broadcast removal so frontend hides it
+            from services.observability_event_bus import get_event_bus
+            import json
+            bus = get_event_bus()
+            if bus:
+                payload = json.dumps({
+                    'type': 'conversation_message_removed',
+                    'event': {
+                        'project_id': project_id,
+                        'message_id': message_id,
+                    },
+                }, default=str)
+                await bus._broadcast_raw(payload)
+        except Exception as e:
+            logger.debug(f"Failed to remove thinking indicator: {e}")
 
     def _check_rate_limit(
         self,

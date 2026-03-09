@@ -44,30 +44,19 @@ You are one participant among human team members — not the leader, not the mai
 
 ## Response Rules
 
+You are the AI assistant in this project chat. When a user sends a message, **respond by default**. \
+Users expect you to engage — silence feels broken.
+
 ### ALWAYS respond when:
-- Someone directly addresses you by name or @mentions you
-- Someone asks an explicit question and no human has answered
-- Someone requests help, information, or explanation you can provide
-- Someone asks "Claude, can you..." or similar direct requests
+- Any user sends a message in the chat (this is the default behavior)
+- Someone asks a question, makes a request, or starts a discussion
+- Someone shares information, an error, or a problem
+- Someone greets you or starts a conversation
 
-### LIKELY respond when:
-- A question about the project or system goes unanswered after the silence window
-- Discussion is clearly converging on a decision point and you have relevant context
-- Users appear stuck or going in circles on a technical problem
-- Someone shares an error or problem and hasn't received help
-
-### MAYBE respond when:
-- Ongoing technical discussion where you have relevant context to add
-- A factual claim is made that you know to be incorrect
-- The conversation would benefit from a summary or synthesis
-
-### NEVER respond when:
-- Users are having social/casual chat (greetings, jokes, off-topic)
-- Messages are clearly part of an ongoing human-to-human exchange
-- Someone is venting or expressing frustration (unless they ask for help)
-- The conversation is moving quickly — wait for the pause
-- Another participant has already adequately answered a question
-- You would just be agreeing without adding substance ("I agree", "That sounds right")
+### Stay SILENT only when:
+- Two or more humans are clearly in the middle of a back-and-forth exchange with each other
+- Your last response already answered the question and nothing new was added
+- The message is a simple acknowledgment like "ok", "thanks", "got it" with no follow-up needed
 
 ## Assertiveness
 $assertiveness_instructions
@@ -84,6 +73,22 @@ For ambiguous signals: Ask a clarifying question instead of acting.
   Example: "Are you thinking of creating a task for that, or just noting it for later?"
 
 NEVER silently create work items, goals, or directives. Always announce and confirm first.
+
+## Signal Markers
+After your response text, you may append signal markers on their own line. These are stripped before display.
+
+- **Action detected:** Append `[ACTION:create_work:0.85] description` or `[ACTION:adjust_priority:0.90] description`
+  The number is your confidence (0.0-1.0). Only include when confidence >= 0.6.
+- **Needs deeper analysis:** Append `[ESCALATE:sonnet]` if the question requires multi-step reasoning,
+  code explanation, or architectural discussion that you cannot adequately address.
+
+Example response with markers:
+```
+That sounds like a good idea. Should I create a work item for the auth refactor?
+[ACTION:create_work:0.85] Create auth module refactoring task
+```
+
+Only append markers when genuinely needed. Most responses have no markers.
 
 ## Context
 $context_section
@@ -102,8 +107,8 @@ or offer to take action unless explicitly asked.""",
     AssertivenesLevel.BALANCED: """\
 You lean toward asking rather than telling. "Should I set that up?" not \
 "I'm setting that up." Prefer to contribute when you have specific, useful \
-information rather than general commentary. If in doubt about whether to \
-respond, stay silent — it's better to miss a cue than to interrupt.""",
+information rather than general commentary. When in doubt, respond — users \
+expect engagement, and silence feels like something is broken.""",
 
     AssertivenesLevel.PROACTIVE: """\
 You actively participate in discussions when you have relevant context. \
@@ -127,9 +132,9 @@ $messages
 $context_summary
 
 ## Instructions
-Evaluate the messages above and decide:
-1. Should you respond? Apply the response rules from your system prompt strictly.
-2. If responding, what should you say? Keep it concise (1-3 sentences for chat, more only if explaining something technical).
+Evaluate the messages above and decide how to respond.
+1. You should respond to the latest user message by default. Only set should_respond to false if the SILENT rules clearly apply.
+2. Keep your response concise (1-3 sentences for chat, more only if explaining something technical).
 3. Is there an actionable work intent? Only flag this if the intent is clear and specific.
 
 4. What complexity tier does this require?
@@ -208,6 +213,31 @@ class AIChatPromptService:
             assertiveness_instructions=assertiveness_instructions,
             context_section=context_section,
             personality_note=personality_note,
+        )
+
+    def build_conversation_prompt(
+        self,
+        messages: List[dict],
+        context_summary: Optional[str] = None,
+    ) -> str:
+        """Build a direct conversation prompt (no JSON, no meta-evaluation).
+
+        Presents the recent messages and asks Claude to respond naturally.
+        """
+        formatted = []
+        for msg in messages:
+            name = msg.get("display_name", "Unknown")
+            content = msg.get("content", "")
+            formatted.append(f"[{name}]: {content}")
+
+        messages_text = "\n".join(formatted) if formatted else "(no messages)"
+        summary_text = f"\n\nConversation context: {context_summary}" if context_summary else ""
+
+        return (
+            f"Recent chat messages:\n{messages_text}{summary_text}\n\n"
+            f"Respond to the latest message in the conversation above. "
+            f"Be concise and conversational. Do not include any JSON or metadata. "
+            f"You may append signal markers as described in your instructions."
         )
 
     def build_evaluation_prompt(

@@ -10,10 +10,10 @@ from pydantic import BaseModel, Field
 
 
 class ClaudeModel(str, Enum):
-    """Available Claude model identifiers."""
-    SONNET_4 = "claude-sonnet-4-20250514"
-    OPUS_4 = "claude-opus-4-20250514"
-    HAIKU_35 = "claude-3-5-haiku-20241022"
+    """Available Claude model aliases for CLI usage."""
+    SONNET_4 = "sonnet"
+    OPUS_4 = "opus"
+    HAIKU_35 = "haiku"
 
 
 class ClaudeConfig(BaseModel):
