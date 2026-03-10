@@ -871,10 +871,14 @@ def _parse_test_summary(output: str) -> str:
 
 
 def _safe_git_env() -> dict:
-    """Get environment with safe git settings."""
+    """Get environment with safe git settings and committer identity."""
     import os
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_AUTHOR_NAME"] = "ClaudeVN"
+    env["GIT_AUTHOR_EMAIL"] = "claudevn@system"
+    env["GIT_COMMITTER_NAME"] = "ClaudeVN"
+    env["GIT_COMMITTER_EMAIL"] = "claudevn@system"
     return env
 
 
