@@ -42,6 +42,10 @@ function deserializeMessages(raw) {
  */
 function serverMsgToLocal(msg) {
   return {
+    // Spread metadata first so component-expected fields (stage, startedAt,
+    // result, goal_id) are available at top level for GoalProcessingMessage,
+    // GoalCompleteMessage, etc. Explicit fields below always win over metadata.
+    ...(msg.metadata || {}),
     id: msg.message_id,
     type: msg.type,
     content: msg.content,
@@ -61,6 +65,7 @@ const PERSISTABLE_TYPES = new Set([
   MSG_TYPES.USER,
   MSG_TYPES.ASSISTANT,
   MSG_TYPES.GOAL_CREATED,
+  MSG_TYPES.GOAL_PROCESSING,
   MSG_TYPES.GOAL_COMPLETE,
   MSG_TYPES.DIRECTIVE_APPLIED,
   MSG_TYPES.DIRECTIVE_REJECTED,

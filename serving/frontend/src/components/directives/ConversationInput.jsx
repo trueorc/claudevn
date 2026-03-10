@@ -60,7 +60,7 @@ function ConversationInput({ onSubmit, submitting, disabled, commentMode, sugges
   }, [text, mode, submitting, disabled, commentMode, priority, onSubmit, sendTypingStatus])
 
   const handleKeyDown = useCallback((e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
     }
@@ -138,7 +138,7 @@ function ConversationInput({ onSubmit, submitting, disabled, commentMode, sugges
       )}
 
       <div className="conv-input-hint">
-        <kbd>Cmd</kbd>+<kbd>Enter</kbd> to send
+        <kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd> for new line
       </div>
     </div>
   )

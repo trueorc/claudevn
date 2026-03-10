@@ -18,9 +18,11 @@ Reference: Issues #246, #248, #249
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from models.ai_chat_agent import AgentEvaluation, AIChatAgentConfig, ComplexityTier
@@ -737,6 +739,18 @@ class AIChatAgentService:
                 f"for {project_id}: {action}"
             )
 
+            # Surface the directive notification in the conversation UI
+            # so users can see that the AI kicked off work.
+            goal_id = (
+                directive.outcome.goal_id_created
+                if directive.outcome
+                else None
+            )
+            if goal_id:
+                await self._post_goal_notifications(
+                    project_id, goal_id, description,
+                )
+
         except Exception as e:
             logger.error(
                 f"Failed to submit directive for {project_id}: {e}"
@@ -748,6 +762,68 @@ class AIChatAgentService:
             return f"Priority adjustment: {description}"
         # Default for create_work and any other action type
         return description
+
+    async def _post_goal_notifications(
+        self,
+        project_id: str,
+        goal_id: str,
+        description: str,
+    ) -> None:
+        """Post goal_created and goal_processing messages to the conversation.
+
+        This surfaces the existing directive notification UI when the AI agent
+        autonomously kicks off work, so users get the same visual feedback
+        (sparkle card, progress stepper) as manually submitted directives.
+        """
+        try:
+            from services.conversation_service import get_conversation_service
+            conv_service = get_conversation_service()
+            if not conv_service:
+                return
+
+            # Post goal_created card
+            await conv_service.add_message(
+                project_id=project_id,
+                user_id=AI_AGENT_USER_ID,
+                display_name=AI_AGENT_DISPLAY_NAME,
+                type="goal_created",
+                content="New Work Created",
+                metadata={"goal_id": goal_id, "description": description},
+            )
+
+            # Post goal_processing card (will be replaced by goal_complete
+            # when auto-process finishes via _run_auto_process).
+            processing_msg = await conv_service.add_message(
+                project_id=project_id,
+                user_id=AI_AGENT_USER_ID,
+                display_name=AI_AGENT_DISPLAY_NAME,
+                type="goal_processing",
+                content="Processing work...",
+                metadata={
+                    "goal_id": goal_id,
+                    "stage": "queued",
+                    "startedAt": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+            # Store the processing message ID so _run_auto_process can
+            # remove it and post goal_complete when done.
+            from git.redis_client import get_redis
+            redis = await get_redis()
+            await redis.setex(
+                f"claudevn:goal_processing_msg:{goal_id}",
+                600,  # 10 min TTL
+                json.dumps({
+                    "message_id": processing_msg.message_id,
+                    "project_id": project_id,
+                }),
+            )
+
+            logger.info(
+                f"Posted goal notifications for {goal_id} in {project_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post goal notifications: {e}")
 
     def _is_duplicate_action(
         self,
