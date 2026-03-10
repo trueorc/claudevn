@@ -183,7 +183,17 @@ class QualityGateService:
     async def _run_syntax_check(
         self, work_dir: Path, changed_files: List[str]
     ) -> GateResult:
-        """Run Python syntax/import validation on changed files."""
+        """Run Python syntax and import validation on changed files.
+
+        Two-phase check:
+        1. Syntax: ``python -m py_compile`` on each changed .py file.
+        2. Imports: For each changed top-level module/package, attempt
+           ``python -c "import <module>"`` to catch missing dependencies
+           and broken internal imports.
+
+        Error details include file path and line number where available.
+        """
+        import re
         import time
         start = time.monotonic()
 
@@ -197,6 +207,8 @@ class QualityGateService:
             )
 
         errors: List[str] = []
+
+        # Phase 1: Syntax check with py_compile
         for py_file in py_files:
             file_path = work_dir / py_file
             if not file_path.exists():
@@ -208,23 +220,51 @@ class QualityGateService:
                     capture_output=True, text=True,
                 )
                 if result.returncode != 0:
-                    errors.append(f"{py_file}: {result.stderr.strip()}")
+                    error_detail = _parse_compile_error(
+                        result.stderr.strip(), py_file, str(work_dir)
+                    )
+                    errors.append(error_detail)
             except Exception as e:
                 errors.append(f"{py_file}: {e}")
 
+        # Phase 2: Import validation for top-level modules
+        # Deduplicate to unique top-level packages from changed files
+        top_level_modules = _extract_top_level_modules(py_files)
+        for module_name in top_level_modules:
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["python", "-c", f"import {module_name}"],
+                    capture_output=True, text=True,
+                    cwd=str(work_dir),
+                    timeout=30,
+                )
+                if result.returncode != 0:
+                    import_error = _parse_import_error(
+                        result.stderr.strip(), module_name
+                    )
+                    errors.append(import_error)
+            except subprocess.TimeoutExpired:
+                errors.append(f"import {module_name}: timed out after 30s")
+            except Exception as e:
+                errors.append(f"import {module_name}: {e}")
+
         elapsed = int((time.monotonic() - start) * 1000)
+        checked_count = len(py_files)
+        import_count = len(top_level_modules)
+
         if errors:
             return GateResult(
                 gate="syntax_check",
                 status=GateStatus.FAILED,
-                message=f"{len(errors)} file(s) have syntax errors",
+                message=f"{len(errors)} error(s) in {checked_count} file(s), {import_count} module(s)",
                 details=errors,
                 duration_ms=elapsed,
             )
         return GateResult(
             gate="syntax_check",
             status=GateStatus.PASSED,
-            message=f"{len(py_files)} file(s) checked",
+            message=f"{checked_count} file(s) compiled, {import_count} module(s) imported",
             duration_ms=elapsed,
         )
 
@@ -391,6 +431,65 @@ class QualityGateService:
             message=f"All {len(new_env_refs)} env var references have template entries",
             duration_ms=elapsed,
         )
+
+
+def _parse_compile_error(stderr: str, py_file: str, work_dir: str) -> str:
+    """Extract file:line from py_compile error output.
+
+    py_compile output looks like:
+        File "/tmp/work/serving/foo.py", line 10
+            x = (
+            ^
+        SyntaxError: unexpected EOF while parsing
+
+    Returns a string like: ``serving/foo.py:10: SyntaxError: unexpected EOF``
+    """
+    import re
+    # Match: File "<path>", line <N>
+    match = re.search(r'File "([^"]+)", line (\d+)', stderr)
+    if match:
+        full_path, line_num = match.group(1), match.group(2)
+        # Strip work_dir prefix to show relative path
+        rel_path = full_path.replace(work_dir + "/", "").replace(work_dir, "")
+        # Extract the error type/message from the last line
+        lines = stderr.strip().split("\n")
+        error_msg = lines[-1].strip() if lines else "unknown error"
+        return f"{rel_path}:{line_num}: {error_msg}"
+    # Fallback: return raw stderr with file prefix
+    return f"{py_file}: {stderr}"
+
+
+def _parse_import_error(stderr: str, module_name: str) -> str:
+    """Extract structured error from import failure.
+
+    Returns a string like:
+        ``import serving: ModuleNotFoundError: No module named 'missing_dep'``
+    """
+    lines = stderr.strip().split("\n")
+    # The last line usually has the actual error
+    error_line = lines[-1].strip() if lines else "unknown import error"
+    return f"import {module_name}: {error_line}"
+
+
+def _extract_top_level_modules(py_files: List[str]) -> List[str]:
+    """Derive unique top-level module names from a list of changed .py paths.
+
+    Examples:
+        ``serving/api/compute.py`` → ``serving``
+        ``app.py`` → (skip standalone scripts)
+        ``tests/test_foo.py`` → (skip test files)
+    """
+    modules: set = set()
+    for f in py_files:
+        parts = Path(f).parts
+        if len(parts) < 2:
+            continue  # Top-level script, not a package
+        top = parts[0]
+        # Skip test directories — they import project modules, not standalone
+        if top in ("tests", "test"):
+            continue
+        modules.add(top)
+    return sorted(modules)
 
 
 def _safe_git_env() -> dict:

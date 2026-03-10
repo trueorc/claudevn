@@ -16,6 +16,9 @@ from services.quality_gate_service import (
     GateStatus,
     QualityGateService,
     ValidationResult,
+    _extract_top_level_modules,
+    _parse_compile_error,
+    _parse_import_error,
 )
 
 
@@ -160,6 +163,51 @@ class TestValidateBranchMergeConflict:
 # Individual gate tests
 # ---------------------------------------------------------------------------
 
+class TestParseHelpers:
+    """Tests for error parsing helper functions."""
+
+    def test_parse_compile_error_with_line(self):
+        stderr = (
+            '  File "/tmp/work/serving/foo.py", line 10\n'
+            "    x = (\n"
+            "        ^\n"
+            "SyntaxError: unexpected EOF while parsing"
+        )
+        result = _parse_compile_error(stderr, "serving/foo.py", "/tmp/work")
+        assert "serving/foo.py:10" in result
+        assert "SyntaxError" in result
+
+    def test_parse_compile_error_fallback(self):
+        result = _parse_compile_error("something weird", "app.py", "/tmp/work")
+        assert result == "app.py: something weird"
+
+    def test_parse_import_error(self):
+        stderr = (
+            "Traceback (most recent call last):\n"
+            '  File "<string>", line 1, in <module>\n'
+            "ModuleNotFoundError: No module named 'missing'"
+        )
+        result = _parse_import_error(stderr, "serving")
+        assert result == "import serving: ModuleNotFoundError: No module named 'missing'"
+
+    def test_extract_top_level_modules(self):
+        files = [
+            "serving/api/compute.py",
+            "serving/services/quality_gate_service.py",
+            "marketplace/api.py",
+            "app.py",  # standalone script - skipped
+            "tests/test_foo.py",  # test dir - skipped
+        ]
+        modules = _extract_top_level_modules(files)
+        assert modules == ["marketplace", "serving"]
+
+    def test_extract_top_level_modules_empty(self):
+        assert _extract_top_level_modules([]) == []
+
+    def test_extract_top_level_modules_only_scripts(self):
+        assert _extract_top_level_modules(["app.py", "setup.py"]) == []
+
+
 class TestSyntaxCheck:
     @pytest.mark.asyncio
     async def test_no_python_files_skipped(self, service):
@@ -167,31 +215,74 @@ class TestSyntaxCheck:
         assert result.status == GateStatus.SKIPPED
 
     @pytest.mark.asyncio
-    async def test_valid_files_pass(self, service):
+    async def test_valid_files_and_imports_pass(self, service):
         mock_result = MagicMock()
         mock_result.returncode = 0
 
-        with patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_result) as mock_thread:
-            # Mock file existence
-            with patch.object(Path, "exists", return_value=True):
-                result = await service._run_syntax_check(Path("/tmp/work"), ["app.py"])
-
-        assert result.status == GateStatus.PASSED
-        assert "1 file(s) checked" in result.message
-
-    @pytest.mark.asyncio
-    async def test_syntax_error_detected(self, service):
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stderr = "SyntaxError: invalid syntax"
-
         with patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_result):
             with patch.object(Path, "exists", return_value=True):
-                result = await service._run_syntax_check(Path("/tmp/work"), ["bad.py"])
+                result = await service._run_syntax_check(
+                    Path("/tmp/work"), ["serving/api/compute.py"]
+                )
+
+        assert result.status == GateStatus.PASSED
+        assert "compiled" in result.message
+        assert "imported" in result.message
+
+    @pytest.mark.asyncio
+    async def test_syntax_error_detected_with_line_info(self, service):
+        compile_result = MagicMock()
+        compile_result.returncode = 1
+        compile_result.stderr = (
+            '  File "/tmp/work/serving/foo.py", line 5\n'
+            "SyntaxError: invalid syntax"
+        )
+        import_result = MagicMock()
+        import_result.returncode = 0
+
+        call_count = [0]
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return compile_result
+            return import_result
+
+        with patch("services.quality_gate_service.asyncio.to_thread", side_effect=mock_to_thread):
+            with patch.object(Path, "exists", return_value=True):
+                result = await service._run_syntax_check(
+                    Path("/tmp/work"), ["serving/foo.py"]
+                )
 
         assert result.status == GateStatus.FAILED
-        assert "1 file(s) have syntax errors" in result.message
+        assert any("serving/foo.py:5" in d for d in result.details)
         assert any("SyntaxError" in d for d in result.details)
+
+    @pytest.mark.asyncio
+    async def test_import_error_detected(self, service):
+        compile_result = MagicMock()
+        compile_result.returncode = 0
+        import_result = MagicMock()
+        import_result.returncode = 1
+        import_result.stderr = "ModuleNotFoundError: No module named 'missing'"
+
+        call_count = [0]
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return compile_result
+            return import_result
+
+        with patch("services.quality_gate_service.asyncio.to_thread", side_effect=mock_to_thread):
+            with patch.object(Path, "exists", return_value=True):
+                result = await service._run_syntax_check(
+                    Path("/tmp/work"), ["serving/api/compute.py"]
+                )
+
+        assert result.status == GateStatus.FAILED
+        assert any("import serving" in d for d in result.details)
+        assert any("ModuleNotFoundError" in d for d in result.details)
 
     @pytest.mark.asyncio
     async def test_deleted_files_skipped(self, service):
@@ -199,8 +290,30 @@ class TestSyntaxCheck:
         with patch.object(Path, "exists", return_value=False):
             result = await service._run_syntax_check(Path("/tmp/work"), ["deleted.py"])
 
-        # File is skipped (not compiled) but still counted; no errors = PASSED
+        # Standalone script - no package to import, file deleted - no compile
         assert result.status == GateStatus.PASSED
+
+    @pytest.mark.asyncio
+    async def test_import_timeout_reported(self, service):
+        compile_result = MagicMock()
+        compile_result.returncode = 0
+
+        call_count = [0]
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return compile_result
+            raise subprocess.TimeoutExpired(cmd="python", timeout=30)
+
+        with patch("services.quality_gate_service.asyncio.to_thread", side_effect=mock_to_thread):
+            with patch.object(Path, "exists", return_value=True):
+                result = await service._run_syntax_check(
+                    Path("/tmp/work"), ["serving/app.py"]
+                )
+
+        assert result.status == GateStatus.FAILED
+        assert any("timed out" in d for d in result.details)
 
 
 class TestTestGate:
