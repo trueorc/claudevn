@@ -566,28 +566,10 @@ function buildGroupSummary(messages) {
   return { label, icon: icon[best.type] || null, count: messages.length }
 }
 
-/**
- * Check if a status group has any "live" content that should auto-expand
- * (e.g. active processing stepper, pending directive needing user action).
- */
-function hasLiveContent(messages, props) {
-  return messages.some(msg =>
-    msg.type === MSG_TYPES.GOAL_PROCESSING ||
-    msg.type === MSG_TYPES.THINKING ||
-    (msg.type === MSG_TYPES.DIRECTIVE_PREVIEW &&
-      props.pendingDirective?.directive_id === msg.directive?.directive_id)
-  )
-}
-
 function StatusGroup({ messages, props }) {
-  const live = hasLiveContent(messages, props)
-  const [expanded, setExpanded] = useState(live)
+  // Default open so notifications are always visible; users can collapse.
+  const [expanded, setExpanded] = useState(true)
   const toggle = useCallback(() => setExpanded(v => !v), [])
-
-  // Auto-expand when live content appears
-  useEffect(() => {
-    if (live) setExpanded(true)
-  }, [live])
 
   const { label, icon, count } = buildGroupSummary(messages)
 

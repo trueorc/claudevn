@@ -957,17 +957,18 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 6px 12px;
-  background: transparent;
+  padding: 7px 12px;
+  background: var(--bg-surface, #16162a);
   border: none;
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition: background 0.15s ease;
 }
 
 .conv-status-box-header:hover {
   background: var(--bg-hover);
+  color: var(--text);
 }
 
 .conv-status-box-icon {
