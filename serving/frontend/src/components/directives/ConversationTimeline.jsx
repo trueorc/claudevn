@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
-import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot, ChevronDown } from 'lucide-react'
+import { useRef, useEffect, useState } from 'react'
+import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot } from 'lucide-react'
 import { MSG_TYPES } from '../../hooks/useConversation'
 import { getAvatarColor, getInitials } from '../common/UserAvatar'
 import GoalCompletionCard from './GoalCompletionCard'
@@ -21,11 +21,7 @@ function formatTime(isoString) {
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// ---------------------------------------------------------------------------
-// Classification: which message types render as compact inline indicators
-// vs full card components.
-// ---------------------------------------------------------------------------
-
+/** Message types that render as compact single-line indicators. */
 const COMPACT_TYPES = new Set([
   MSG_TYPES.THINKING,
   MSG_TYPES.GOAL_CREATED,
@@ -35,14 +31,8 @@ const COMPACT_TYPES = new Set([
   MSG_TYPES.ERROR,
 ])
 
-const CHAT_TYPES = new Set([MSG_TYPES.USER, MSG_TYPES.ASSISTANT])
-
-function isStatusMessage(msg) {
-  return !CHAT_TYPES.has(msg.type)
-}
-
 // ---------------------------------------------------------------------------
-// Chat message components (unchanged)
+// Chat message components
 // ---------------------------------------------------------------------------
 
 function UserMessage({ msg, currentUserId, onPromoteToDirective }) {
@@ -128,7 +118,7 @@ function AssistantMessage({ msg }) {
 }
 
 // ---------------------------------------------------------------------------
-// Compact status line — single-line inline indicator for simple status msgs
+// Compact single-line status indicators
 // ---------------------------------------------------------------------------
 
 function CompactStatusLine({ icon, label, className, time }) {
@@ -141,79 +131,8 @@ function CompactStatusLine({ icon, label, className, time }) {
   )
 }
 
-function renderCompactStatus(msg) {
-  switch (msg.type) {
-    case MSG_TYPES.THINKING:
-      return (
-        <CompactStatusLine
-          key={msg.id}
-          icon={<Loader size={11} className="conv-spinner" />}
-          label={msg.content}
-          className="conv-status-thinking"
-          time={formatTime(msg.timestamp)}
-        />
-      )
-    case MSG_TYPES.GOAL_CREATED:
-      return (
-        <CompactStatusLine
-          key={msg.id}
-          icon={<Sparkles size={11} className="conv-icon-goal" />}
-          label="New work created"
-          className="conv-status-goal"
-          time={formatTime(msg.timestamp)}
-        />
-      )
-    case MSG_TYPES.DIRECTIVE_APPLIED: {
-      const intent = msg.directive?.interpretation?.detected_intent
-      const summary = msg.directive?.interpretation?.summary
-      return (
-        <CompactStatusLine
-          key={msg.id}
-          icon={<Check size={11} className="conv-icon-success" />}
-          label={summary ? `Applied — ${summary}` : `Changes applied${intent ? ` (${intent})` : ''}`}
-          className="conv-status-applied"
-          time={formatTime(msg.timestamp)}
-        />
-      )
-    }
-    case MSG_TYPES.DIRECTIVE_REJECTED:
-      return (
-        <CompactStatusLine
-          key={msg.id}
-          icon={<X size={11} className="conv-icon-rejected" />}
-          label="Changes rejected"
-          className="conv-status-rejected"
-          time={formatTime(msg.timestamp)}
-        />
-      )
-    case MSG_TYPES.ERROR:
-      return (
-        <CompactStatusLine
-          key={msg.id}
-          icon={<AlertCircle size={11} className="conv-icon-error" />}
-          label={msg.content}
-          className="conv-status-error"
-          time={formatTime(msg.timestamp)}
-        />
-      )
-    case MSG_TYPES.SYSTEM: {
-      const parts = msg.content.split(/\*\*(.*?)\*\*/g)
-      return (
-        <div key={msg.id} className="conv-status-line conv-status-system">
-          <span className="conv-status-label">
-            {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
-          </span>
-          <span className="conv-status-time">{formatTime(msg.timestamp)}</span>
-        </div>
-      )
-    }
-    default:
-      return null
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Full card components (for interactive / multi-line status messages)
+// Full card status components (interactive / multi-line)
 // ---------------------------------------------------------------------------
 
 function ElapsedTime({ startedAt }) {
@@ -445,155 +364,79 @@ function PromoteSuggestionMessage({ msg, onPromote, onDismiss }) {
 }
 
 // ---------------------------------------------------------------------------
-// Render a single full-card status message (non-compact types)
+// Render a compact status line for simple status messages
 // ---------------------------------------------------------------------------
 
-function renderCardStatus(msg, props) {
+function renderCompactMessage(msg) {
+  const time = formatTime(msg.timestamp)
+
   switch (msg.type) {
-    case MSG_TYPES.GOAL_PROCESSING:
-      return <GoalProcessingMessage key={msg.id} msg={msg} onRetry={props.onRetry} />
-    case MSG_TYPES.GOAL_COMPLETE:
-      return <GoalCompleteMessage key={msg.id} msg={msg} />
-    case MSG_TYPES.DIRECTIVE_PREVIEW:
+    case MSG_TYPES.THINKING:
       return (
-        <DirectivePreviewMessage
-          key={msg.id}
-          msg={msg}
-          onApply={props.onApply}
-          onReject={props.onReject}
-          applying={props.applying}
-          isPending={props.pendingDirective?.directive_id === msg.directive?.directive_id}
+        <CompactStatusLine
+          icon={<Loader size={11} className="conv-spinner" />}
+          label={msg.content || 'Thinking...'}
+          className="conv-status-thinking"
+          time={time}
         />
       )
-    case MSG_TYPES.ATTENTION:
-      return <AttentionMessage key={msg.id} msg={msg} />
-    case MSG_TYPES.PROMOTE_SUGGESTION:
-      return <PromoteSuggestionMessage key={msg.id} msg={msg} onPromote={props.onPromoteToDirective} onDismiss={props.onDismissPromotion} />
+    case MSG_TYPES.GOAL_CREATED:
+      return (
+        <CompactStatusLine
+          icon={<Sparkles size={11} className="conv-icon-goal" />}
+          label="New work created"
+          className="conv-status-goal"
+          time={time}
+        />
+      )
+    case MSG_TYPES.DIRECTIVE_APPLIED: {
+      const summary = msg.directive?.interpretation?.summary
+      return (
+        <CompactStatusLine
+          icon={<Check size={11} className="conv-icon-success" />}
+          label={summary ? `Applied — ${summary}` : 'Changes applied'}
+          className="conv-status-applied"
+          time={time}
+        />
+      )
+    }
+    case MSG_TYPES.DIRECTIVE_REJECTED:
+      return (
+        <CompactStatusLine
+          icon={<X size={11} className="conv-icon-rejected" />}
+          label="Changes rejected"
+          className="conv-status-rejected"
+          time={time}
+        />
+      )
+    case MSG_TYPES.ERROR:
+      return (
+        <CompactStatusLine
+          icon={<AlertCircle size={11} className="conv-icon-error" />}
+          label={msg.content || 'Error'}
+          className="conv-status-error"
+          time={time}
+        />
+      )
+    case MSG_TYPES.SYSTEM: {
+      const parts = (msg.content || '').split(/\*\*(.*?)\*\*/g)
+      return (
+        <div className="conv-status-line conv-status-system">
+          <span className="conv-status-label">
+            {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+          </span>
+          <span className="conv-status-time">{time}</span>
+        </div>
+      )
+    }
     default:
       return null
   }
 }
 
 // ---------------------------------------------------------------------------
-// Timeline with grouped status messages
+// Timeline — renders each message individually, compact types as inline lines
 // ---------------------------------------------------------------------------
-
-/**
- * Groups consecutive status messages into clusters. Chat messages (user,
- * assistant) always stand alone. A status group may contain a mix of compact
- * one-liners and full-card statuses — the compact ones render as a tight
- * stack of inline indicators, while cards keep their current appearance but
- * with reduced surrounding spacing.
- */
-function groupMessages(messages) {
-  const groups = []
-  let currentStatusGroup = null
-
-  for (const msg of messages) {
-    if (CHAT_TYPES.has(msg.type)) {
-      // Flush any pending status group
-      if (currentStatusGroup) {
-        groups.push({ type: 'status', messages: currentStatusGroup })
-        currentStatusGroup = null
-      }
-      groups.push({ type: 'chat', msg })
-    } else {
-      // Status message — accumulate into group
-      if (!currentStatusGroup) currentStatusGroup = []
-      currentStatusGroup.push(msg)
-    }
-  }
-
-  // Flush trailing status group
-  if (currentStatusGroup) {
-    groups.push({ type: 'status', messages: currentStatusGroup })
-  }
-
-  return groups
-}
-
-/**
- * Builds a short summary label for the collapsed status group header.
- * Shows the most recent/important status, plus a count if there are more.
- */
-function buildGroupSummary(messages) {
-  // Pick the most "interesting" message for the summary label
-  const priority = [
-    MSG_TYPES.GOAL_PROCESSING, MSG_TYPES.GOAL_COMPLETE,
-    MSG_TYPES.DIRECTIVE_PREVIEW, MSG_TYPES.GOAL_CREATED,
-    MSG_TYPES.DIRECTIVE_APPLIED, MSG_TYPES.ATTENTION,
-    MSG_TYPES.ERROR, MSG_TYPES.THINKING,
-  ]
-
-  // Use the last message as default, but prefer higher-priority types
-  let best = messages[messages.length - 1]
-  let bestRank = priority.indexOf(best.type)
-  for (const msg of messages) {
-    const rank = priority.indexOf(msg.type)
-    if (rank !== -1 && (bestRank === -1 || rank < bestRank)) {
-      best = msg
-      bestRank = rank
-    }
-  }
-
-  const labels = {
-    [MSG_TYPES.THINKING]: 'Processing...',
-    [MSG_TYPES.GOAL_CREATED]: 'New work created',
-    [MSG_TYPES.GOAL_PROCESSING]: 'Processing work...',
-    [MSG_TYPES.GOAL_COMPLETE]: 'Work complete',
-    [MSG_TYPES.DIRECTIVE_PREVIEW]: 'Directive ready',
-    [MSG_TYPES.DIRECTIVE_APPLIED]: 'Changes applied',
-    [MSG_TYPES.DIRECTIVE_REJECTED]: 'Changes rejected',
-    [MSG_TYPES.ERROR]: 'Error',
-    [MSG_TYPES.ATTENTION]: 'Attention',
-    [MSG_TYPES.SYSTEM]: best.content?.slice(0, 40) || 'System',
-    [MSG_TYPES.PROMOTE_SUGGESTION]: 'Suggestion',
-  }
-
-  const label = labels[best.type] || 'Activity'
-  const icon = {
-    [MSG_TYPES.THINKING]: <Loader size={11} className="conv-spinner" />,
-    [MSG_TYPES.GOAL_CREATED]: <Sparkles size={11} className="conv-icon-goal" />,
-    [MSG_TYPES.GOAL_PROCESSING]: <Loader size={11} className="conv-spinner" />,
-    [MSG_TYPES.GOAL_COMPLETE]: <Check size={11} className="conv-icon-success" />,
-    [MSG_TYPES.DIRECTIVE_PREVIEW]: <Target size={11} className="conv-icon-directive" />,
-    [MSG_TYPES.DIRECTIVE_APPLIED]: <Check size={11} className="conv-icon-success" />,
-    [MSG_TYPES.DIRECTIVE_REJECTED]: <X size={11} className="conv-icon-rejected" />,
-    [MSG_TYPES.ERROR]: <AlertCircle size={11} className="conv-icon-error" />,
-    [MSG_TYPES.ATTENTION]: <AlertCircle size={11} className="conv-icon-attention" />,
-  }
-
-  return { label, icon: icon[best.type] || null, count: messages.length }
-}
-
-function StatusGroup({ messages, props }) {
-  // Default open so notifications are always visible; users can collapse.
-  const [expanded, setExpanded] = useState(true)
-  const toggle = useCallback(() => setExpanded(v => !v), [])
-
-  const { label, icon, count } = buildGroupSummary(messages)
-
-  return (
-    <div className={`conv-status-box${expanded ? ' expanded' : ''}`}>
-      <button className="conv-status-box-header" onClick={toggle}>
-        <span className="conv-status-box-icon">{icon}</span>
-        <span className="conv-status-box-label">{label}</span>
-        {count > 1 && <span className="conv-status-box-count">{count}</span>}
-        <ChevronDown size={12} className={`conv-status-box-chevron${expanded ? ' open' : ''}`} />
-      </button>
-      {expanded && (
-        <div className="conv-status-box-body">
-          {messages.map((msg) => {
-            if (COMPACT_TYPES.has(msg.type)) {
-              return renderCompactStatus(msg)
-            }
-            return renderCardStatus(msg, props)
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function ConversationTimeline({ messages, currentUserId, pendingDirective, applying, onApply, onReject, onRetry, onPromoteToDirective, onDismissPromotion }) {
   const bottomRef = useRef(null)
@@ -604,21 +447,42 @@ function ConversationTimeline({ messages, currentUserId, pendingDirective, apply
 
   if (!messages || messages.length === 0) return null
 
-  const groups = groupMessages(messages)
-  const cardProps = { pendingDirective, applying, onApply, onReject, onRetry, onPromoteToDirective, onDismissPromotion }
-
   return (
     <div className="conv-timeline">
-      {groups.map((group, i) => {
-        if (group.type === 'chat') {
-          const msg = group.msg
-          if (msg.type === MSG_TYPES.USER) {
-            return <UserMessage key={msg.id} msg={msg} currentUserId={currentUserId} onPromoteToDirective={onPromoteToDirective} />
-          }
-          return <AssistantMessage key={msg.id} msg={msg} />
+      {messages.map((msg) => {
+        // Compact inline status messages
+        if (COMPACT_TYPES.has(msg.type)) {
+          return <div key={msg.id}>{renderCompactMessage(msg)}</div>
         }
-        // Status group
-        return <StatusGroup key={`sg-${i}`} messages={group.messages} props={cardProps} />
+
+        // Full chat messages
+        switch (msg.type) {
+          case MSG_TYPES.USER:
+            return <UserMessage key={msg.id} msg={msg} currentUserId={currentUserId} onPromoteToDirective={onPromoteToDirective} />
+          case MSG_TYPES.ASSISTANT:
+            return <AssistantMessage key={msg.id} msg={msg} />
+          case MSG_TYPES.GOAL_PROCESSING:
+            return <GoalProcessingMessage key={msg.id} msg={msg} onRetry={onRetry} />
+          case MSG_TYPES.GOAL_COMPLETE:
+            return <GoalCompleteMessage key={msg.id} msg={msg} />
+          case MSG_TYPES.DIRECTIVE_PREVIEW:
+            return (
+              <DirectivePreviewMessage
+                key={msg.id}
+                msg={msg}
+                onApply={onApply}
+                onReject={onReject}
+                applying={applying}
+                isPending={pendingDirective?.directive_id === msg.directive?.directive_id}
+              />
+            )
+          case MSG_TYPES.ATTENTION:
+            return <AttentionMessage key={msg.id} msg={msg} />
+          case MSG_TYPES.PROMOTE_SUGGESTION:
+            return <PromoteSuggestionMessage key={msg.id} msg={msg} onPromote={onPromoteToDirective} onDismiss={onDismissPromotion} />
+          default:
+            return null
+        }
       })}
       <div ref={bottomRef} />
     </div>
