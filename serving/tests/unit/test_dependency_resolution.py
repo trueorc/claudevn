@@ -280,12 +280,13 @@ class TestCascadeUnlock:
         # B should start in BACKLOG
         assert issue_b.status == IssueStatus.BACKLOG
 
-        # Complete A
+        # Complete A and finalize (merge → DONE + cascade)
         await service.update_issue_status(issue_a.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(issue_a.issue_id, IssueResult(
             output="Done",
             success=True
         ))
+        await service._issue_service.finalize_issue(issue_a.issue_id)
 
         # B should now be READY
         updated_b = await service.get_issue(issue_b.issue_id)
@@ -313,23 +314,25 @@ class TestCascadeUnlock:
 
         assert issue_c.status == IssueStatus.BACKLOG
 
-        # Complete only A
+        # Complete and finalize only A
         await service.update_issue_status(issue_a.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(issue_a.issue_id, IssueResult(
             output="Done",
             success=True
         ))
+        await service._issue_service.finalize_issue(issue_a.issue_id)
 
         # C should still be BACKLOG (B not done yet)
         updated_c = await service.get_issue(issue_c.issue_id)
         assert updated_c.status == IssueStatus.BACKLOG
 
-        # Complete B
+        # Complete and finalize B
         await service.update_issue_status(issue_b.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(issue_b.issue_id, IssueResult(
             output="Done",
             success=True
         ))
+        await service._issue_service.finalize_issue(issue_b.issue_id)
 
         # Now C should be READY
         updated_c = await service.get_issue(issue_c.issue_id)
@@ -356,22 +359,24 @@ class TestCascadeUnlock:
         assert issue_b.status == IssueStatus.BACKLOG
         assert issue_c.status == IssueStatus.BACKLOG
 
-        # Complete A → B should become READY
+        # Complete A and finalize → B should become READY
         await service.update_issue_status(issue_a.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(issue_a.issue_id, IssueResult(
             output="Done", success=True
         ))
+        await service._issue_service.finalize_issue(issue_a.issue_id)
 
         updated_b = await service.get_issue(issue_b.issue_id)
         updated_c = await service.get_issue(issue_c.issue_id)
         assert updated_b.status == IssueStatus.READY
         assert updated_c.status == IssueStatus.BACKLOG  # Still waiting on B
 
-        # Complete B → C should become READY
+        # Complete B and finalize → C should become READY
         await service.update_issue_status(issue_b.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(issue_b.issue_id, IssueResult(
             output="Done", success=True
         ))
+        await service._issue_service.finalize_issue(issue_b.issue_id)
 
         updated_c = await service.get_issue(issue_c.issue_id)
         assert updated_c.status == IssueStatus.READY
@@ -419,13 +424,14 @@ class TestInitialStatusCalculation:
             description="Will be completed"
         ))
 
-        # Complete the dependency
+        # Complete and finalize the dependency (merge → DONE)
         await service.update_issue_status(dep.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(dep.issue_id, IssueResult(
             output="Done", success=True
         ))
+        await service._issue_service.finalize_issue(dep.issue_id)
 
-        # Create new issue depending on completed dep
+        # Create new issue depending on finalized (DONE) dep
         issue = await service.create_issue(IssueCreateRequest(
             title="Dependent Issue",
             description="Depends on completed",
@@ -507,9 +513,10 @@ class TestEdgeCases:
         assert c.status == IssueStatus.BACKLOG
         assert d.status == IssueStatus.BACKLOG
 
-        # Complete A → B and C should become READY
+        # Complete A and finalize → B and C should become READY
         await service.update_issue_status(a.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(a.issue_id, IssueResult(output="Done", success=True))
+        await service._issue_service.finalize_issue(a.issue_id)
 
         b = await service.get_issue(b.issue_id)
         c = await service.get_issue(c.issue_id)
@@ -519,16 +526,18 @@ class TestEdgeCases:
         assert c.status == IssueStatus.READY
         assert d.status == IssueStatus.BACKLOG  # Still waiting
 
-        # Complete B → D still waiting on C
+        # Complete B and finalize → D still waiting on C
         await service.update_issue_status(b.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(b.issue_id, IssueResult(output="Done", success=True))
+        await service._issue_service.finalize_issue(b.issue_id)
 
         d = await service.get_issue(d.issue_id)
         assert d.status == IssueStatus.BACKLOG
 
-        # Complete C → D should become READY
+        # Complete C and finalize → D should become READY
         await service.update_issue_status(c.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(c.issue_id, IssueResult(output="Done", success=True))
+        await service._issue_service.finalize_issue(c.issue_id)
 
         d = await service.get_issue(d.issue_id)
         assert d.status == IssueStatus.READY
@@ -619,14 +628,15 @@ class TestWorkItemIssueCompletionCascade:
         await service.assign_work(work.work_id, "compute-1", [])
         await service.update_status(work.work_id, "in_progress", "compute-1")
 
-        # Complete the work
+        # Complete the work and finalize (post-merge)
         await service.complete_work(
             work.work_id,
             result={"summary": "Done"},
             compute_id="compute-1"
         )
+        await service.finalize_work(work.work_id)
 
-        # Parent issue should now be DONE
+        # Parent issue should now be DONE (after finalize)
         updated_issue = await service.get_issue(issue.issue_id)
         assert updated_issue.status == IssueStatus.DONE
 
@@ -658,7 +668,7 @@ class TestWorkItemIssueCompletionCascade:
             project_id="test-project"
         ))
 
-        # Assign, start, and complete the work
+        # Assign, start, complete, and finalize the work (post-merge)
         await service.assign_work(work.work_id, "compute-1", [])
         await service.update_status(work.work_id, "in_progress", "compute-1")
         await service.complete_work(
@@ -666,8 +676,9 @@ class TestWorkItemIssueCompletionCascade:
             result={"summary": "Completed A"},
             compute_id="compute-1"
         )
+        await service.finalize_work(work.work_id)
 
-        # Issue A should be DONE
+        # Issue A should be DONE (after finalize)
         updated_a = await service.get_issue(issue_a.issue_id)
         assert updated_a.status == IssueStatus.DONE
 
@@ -685,7 +696,7 @@ class TestWorkItemIssueCompletionCascade:
             project_id="test-project"
         ))
 
-        # Assign, start, and complete
+        # Assign, start, and complete (sets IMPLEMENTED, pending merge)
         await service.assign_work(work.work_id, "compute-1", [])
         await service.update_status(work.work_id, "in_progress", "compute-1")
         completed = await service.complete_work(
@@ -694,9 +705,9 @@ class TestWorkItemIssueCompletionCascade:
             compute_id="compute-1"
         )
 
-        # Should complete without error
+        # Should complete without error (IMPLEMENTED, not yet COMPLETED)
         assert completed is not None
-        assert completed.status == WorkStatus.COMPLETED
+        assert completed.status == WorkStatus.IMPLEMENTED
 
     @pytest.mark.asyncio
     async def test_work_completion_cascade_and_logic(self, service):
@@ -726,12 +737,13 @@ class TestWorkItemIssueCompletionCascade:
         await service.assign_work(work_a.work_id, "compute-1", [])
         await service.update_status(work_a.work_id, "in_progress", "compute-1")
         await service.complete_work(work_a.work_id, result={"summary": "Done A"}, compute_id="compute-1")
+        await service.finalize_work(work_a.work_id)
 
         # C should still be BACKLOG (B not done)
         updated_c = await service.get_issue(issue_c.issue_id)
         assert updated_c.status == IssueStatus.BACKLOG
 
-        # Complete Issue B via work item
+        # Complete Issue B via work item and finalize
         await service.update_issue_status(issue_b.issue_id, IssueStatus.IN_PROGRESS)
         work_b = await service.create_work(WorkCreateRequest(
             title="Work B", description="Work for B",
@@ -740,6 +752,7 @@ class TestWorkItemIssueCompletionCascade:
         await service.assign_work(work_b.work_id, "compute-2", [])
         await service.update_status(work_b.work_id, "in_progress", "compute-2")
         await service.complete_work(work_b.work_id, result={"summary": "Done B"}, compute_id="compute-2")
+        await service.finalize_work(work_b.work_id)
 
         # Now C should be READY (all deps satisfied)
         updated_c = await service.get_issue(issue_c.issue_id)
@@ -781,9 +794,10 @@ class TestWorkItemIssueCompletionCascade:
             depends_on=[issue_a.issue_id]
         ))
 
-        # Complete A
+        # Complete A and finalize (merge → DONE + cascade)
         await service.update_issue_status(issue_a.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(issue_a.issue_id, IssueResult(summary="Done"))
+        await service._issue_service.finalize_issue(issue_a.issue_id)
 
         # B should be READY
         updated_b = await service.get_issue(issue_b.issue_id)

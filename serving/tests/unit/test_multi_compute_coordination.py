@@ -897,7 +897,7 @@ class TestFailureScenarios:
 
     @pytest.mark.asyncio
     async def test_completion_cascade_unblocks_dependents(self):
-        """Completing work triggers dependency cascade for blocked items."""
+        """Completing work sets IMPLEMENTED; cascade (blocker resolution) deferred to finalize."""
         service = AssignmentService()
 
         dep = _make_work_item("dep-1", status=WorkStatus.IN_PROGRESS, assigned_to="compute-001")
@@ -920,8 +920,12 @@ class TestFailureScenarios:
             "dep-1", result={"output": "done"}, compute_id="compute-001",
         )
 
-        assert work_items["dep-1"].status == WorkStatus.COMPLETED
-        # Blocker should be resolved
+        assert work_items["dep-1"].status == WorkStatus.IMPLEMENTED
+        # Blocker not yet resolved — cascade is deferred until finalize_work()
+        assert not work_items["work-1"].blockers[0].is_resolved
+
+        # Simulate finalize (post-merge): cascade resolves blockers
+        await service._check_unblock_dependents("dep-1")
         assert work_items["work-1"].blockers[0].is_resolved
 
     @pytest.mark.asyncio

@@ -42,7 +42,8 @@ class IssueStatus(str, Enum):
     READY = "ready"             # All dependencies met, waiting for assignment
     IN_PROGRESS = "in_progress"  # Assigned to a Compute, being worked
     BLOCKED = "blocked"         # Compute reported a blocker
-    DONE = "done"               # Completed successfully
+    IMPLEMENTED = "implemented"  # Work done, branch pushed, pending merge
+    DONE = "done"               # Branch merged to main, fully completed
     FAILED = "failed"           # Failed after retries exhausted
 
 
@@ -91,7 +92,8 @@ class WorkStatus(str, Enum):
     IN_PROGRESS = "in_progress"   # Compute actively working
     BLOCKED = "blocked"           # Waiting on dependency or external
     REVIEW = "review"             # Work done, awaiting review
-    COMPLETED = "completed"       # Successfully completed
+    IMPLEMENTED = "implemented"   # Code done, branch pushed, pending merge
+    COMPLETED = "completed"       # Branch merged to main, fully done
     FAILED = "failed"             # Failed, needs intervention
 
 

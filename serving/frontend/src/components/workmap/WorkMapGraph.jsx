@@ -84,6 +84,8 @@ function WorkMapGraph({ graphData, loading }) {
       case 'done':
       case 'completed':
         return '#6b7280'
+      case 'implemented':
+        return '#f59e0b'
       case 'in_progress':
       case 'in_review':
         return '#3b82f6'
@@ -101,6 +103,8 @@ function WorkMapGraph({ graphData, loading }) {
       case 'done':
       case 'completed':
         return 'status-done'
+      case 'implemented':
+        return 'status-implemented'
       case 'in_progress':
       case 'in_review':
         return 'status-progress'

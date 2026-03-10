@@ -488,18 +488,19 @@ class AssignmentService:
 
         # Validate status transition
         valid_transitions = {
-            WorkStatus.PENDING: [WorkStatus.ASSIGNED, WorkStatus.COMPLETED, WorkStatus.FAILED],
+            WorkStatus.PENDING: [WorkStatus.ASSIGNED, WorkStatus.IMPLEMENTED, WorkStatus.FAILED],
             WorkStatus.ASSIGNED: [WorkStatus.IN_PROGRESS, WorkStatus.BLOCKED, WorkStatus.PENDING],
-            WorkStatus.IN_PROGRESS: [WorkStatus.BLOCKED, WorkStatus.REVIEW, WorkStatus.COMPLETED, WorkStatus.FAILED],
+            WorkStatus.IN_PROGRESS: [WorkStatus.BLOCKED, WorkStatus.REVIEW, WorkStatus.IMPLEMENTED, WorkStatus.FAILED],
             WorkStatus.BLOCKED: [WorkStatus.IN_PROGRESS, WorkStatus.PENDING],
-            WorkStatus.REVIEW: [WorkStatus.COMPLETED, WorkStatus.IN_PROGRESS, WorkStatus.FAILED],
+            WorkStatus.REVIEW: [WorkStatus.IMPLEMENTED, WorkStatus.IN_PROGRESS, WorkStatus.FAILED],
+            WorkStatus.IMPLEMENTED: [WorkStatus.COMPLETED, WorkStatus.IN_PROGRESS],
             WorkStatus.COMPLETED: [],
             WorkStatus.FAILED: [WorkStatus.PENDING],
         }
 
         if status not in valid_transitions.get(work.status, []):
-            # Idempotent: same terminal state is a no-op, not an error (#829)
-            if work.status == status and status in (WorkStatus.COMPLETED, WorkStatus.FAILED):
+            # Idempotent: same terminal/near-terminal state is a no-op, not an error (#829)
+            if work.status == status and status in (WorkStatus.IMPLEMENTED, WorkStatus.COMPLETED, WorkStatus.FAILED):
                 logger.debug(f"Idempotent status transition for {work_id}: already {status.value}")
                 return work
             logger.warning(f"Invalid status transition for {work_id}: {work.status} -> {status}")
@@ -523,7 +524,9 @@ class AssignmentService:
                 self._key(f"work:status:{old_status.value}"),
                 work_id
             )
-            if status in [WorkStatus.COMPLETED, WorkStatus.FAILED] and work.assigned_to:
+            # Clear compute's current work when compute is done (IMPLEMENTED)
+            # or on terminal states (COMPLETED, FAILED)
+            if status in [WorkStatus.IMPLEMENTED, WorkStatus.COMPLETED, WorkStatus.FAILED] and work.assigned_to:
                 await self._redis._redis.delete(
                     self._key(f"workmap:compute:{work.assigned_to}:current")
                 )
@@ -592,10 +595,7 @@ class AssignmentService:
         work.progress_percent = 100
         work.updated_at = datetime.now(timezone.utc)
 
-        await self.update_status(work_id, WorkStatus.COMPLETED, compute_id, save_callback)
-
-        # Check if this unblocks other work
-        await self._check_unblock_dependents(work_id, save_callback)
+        await self.update_status(work_id, WorkStatus.IMPLEMENTED, compute_id, save_callback)
 
         logger.info(f"Work {work_id} completed")
         return work

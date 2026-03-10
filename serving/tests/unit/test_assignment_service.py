@@ -471,7 +471,7 @@ class TestProgressReporting:
         )
 
         assert result is not None
-        assert result.status == WorkStatus.COMPLETED
+        assert result.status == WorkStatus.IMPLEMENTED
         assert result.progress_percent == 100
         assert result.result == {"output": "success"}
 

@@ -527,10 +527,10 @@ class TestCompleteWorkIssueUpdate:
             )
 
         assert result is not None
-        assert result.status == WorkStatus.COMPLETED
+        assert result.status == WorkStatus.IMPLEMENTED
 
-        # Verify issue was updated
-        assert issue.status == IssueStatus.DONE
+        # Verify issue was updated to IMPLEMENTED (pending merge, not yet DONE)
+        assert issue.status == IssueStatus.IMPLEMENTED
         assert issue.result is not None
         assert issue.result.summary == "Done"
 
@@ -560,7 +560,7 @@ class TestCompleteWorkIssueUpdate:
             )
 
         assert result is not None
-        assert result.status == WorkStatus.COMPLETED
+        assert result.status == WorkStatus.IMPLEMENTED
 
     @pytest.mark.asyncio
     async def test_complete_work_triggers_dependency_cascade(self, work_map_service):
@@ -608,8 +608,10 @@ class TestCompleteWorkIssueUpdate:
                 {"branch": "work/a", "summary": "Done"},
                 "compute-1"
             )
+            # Simulate post-merge finalize: IMPLEMENTED → COMPLETED + DONE + cascade
+            await service.finalize_work("work_a")
 
-        # issue_a should be DONE
+        # issue_a should be DONE (after finalize)
         assert issue_a.status == IssueStatus.DONE
 
         # issue_b should have been unblocked (moved from BACKLOG to READY)

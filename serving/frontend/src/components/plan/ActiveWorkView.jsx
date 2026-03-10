@@ -1,4 +1,4 @@
-import { Play, Clock, AlertCircle, Layers, XCircle, CheckCircle2, History } from 'lucide-react'
+import { Play, Clock, AlertCircle, Layers, XCircle, CheckCircle2, GitMerge, History } from 'lucide-react'
 import Badge from '../common/Badge'
 import BucketBadges from '../common/BucketBadges'
 import Spinner from '../common/Spinner'
@@ -46,6 +46,7 @@ function ActiveWorkView({ data, loading, onItemClick, onItemTracesClick, itemBuc
     blocked_items = [],
     backlog_items = [],
     failed_items = [],
+    implemented_items = [],
     done_items = [],
   } = data
 
@@ -107,9 +108,20 @@ function ActiveWorkView({ data, loading, onItemClick, onItemTracesClick, itemBuc
             itemBucketMap={itemBucketMap}
           />
         )}
+        {implemented_items.length > 0 && (
+          <WorkColumn
+            title="Pending Merge"
+            icon={GitMerge}
+            iconClass="implemented"
+            items={implemented_items}
+            emptyMessage=""
+            onItemClick={onItemClick}
+            itemBucketMap={itemBucketMap}
+          />
+        )}
         {done_items.length > 0 && (
           <WorkColumn
-            title="Completed"
+            title="Merged"
             icon={CheckCircle2}
             iconClass="done"
             items={done_items}

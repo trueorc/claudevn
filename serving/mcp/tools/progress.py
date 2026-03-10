@@ -16,7 +16,8 @@ STATUS_MAP = {
     TaskStatus.IN_PROGRESS: WorkStatus.IN_PROGRESS,
     TaskStatus.BLOCKED: WorkStatus.BLOCKED,
     TaskStatus.REVIEW_REQUESTED: WorkStatus.REVIEW,
-    TaskStatus.COMPLETED: WorkStatus.COMPLETED,
+    TaskStatus.IMPLEMENTED: WorkStatus.IMPLEMENTED,
+    TaskStatus.COMPLETED: WorkStatus.IMPLEMENTED,
 }
 
 

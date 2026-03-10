@@ -11,6 +11,7 @@ const statusOptions = [
   { value: 'ready', label: 'Ready' },
   { value: 'in_progress', label: 'In Progress' },
   { value: 'blocked', label: 'Blocked' },
+  { value: 'implemented', label: 'Implemented' },
   { value: 'done', label: 'Done' },
   { value: 'failed', label: 'Failed' }
 ]
@@ -19,8 +20,9 @@ const statusOptions = [
 const validTransitions = {
   backlog: ['ready'],
   ready: ['in_progress', 'backlog'],
-  in_progress: ['blocked', 'done', 'failed'],
+  in_progress: ['blocked', 'implemented', 'failed'],
   blocked: ['in_progress', 'ready'],
+  implemented: ['done', 'in_progress'],
   done: ['backlog'],
   failed: ['ready', 'in_progress', 'backlog'],
 }

@@ -186,7 +186,7 @@ class TestReportProgressTool:
 
         call_args = mock_work_map_service.report_progress.call_args[0]
         report = call_args[1]
-        assert report.status == WorkStatus.COMPLETED
+        assert report.status == WorkStatus.IMPLEMENTED
 
     @pytest.mark.asyncio
     @patch("mcp.tools.progress.get_work_map_service")
@@ -306,9 +306,9 @@ class TestStatusMapping:
         """Test REVIEW_REQUESTED maps to REVIEW."""
         assert STATUS_MAP[TaskStatus.REVIEW_REQUESTED] == WorkStatus.REVIEW
 
-    def test_completed_maps_to_completed(self):
-        """Test COMPLETED maps to COMPLETED."""
-        assert STATUS_MAP[TaskStatus.COMPLETED] == WorkStatus.COMPLETED
+    def test_completed_maps_to_implemented(self):
+        """Test COMPLETED maps to IMPLEMENTED (pending merge)."""
+        assert STATUS_MAP[TaskStatus.COMPLETED] == WorkStatus.IMPLEMENTED
 
 
 class TestReportProgressInputModel:

@@ -889,6 +889,11 @@
   color: #6b7280;
 }
 
+.directive-chip--implemented {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+
 .directive-chip--progress {
   background: rgba(59, 130, 246, 0.12);
   color: #3b82f6;

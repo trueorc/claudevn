@@ -373,8 +373,8 @@ class TestConflictResolutionRemerge:
         mock_merge.assert_awaited_once_with(work, "f/issue_123/compute-001", "compute-001")
 
     @pytest.mark.asyncio
-    async def test_cascades_dependents_when_work_already_completed(self):
-        """After re-merge, cascade dependents if work was already in COMPLETED status."""
+    async def test_cascades_dependents_when_work_already_implemented(self):
+        """After re-merge, _auto_create_and_merge_pr handles cascade via finalize_work."""
         from api.compute import _handle_conflict_resolution_completed
         from models.work_map import WorkStatus
 
@@ -383,16 +383,18 @@ class TestConflictResolutionRemerge:
         work.work_id = "work_abc123"
         work.branch_name = "feat/my-branch"
         work.project_id = "proj-1"
-        work.status = WorkStatus.COMPLETED
+        work.status = WorkStatus.IMPLEMENTED
 
         mock_work_map = MagicMock()
         mock_work_map.get_work = AsyncMock(return_value=work)
-        mock_work_map.cascade_dependents = AsyncMock()
 
-        with patch("api.compute._auto_create_and_merge_pr", new_callable=AsyncMock):
+        mock_auto_merge = AsyncMock()
+        with patch("api.compute._auto_create_and_merge_pr", mock_auto_merge):
             await _handle_conflict_resolution_completed(event, mock_work_map)
 
-        mock_work_map.cascade_dependents.assert_awaited_once_with("work_abc123")
+        # _auto_create_and_merge_pr is called; it internally calls finalize_work()
+        # which handles cascade_dependents (no longer called directly).
+        mock_auto_merge.assert_awaited_once_with(work, "feat/my-branch", "compute-001")
 
     @pytest.mark.asyncio
     async def test_handle_work_status_routes_conflict_tasks(self):

@@ -496,7 +496,9 @@ class TestProcessPendingWorkWithBucketTree:
             mock_work_map = MagicMock()
             mock_work_map.list_work = AsyncMock(return_value=MagicMock(items=[work1]))
             mock_work_map.get_ready_queue = AsyncMock(return_value=[])
+            mock_work_map.get_failed_work = AsyncMock(return_value=[])
             mock_work_map.get_dependencies_bulk = AsyncMock(return_value={"work-1": True})
+            mock_work_map.get_issue = AsyncMock(return_value=None)
             mock_get_wms.return_value = mock_work_map
 
             with patch.object(orchestrator, "_order_by_bucket_tree", new_callable=AsyncMock) as mock_order, \
@@ -521,7 +523,9 @@ class TestProcessPendingWorkWithBucketTree:
             mock_work_map = MagicMock()
             mock_work_map.list_work = AsyncMock(return_value=MagicMock(items=[work1]))
             mock_work_map.get_ready_queue = AsyncMock(return_value=[])
+            mock_work_map.get_failed_work = AsyncMock(return_value=[])
             mock_work_map.get_dependencies_bulk = AsyncMock(return_value={"work-1": True})
+            mock_work_map.get_issue = AsyncMock(return_value=None)
             mock_get_wms.return_value = mock_work_map
 
             with patch.object(orchestrator, "_order_by_bucket_tree", new_callable=AsyncMock) as mock_order, \
@@ -543,7 +547,9 @@ class TestProcessPendingWorkWithBucketTree:
             mock_work_map = MagicMock()
             mock_work_map.list_work = AsyncMock(return_value=MagicMock(items=[work1]))
             mock_work_map.get_ready_queue = AsyncMock(return_value=[])
+            mock_work_map.get_failed_work = AsyncMock(return_value=[])
             mock_work_map.get_dependencies_bulk = AsyncMock(return_value={"work-1": True})
+            mock_work_map.get_issue = AsyncMock(return_value=None)
             mock_get_wms.return_value = mock_work_map
 
             with patch.object(orchestrator, "_order_by_bucket_tree", new_callable=AsyncMock) as mock_order, \

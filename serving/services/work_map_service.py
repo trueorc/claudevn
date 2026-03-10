@@ -1088,15 +1088,15 @@ class WorkMapService:
         compute_id: Optional[str] = None,
         trigger_cascade: bool = True
     ) -> Optional[WorkItem]:
-        """Mark work as completed with result.
+        """Mark work as implemented (code done, pending merge).
 
-        After completing the work item, if it has a parent issue_id,
-        auto-complete the parent Issue which triggers the dependency
-        cascade (unblocking dependent Issues from backlog → ready).
+        Sets WorkStatus.IMPLEMENTED and IssueStatus.IMPLEMENTED.
+        The work transitions to COMPLETED only after the branch is
+        merged to main via finalize_work().
 
-        Set trigger_cascade=False to suppress the dependency cascade,
-        allowing the caller to merge PRs before triggering it via
-        cascade_dependents().
+        The trigger_cascade parameter is preserved for API compatibility
+        but cascade never triggers at this stage — it triggers in
+        finalize_work() after merge.
         """
         work = await self._assignment_service.complete_work(
             work_id, result, compute_id, save_callback=self._save_to_redis
@@ -1105,7 +1105,45 @@ class WorkMapService:
             return None
 
         if work.issue_id:
-            await self._complete_parent_issue(work, trigger_cascade=trigger_cascade)
+            await self._complete_parent_issue(work, trigger_cascade=False)
+
+        return work
+
+    async def finalize_work(self, work_id: str) -> Optional[WorkItem]:
+        """Finalize work after branch merge to main.
+
+        Transitions WorkStatus.IMPLEMENTED → COMPLETED and
+        IssueStatus.IMPLEMENTED → DONE, then triggers dependency cascade.
+
+        Called by the auto-merge flow after successful merge.
+        """
+        work = self._work_items.get(work_id)
+        if not work:
+            return None
+
+        if work.status != WorkStatus.IMPLEMENTED:
+            logger.warning(
+                f"Cannot finalize work {work_id}: status is {work.status.value}, "
+                f"expected implemented"
+            )
+            return None
+
+        # Transition work to COMPLETED
+        await self._assignment_service.update_status(
+            work_id, WorkStatus.COMPLETED, save_callback=self._save_to_redis
+        )
+
+        # Check if this unblocks other work items
+        await self._assignment_service._check_unblock_dependents(work_id, self._save_to_redis)
+
+        # Finalize parent issue (IMPLEMENTED → DONE + cascade)
+        if work.issue_id:
+            await self._issue_service.finalize_issue(
+                work.issue_id, work.assigned_to, trigger_cascade=True
+            )
+            logger.info(
+                f"Finalized work {work_id} and issue {work.issue_id} after merge"
+            )
 
         return work
 
@@ -1131,20 +1169,18 @@ class WorkMapService:
 
         return await self._issue_service._check_unblock_issue_dependents(work.issue_id)
 
-    async def _complete_parent_issue(self, work: WorkItem, trigger_cascade: bool = True) -> None:
-        """Complete the parent Issue when its WorkItem finishes.
+    async def _complete_parent_issue(self, work: WorkItem, trigger_cascade: bool = False) -> None:
+        """Set the parent Issue to IMPLEMENTED when its WorkItem finishes.
 
-        Marks the parent Issue as DONE with the work result. When
-        trigger_cascade=True (default), also triggers
-        _check_unblock_issue_dependents to cascade and move dependent
-        Issues from backlog → ready.
+        Marks the parent Issue as IMPLEMENTED (code done, pending merge).
+        The issue transitions to DONE only after merge via finalize_work().
         """
         issue = await self._issue_service.get_issue(work.issue_id)
         if not issue:
             logger.warning(f"Parent issue {work.issue_id} not found for work {work.work_id}")
             return
 
-        if issue.status == IssueStatus.DONE:
+        if issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
             return
 
         issue_result = IssueResult(
@@ -1152,13 +1188,13 @@ class WorkMapService:
             branch=work.branch_name,
         )
 
-        completed = await self._issue_service.complete_issue(
-            work.issue_id, issue_result, work.assigned_to, trigger_cascade=trigger_cascade
+        implemented = await self._issue_service.complete_issue(
+            work.issue_id, issue_result, work.assigned_to, trigger_cascade=False
         )
-        if completed:
+        if implemented:
             logger.info(
-                f"Auto-completed issue {work.issue_id} from work {work.work_id} "
-                f"(cascade will unblock dependents)"
+                f"Issue {work.issue_id} marked as implemented from work {work.work_id} "
+                f"(pending merge to main)"
             )
 
     # ============ Blocker Operations (delegated to AssignmentService) ============

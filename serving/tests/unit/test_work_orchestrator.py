@@ -391,6 +391,8 @@ class TestOrchestratorStaleWorkDetection:
         mock_stale.work_id = "work_orphan"
         mock_stale.assigned_to = "compute-001"
         mock_stale.assigned_at = "2026-01-01T00:00:00Z"
+        mock_stale.issue_id = None
+        mock_stale.context = None
 
         with patch("services.work_map_service.get_work_map_service") as mock_get_service:
             mock_service = MagicMock()
@@ -512,6 +514,7 @@ class TestOrchestratorSSEWorkAssignment:
     async def test_spawn_for_work_uses_sse_first(self, orchestrator, mock_work):
         """Test that _spawn_for_work tries SSE assignment first."""
         with patch.object(orchestrator, "_select_skills_for_work", return_value=["code-writer"]) as mock_select, \
+             patch.object(orchestrator, "_resolve_model_for_skills", new_callable=AsyncMock, return_value=None), \
              patch.object(orchestrator, "_try_assign_via_sse", new_callable=AsyncMock) as mock_sse, \
              patch.object(orchestrator, "_spawn_new_compute", new_callable=AsyncMock) as mock_spawn:
 
@@ -527,6 +530,7 @@ class TestOrchestratorSSEWorkAssignment:
     async def test_spawn_for_work_falls_back_to_spawning(self, orchestrator, mock_work):
         """Test that _spawn_for_work falls back to direct spawning."""
         with patch.object(orchestrator, "_select_skills_for_work", return_value=["code-writer"]) as mock_select, \
+             patch.object(orchestrator, "_resolve_model_for_skills", new_callable=AsyncMock, return_value=None), \
              patch.object(orchestrator, "_try_assign_via_sse", new_callable=AsyncMock) as mock_sse, \
              patch.object(orchestrator, "_spawn_new_compute", new_callable=AsyncMock) as mock_spawn:
 
@@ -841,6 +845,8 @@ class TestOrchestratorBatchDependencyCheck:
         work1.skill_ids = ["code-writer"]
         work1.required_skills = []
         work1.work_type = "feature"
+        work1.issue_id = None
+        work1.context = None
 
         work2 = MagicMock()
         work2.work_id = "work-2"
@@ -849,6 +855,8 @@ class TestOrchestratorBatchDependencyCheck:
         work2.skill_ids = ["debugger"]
         work2.required_skills = []
         work2.work_type = "bug"
+        work2.issue_id = None
+        work2.context = None
 
         with patch("services.work_map_service.get_work_map_service") as mock_get_wms:
             mock_work_map = MagicMock()
@@ -856,6 +864,7 @@ class TestOrchestratorBatchDependencyCheck:
                 items=[work1, work2]
             ))
             mock_work_map.get_ready_queue = AsyncMock(return_value=[])
+            mock_work_map.get_failed_work = AsyncMock(return_value=[])
             # Batch dependency check
             mock_work_map.get_dependencies_bulk = AsyncMock(return_value={
                 "work-1": True,
@@ -1457,6 +1466,8 @@ class TestSpawnFailureSingleIncrement:
         mock_work.priority = WorkPriority.NORMAL
         mock_work.created_at = datetime.now()
         mock_work.project_id = "project-1"
+        mock_work.issue_id = None
+        mock_work.context = None
 
         with patch("services.work_map_service.get_work_map_service") as mock_get_wms:
             mock_work_map = MagicMock()
@@ -1528,6 +1539,8 @@ class TestRetryFailedWork:
         failed_item.work_id = "work_failed1"
         failed_item.retry_count = 0
         failed_item.status = WorkStatus.FAILED
+        failed_item.issue_id = None
+        failed_item.context = None
 
         updated_item = MagicMock()
         updated_item.work_id = "work_failed1"
@@ -1593,6 +1606,8 @@ class TestRetryFailedWork:
         failed_item.work_id = "work_delay"
         failed_item.retry_count = 0
         failed_item.status = WorkStatus.FAILED
+        failed_item.issue_id = None
+        failed_item.context = None
 
         updated_item = MagicMock()
         updated_item.work_id = "work_delay"
@@ -1671,6 +1686,8 @@ class TestRetryFailedWork:
         failed_item.work_id = work_id
         failed_item.retry_count = 0
         failed_item.status = WorkStatus.FAILED
+        failed_item.issue_id = None
+        failed_item.context = None
 
         updated_item = MagicMock()
         updated_item.work_id = work_id
@@ -1697,6 +1714,8 @@ class TestRetryFailedWork:
         pending_item.created_at = datetime.now()
         pending_item.skill_ids = ["code-writer"]
         pending_item.required_skills = []
+        pending_item.issue_id = None
+        pending_item.context = None
         pending_item.work_type = "feature"
 
         with patch("services.work_map_service.get_work_map_service") as mock_get_wms:
@@ -1733,11 +1752,15 @@ class TestRetryFailedWork:
         failed1.work_id = "work_f1"
         failed1.retry_count = 0
         failed1.status = WorkStatus.FAILED
+        failed1.issue_id = None
+        failed1.context = None
 
         failed2 = MagicMock()
         failed2.work_id = "work_f2"
         failed2.retry_count = 1
         failed2.status = WorkStatus.FAILED
+        failed2.issue_id = None
+        failed2.context = None
 
         updated1 = MagicMock()
         updated1.work_id = "work_f1"
@@ -2009,6 +2032,8 @@ class TestFailedNodeRotation:
         mock_work.required_skills = []
         mock_work.work_type = "feature"
         mock_work.project_id = "project-1"
+        mock_work.issue_id = None
+        mock_work.context = None
 
         # Mock multiple compute instances so exclusion logic activates
         mock_sse_manager = MagicMock()
@@ -2018,6 +2043,7 @@ class TestFailedNodeRotation:
         ]
 
         with patch.object(orchestrator, "_select_skills_for_work", return_value=["code-writer"]), \
+             patch.object(orchestrator, "_resolve_model_for_skills", new_callable=AsyncMock, return_value=None), \
              patch.object(orchestrator, "_try_assign_via_sse", new_callable=AsyncMock, return_value=True) as mock_sse, \
              patch("services.sse_connection_manager.get_sse_connection_manager", return_value=mock_sse_manager):
             await orchestrator._spawn_for_work(mock_work)
@@ -2040,6 +2066,8 @@ class TestFailedNodeRotation:
         mock_work.required_skills = []
         mock_work.work_type = "feature"
         mock_work.project_id = "project-1"
+        mock_work.issue_id = None
+        mock_work.context = None
 
         # Mock single compute instance - exclusion should be skipped
         mock_sse_manager = MagicMock()
@@ -2048,6 +2076,7 @@ class TestFailedNodeRotation:
         ]
 
         with patch.object(orchestrator, "_select_skills_for_work", return_value=["code-writer"]), \
+             patch.object(orchestrator, "_resolve_model_for_skills", new_callable=AsyncMock, return_value=None), \
              patch.object(orchestrator, "_try_assign_via_sse", new_callable=AsyncMock, return_value=True) as mock_sse, \
              patch("services.sse_connection_manager.get_sse_connection_manager", return_value=mock_sse_manager):
             await orchestrator._spawn_for_work(mock_work)
@@ -2070,6 +2099,8 @@ class TestFailedNodeRotation:
         failed_item1.retry_count = 0
         failed_item1.status = WorkStatus.FAILED
         failed_item1.assigned_to = "compute-001"
+        failed_item1.issue_id = None
+        failed_item1.context = None
 
         updated1 = MagicMock()
         updated1.work_id = work_id
@@ -2095,6 +2126,8 @@ class TestFailedNodeRotation:
         failed_item2.retry_count = 1
         failed_item2.status = WorkStatus.FAILED
         failed_item2.assigned_to = "compute-002"
+        failed_item2.issue_id = None
+        failed_item2.context = None
 
         updated2 = MagicMock()
         updated2.work_id = work_id
@@ -2128,6 +2161,8 @@ class TestFailedNodeRotation:
         failed_item.retry_count = 2
         failed_item.status = WorkStatus.FAILED
         failed_item.assigned_to = "compute-003"
+        failed_item.issue_id = None
+        failed_item.context = None
 
         # Retries exhausted — stays FAILED
         still_failed = MagicMock()
@@ -2267,11 +2302,14 @@ class TestCharacterizationGate:
         work.required_skills = []
         work.work_type = "feature"
         work.tags = []
+        work.issue_id = None
+        work.context = None
 
         with patch("services.work_map_service.get_work_map_service") as mock_get_wms:
             mock_work_map = MagicMock()
             mock_work_map.list_work = AsyncMock(return_value=MagicMock(items=[work]))
             mock_work_map.get_ready_queue = AsyncMock(return_value=[])
+            mock_work_map.get_failed_work = AsyncMock(return_value=[])
             mock_work_map.get_dependencies_bulk = AsyncMock(return_value={"work-1": True})
             mock_get_wms.return_value = mock_work_map
 
@@ -2300,6 +2338,8 @@ class TestCharacterizationGate:
         work_gated.skill_ids = []
         work_gated.required_skills = []
         work_gated.work_type = "feature"
+        work_gated.issue_id = None
+        work_gated.context = None
 
         work_ready = MagicMock()
         work_ready.work_id = "work-ready"
@@ -2310,6 +2350,8 @@ class TestCharacterizationGate:
         work_ready.required_skills = []
         work_ready.work_type = "feature"
         work_ready.tags = []
+        work_ready.issue_id = None
+        work_ready.context = None
 
         with patch("services.work_map_service.get_work_map_service") as mock_get_wms:
             mock_work_map = MagicMock()
@@ -2317,6 +2359,7 @@ class TestCharacterizationGate:
                 return_value=MagicMock(items=[work_gated, work_ready])
             )
             mock_work_map.get_ready_queue = AsyncMock(return_value=[])
+            mock_work_map.get_failed_work = AsyncMock(return_value=[])
             mock_work_map.get_dependencies_bulk = AsyncMock(return_value={
                 "work-gated": True,
                 "work-ready": True,

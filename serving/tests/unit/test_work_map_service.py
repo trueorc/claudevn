@@ -301,10 +301,11 @@ class TestWorkMapServiceAssignment:
         )
         work = await service.create_work(request)
 
-        # Complete dependency
+        # Complete dependency and finalize (merge → COMPLETED)
         await service.assign_work(dep_work.work_id, "compute-001", [])
         await service.update_status(dep_work.work_id, WorkStatus.IN_PROGRESS, "compute-001")
         await service.complete_work(dep_work.work_id, {"done": True}, "compute-001")
+        await service.finalize_work(dep_work.work_id)
 
         # Now should be able to assign
         assignment = await service.assign_work(
@@ -421,7 +422,12 @@ class TestWorkMapServiceStatus:
         assert result.status == WorkStatus.IN_PROGRESS
         assert result.started_at is not None
 
-        # IN_PROGRESS -> COMPLETED
+        # IN_PROGRESS -> IMPLEMENTED (code done, pending merge)
+        result = await service.update_status(work.work_id, WorkStatus.IMPLEMENTED, "compute-001")
+        assert result is not None
+        assert result.status == WorkStatus.IMPLEMENTED
+
+        # IMPLEMENTED -> COMPLETED (after merge — sets completed_at)
         result = await service.update_status(work.work_id, WorkStatus.COMPLETED, "compute-001")
         assert result is not None
         assert result.status == WorkStatus.COMPLETED
@@ -464,7 +470,7 @@ class TestWorkMapServiceStatus:
         )
 
         assert result is not None
-        assert result.status == WorkStatus.COMPLETED
+        assert result.status == WorkStatus.IMPLEMENTED
         assert result.result == {"output": "success", "data": [1, 2, 3]}
         assert result.progress_percent == 100
 
@@ -773,10 +779,11 @@ class TestWorkMapServiceDependencies:
         deps = await service.get_dependencies(work.work_id)
         assert deps["all_dependencies_met"] is False
 
-        # Complete dependency
+        # Complete dependency and finalize (merge → COMPLETED)
         await service.assign_work(dep_work.work_id, "compute-001", [])
         await service.update_status(dep_work.work_id, WorkStatus.IN_PROGRESS, "compute-001")
         await service.complete_work(dep_work.work_id, {}, "compute-001")
+        await service.finalize_work(dep_work.work_id)
 
         # Now should be met
         deps = await service.get_dependencies(work.work_id)
