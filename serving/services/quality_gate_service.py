@@ -444,59 +444,54 @@ class QualityGateService:
     async def _run_config_completeness_check(
         self, work_dir: Path, changed_files: List[str]
     ) -> GateResult:
-        """Check that new env var/config references have template entries."""
+        """Check that new env var and config references have template entries.
+
+        Scans Python and JS/TS files for:
+        - ``os.getenv("VAR")``, ``os.environ["VAR"]``, ``os.environ.get("VAR")``
+        - ``process.env.VAR``
+
+        Cross-references against:
+        - ``.env.example``, ``.env.template``
+        - Pydantic ``Field(default=...)`` entries in ``config.py``
+
+        Reports each missing reference with file location and suggested action.
+        """
         import re
         import time
         start = time.monotonic()
 
-        # Scan changed Python files for os.getenv / os.environ references
-        new_env_refs: List[str] = []
-        env_pattern = re.compile(r'os\.(?:getenv|environ(?:\.get)?)\s*\(\s*["\'](\w+)["\']')
+        refs = _scan_env_references(work_dir, changed_files)
 
-        py_files = [f for f in changed_files if f.endswith(".py")]
-        for py_file in py_files:
-            file_path = work_dir / py_file
-            if not file_path.exists():
-                continue
-            content = file_path.read_text(errors="replace")
-            matches = env_pattern.findall(content)
-            new_env_refs.extend(matches)
-
-        if not new_env_refs:
+        if not refs:
             elapsed = int((time.monotonic() - start) * 1000)
             return GateResult(
                 gate="config_completeness",
                 status=GateStatus.SKIPPED,
-                message="No new environment variable references found",
+                message="No environment variable references found in changed files",
                 duration_ms=elapsed,
             )
 
-        # Check .env.example or similar template files
-        template_files = [".env.example", ".env.template", "env.example"]
-        template_vars: set = set()
-        for tf in template_files:
-            tp = work_dir / tf
-            if tp.exists():
-                for line in tp.read_text().split("\n"):
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        template_vars.add(line.split("=", 1)[0].strip())
-
-        missing = [v for v in set(new_env_refs) if v not in template_vars]
+        known_vars = _collect_known_config_vars(work_dir)
+        missing = [(var, source) for var, source in refs if var not in known_vars]
         elapsed = int((time.monotonic() - start) * 1000)
 
         if missing:
+            details = [
+                f"{var} referenced in {source} — add to .env.example or config"
+                for var, source in sorted(set(missing))
+            ]
             return GateResult(
                 gate="config_completeness",
                 status=GateStatus.FAILED,
-                message=f"{len(missing)} env var(s) missing from templates",
-                details=[f"{v} not found in .env.example" for v in sorted(missing)],
+                message=f"{len(set(v for v, _ in missing))} env var(s) missing from config templates",
+                details=details,
                 duration_ms=elapsed,
             )
+        unique_vars = len(set(v for v, _ in refs))
         return GateResult(
             gate="config_completeness",
             status=GateStatus.PASSED,
-            message=f"All {len(new_env_refs)} env var references have template entries",
+            message=f"All {unique_vars} env var reference(s) have config entries",
             duration_ms=elapsed,
         )
 
@@ -558,6 +553,89 @@ def _extract_top_level_modules(py_files: List[str]) -> List[str]:
             continue
         modules.add(top)
     return sorted(modules)
+
+
+def _scan_env_references(
+    work_dir: Path, changed_files: List[str]
+) -> List[tuple]:
+    """Scan changed files for environment variable references.
+
+    Returns list of (var_name, source_file) tuples.
+    """
+    import re
+
+    # Python patterns
+    py_patterns = [
+        re.compile(r'os\.getenv\s*\(\s*["\'](\w+)["\']'),
+        re.compile(r'os\.environ\s*\[\s*["\'](\w+)["\']'),
+        re.compile(r'os\.environ\.get\s*\(\s*["\'](\w+)["\']'),
+    ]
+    # JS/TS pattern
+    js_pattern = re.compile(r'process\.env\.(\w+)')
+
+    refs: List[tuple] = []
+    for f in changed_files:
+        file_path = work_dir / f
+        if not file_path.exists():
+            continue
+        content = file_path.read_text(errors="replace")
+
+        if f.endswith(".py"):
+            for pattern in py_patterns:
+                for match in pattern.findall(content):
+                    refs.append((match, f))
+        elif f.endswith((".js", ".jsx", ".ts", ".tsx")):
+            for match in js_pattern.findall(content):
+                # Skip common built-ins
+                if match not in ("NODE_ENV", "HOME", "PATH", "PWD"):
+                    refs.append((match, f))
+
+    return refs
+
+
+def _collect_known_config_vars(work_dir: Path) -> set:
+    """Collect all known config variable names from templates and config files.
+
+    Sources:
+    - ``.env.example``, ``.env.template``, ``env.example``
+    - ``config.py`` Field defaults (Pydantic models)
+    """
+    import re
+
+    known: set = set()
+
+    # .env template files
+    for tf in [".env.example", ".env.template", "env.example"]:
+        tp = work_dir / tf
+        if tp.exists():
+            for line in tp.read_text(errors="replace").split("\n"):
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    known.add(line.split("=", 1)[0].strip())
+
+    # config.py — extract Field descriptions or env var names from Pydantic models
+    config_file = work_dir / "config.py"
+    if config_file.exists():
+        content = config_file.read_text(errors="replace")
+        # Match Pydantic field definitions: "    field_name: type = Field("
+        # The field name is indented and followed by a colon+type+Field
+        field_pattern = re.compile(r'^\s+(\w+)\s*:', re.MULTILINE)
+        for match in field_pattern.findall(content):
+            # Skip type annotations and class names
+            if match[0].isupper() or match in ("class", "def", "return"):
+                continue
+            known.add(match.upper())
+            known.add(match)
+
+    # Also check for os.environ.setdefault or os.environ references in config.py
+    # that define defaults
+    if config_file.exists():
+        content = config_file.read_text(errors="replace")
+        env_pattern = re.compile(r'os\.(?:getenv|environ\.get)\s*\(\s*["\'](\w+)["\']')
+        for match in env_pattern.findall(content):
+            known.add(match)
+
+    return known
 
 
 def _detect_startup_command(work_dir: Path, custom_command: Optional[str] = None) -> List[str]:

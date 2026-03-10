@@ -16,6 +16,7 @@ from services.quality_gate_service import (
     GateStatus,
     QualityGateService,
     ValidationResult,
+    _collect_known_config_vars,
     _detect_startup_command,
     _detect_test_command,
     _extract_top_level_modules,
@@ -23,6 +24,7 @@ from services.quality_gate_service import (
     _parse_import_error,
     _parse_test_summary,
     _poll_health,
+    _scan_env_references,
 )
 
 
@@ -505,68 +507,127 @@ class TestStartupSmokeTest:
         assert "failed health check" in result.message
 
 
+class TestScanEnvReferences:
+    def test_python_getenv(self):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value='x = os.getenv("DB_URL")'),
+        ):
+            refs = _scan_env_references(Path("/tmp"), ["app.py"])
+        assert ("DB_URL", "app.py") in refs
+
+    def test_python_environ_bracket(self):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value='x = os.environ["API_KEY"]'),
+        ):
+            refs = _scan_env_references(Path("/tmp"), ["app.py"])
+        assert ("API_KEY", "app.py") in refs
+
+    def test_js_process_env(self):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value="const url = process.env.API_URL;"),
+        ):
+            refs = _scan_env_references(Path("/tmp"), ["app.js"])
+        assert ("API_URL", "app.js") in refs
+
+    def test_js_builtin_skipped(self):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value="const env = process.env.NODE_ENV;"),
+        ):
+            refs = _scan_env_references(Path("/tmp"), ["app.js"])
+        assert len(refs) == 0
+
+    def test_no_refs(self):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value="x = 1"),
+        ):
+            refs = _scan_env_references(Path("/tmp"), ["app.py"])
+        assert refs == []
+
+
+class TestCollectKnownConfigVars:
+    def test_env_template(self):
+        def mock_exists(self_path):
+            return ".env.example" in str(self_path)
+
+        with (
+            patch.object(Path, "exists", mock_exists),
+            patch.object(Path, "read_text", return_value="DB_URL=postgres://\nAPI_KEY=secret\n"),
+        ):
+            known = _collect_known_config_vars(Path("/tmp"))
+        assert "DB_URL" in known
+        assert "API_KEY" in known
+
+    def test_config_py_fields(self):
+        config_content = '''
+class MyConfig(BaseModel):
+    host: str = Field(default="0.0.0.0")
+    port: int = Field(default=8002)
+'''
+
+        def mock_exists(self_path):
+            return "config.py" in str(self_path)
+
+        with (
+            patch.object(Path, "exists", mock_exists),
+            patch.object(Path, "read_text", return_value=config_content),
+        ):
+            known = _collect_known_config_vars(Path("/tmp"))
+        assert "HOST" in known
+        assert "PORT" in known
+
+
 class TestConfigCompletenessCheck:
     @pytest.mark.asyncio
     async def test_no_env_refs_skipped(self, service):
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "read_text", return_value="x = 1"):
-                result = await service._run_config_completeness_check(
-                    Path("/tmp/work"), ["app.py"]
-                )
+        with patch("services.quality_gate_service._scan_env_references", return_value=[]):
+            result = await service._run_config_completeness_check(
+                Path("/tmp/work"), ["app.py"]
+            )
         assert result.status == GateStatus.SKIPPED
 
     @pytest.mark.asyncio
     async def test_missing_env_var_fails(self, service):
-        py_content = 'db_url = os.getenv("DATABASE_URL")'
-        env_content = "# empty template\n"
-
-        def mock_exists(self_path):
-            return True
-
-        def mock_read_text(self_path, **kwargs):
-            name = str(self_path)
-            if name.endswith(".py"):
-                return py_content
-            return env_content
-
         with (
-            patch.object(Path, "exists", mock_exists),
-            patch.object(Path, "read_text", mock_read_text),
+            patch("services.quality_gate_service._scan_env_references",
+                  return_value=[("DATABASE_URL", "app.py")]),
+            patch("services.quality_gate_service._collect_known_config_vars",
+                  return_value=set()),
         ):
             result = await service._run_config_completeness_check(
                 Path("/tmp/work"), ["app.py"]
             )
-
         assert result.status == GateStatus.FAILED
         assert "DATABASE_URL" in str(result.details)
+        assert "add to .env.example" in str(result.details)
 
     @pytest.mark.asyncio
     async def test_present_env_var_passes(self, service):
-        py_content = 'db_url = os.getenv("DATABASE_URL")'
-        env_content = "DATABASE_URL=postgres://localhost/db\n"
-
-        def mock_exists(self_path):
-            return True
-
-        def mock_read_text(self_path, **kwargs):
-            name = str(self_path)
-            if name.endswith(".py"):
-                return py_content
-            return env_content
-
         with (
-            patch.object(Path, "exists", mock_exists),
-            patch.object(Path, "read_text", mock_read_text),
+            patch("services.quality_gate_service._scan_env_references",
+                  return_value=[("DATABASE_URL", "app.py")]),
+            patch("services.quality_gate_service._collect_known_config_vars",
+                  return_value={"DATABASE_URL"}),
         ):
             result = await service._run_config_completeness_check(
                 Path("/tmp/work"), ["app.py"]
             )
-
         assert result.status == GateStatus.PASSED
 
     @pytest.mark.asyncio
-    async def test_no_python_files_skipped(self, service):
-        result = await service._run_config_completeness_check(
-            Path("/tmp/work"), ["readme.md"]
-        )
-        assert result.status == GateStatus.SKIPPED
+    async def test_js_env_var_missing(self, service):
+        with (
+            patch("services.quality_gate_service._scan_env_references",
+                  return_value=[("REACT_APP_API", "src/config.js")]),
+            patch("services.quality_gate_service._collect_known_config_vars",
+                  return_value=set()),
+        ):
+            result = await service._run_config_completeness_check(
+                Path("/tmp/work"), ["src/config.js"]
+            )
+        assert result.status == GateStatus.FAILED
+        assert "REACT_APP_API" in str(result.details)
