@@ -16,11 +16,13 @@ from services.quality_gate_service import (
     GateStatus,
     QualityGateService,
     ValidationResult,
+    _detect_startup_command,
     _detect_test_command,
     _extract_top_level_modules,
     _parse_compile_error,
     _parse_import_error,
     _parse_test_summary,
+    _poll_health,
 )
 
 
@@ -398,28 +400,109 @@ class TestTestGate:
         assert "timed out" in result.message
 
 
+class TestDetectStartupCommand:
+    def test_custom_command(self):
+        cmd = _detect_startup_command(Path("/tmp"), custom_command="uvicorn app:app --port 9000")
+        assert cmd == ["uvicorn", "app:app", "--port", "9000"]
+
+    def test_app_py_detected(self):
+        with patch.object(Path, "exists", return_value=True):
+            cmd = _detect_startup_command(Path("/tmp"))
+        assert cmd == ["python", "app.py"]
+
+    def test_npm_start(self):
+        def mock_exists(self_path):
+            return "package.json" in str(self_path)
+
+        with patch.object(Path, "exists", mock_exists):
+            with patch.object(Path, "read_text", return_value='{"scripts":{"start":"node server.js"}}'):
+                cmd = _detect_startup_command(Path("/tmp"))
+        assert cmd == ["npm", "start"]
+
+    def test_fallback(self):
+        with patch.object(Path, "exists", return_value=False):
+            cmd = _detect_startup_command(Path("/tmp"))
+        assert "import app" in " ".join(cmd)
+
+
 class TestStartupSmokeTest:
+    @pytest.fixture
+    def gate_config(self):
+        config = MagicMock()
+        config.startup_command = None
+        config.startup_health_url = None
+        config.startup_timeout_seconds = 5
+        return config
+
     @pytest.mark.asyncio
-    async def test_import_succeeds(self, service):
+    async def test_app_starts_cleanly(self, service, gate_config):
         mock_result = MagicMock()
         mock_result.returncode = 0
 
         with patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_result):
-            result = await service._run_startup_smoke_test(Path("/tmp/work"), timeout=30)
+            with patch("services.quality_gate_service._detect_startup_command", return_value=["python", "app.py"]):
+                result = await service._run_startup_smoke_test(Path("/tmp/work"), gate_config)
 
         assert result.status == GateStatus.PASSED
 
     @pytest.mark.asyncio
-    async def test_import_fails(self, service):
+    async def test_app_crashes_on_start(self, service, gate_config):
         mock_result = MagicMock()
         mock_result.returncode = 1
         mock_result.stderr = "ImportError: No module named 'missing'"
 
         with patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_result):
-            result = await service._run_startup_smoke_test(Path("/tmp/work"), timeout=30)
+            with patch("services.quality_gate_service._detect_startup_command", return_value=["python", "app.py"]):
+                result = await service._run_startup_smoke_test(Path("/tmp/work"), gate_config)
 
         assert result.status == GateStatus.FAILED
-        assert "failed to import" in result.message
+        assert "exited with code 1" in result.message
+
+    @pytest.mark.asyncio
+    async def test_app_timeout_means_stable(self, service, gate_config):
+        """If the app runs for the full timeout without crashing, that's a pass."""
+        with patch(
+            "services.quality_gate_service.asyncio.to_thread",
+            side_effect=subprocess.TimeoutExpired(cmd="python", timeout=5),
+        ):
+            with patch("services.quality_gate_service._detect_startup_command", return_value=["python", "app.py"]):
+                result = await service._run_startup_smoke_test(Path("/tmp/work"), gate_config)
+
+        assert result.status == GateStatus.PASSED
+        assert "stayed alive" in result.message
+
+    @pytest.mark.asyncio
+    async def test_health_check_passes(self, service, gate_config):
+        gate_config.startup_health_url = "http://localhost:8002/health"
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+
+        with (
+            patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_proc),
+            patch("services.quality_gate_service._poll_health", return_value=True),
+            patch("services.quality_gate_service._detect_startup_command", return_value=["python", "app.py"]),
+        ):
+            result = await service._run_startup_smoke_test(Path("/tmp/work"), gate_config)
+
+        assert result.status == GateStatus.PASSED
+        assert "health check passed" in result.message
+
+    @pytest.mark.asyncio
+    async def test_health_check_fails(self, service, gate_config):
+        gate_config.startup_health_url = "http://localhost:8002/health"
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.stderr.read.return_value = b"Connection refused\n"
+
+        with (
+            patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_proc),
+            patch("services.quality_gate_service._poll_health", return_value=False),
+            patch("services.quality_gate_service._detect_startup_command", return_value=["python", "app.py"]),
+        ):
+            result = await service._run_startup_smoke_test(Path("/tmp/work"), gate_config)
+
+        assert result.status == GateStatus.FAILED
+        assert "failed health check" in result.message
 
 
 class TestConfigCompletenessCheck:

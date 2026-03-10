@@ -152,7 +152,7 @@ class QualityGateService:
                 gates.append(result)
 
             if gate_config.startup_smoke_test:
-                result = await self._run_startup_smoke_test(work_dir, gate_config.timeout_seconds)
+                result = await self._run_startup_smoke_test(work_dir, gate_config)
                 gates.append(result)
 
             if gate_config.config_completeness:
@@ -330,44 +330,99 @@ class QualityGateService:
                 duration_ms=elapsed,
             )
 
-    async def _run_startup_smoke_test(self, work_dir: Path, timeout: int) -> GateResult:
-        """Attempt to import the main application module."""
+    async def _run_startup_smoke_test(self, work_dir: Path, gate_config) -> GateResult:
+        """Start the application and verify it boots without errors.
+
+        Two strategies:
+        1. If a health URL is configured, start the app as a background
+           process and poll the URL until it responds 200 or times out.
+        2. Otherwise, run the startup command (or auto-detected command)
+           and check that it exits cleanly within the timeout.
+
+        The process is always terminated after the check.
+        """
+        import signal
         import time
+        import urllib.request
+        import urllib.error
         start = time.monotonic()
+        timeout = gate_config.startup_timeout_seconds
 
-        # Try to import the app module to verify no import errors
+        cmd = _detect_startup_command(work_dir, gate_config.startup_command)
+        health_url = gate_config.startup_health_url
+        process = None
+
         try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                ["python", "-c", "import app"],
-                capture_output=True, text=True,
-                cwd=str(work_dir),
-                timeout=min(timeout, 30),
-            )
-            elapsed = int((time.monotonic() - start) * 1000)
+            if health_url:
+                # Strategy 1: Start process, poll health endpoint
+                process = await asyncio.to_thread(
+                    lambda: subprocess.Popen(
+                        cmd, cwd=str(work_dir),
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        env=_safe_git_env(),
+                    )
+                )
+                healthy = await _poll_health(health_url, timeout)
+                elapsed = int((time.monotonic() - start) * 1000)
 
-            if result.returncode != 0:
-                output_lines = result.stderr.strip().split("\n")
-                tail = output_lines[-10:] if len(output_lines) > 10 else output_lines
+                if healthy:
+                    return GateResult(
+                        gate="startup_smoke_test",
+                        status=GateStatus.PASSED,
+                        message=f"App started and health check passed ({health_url})",
+                        duration_ms=elapsed,
+                    )
+
+                # Timed out waiting for health — capture stderr
+                stderr_output = ""
+                if process.stderr:
+                    try:
+                        stderr_output = process.stderr.read().decode(errors="replace")
+                    except Exception:
+                        pass
+                tail = stderr_output.strip().split("\n")[-10:] if stderr_output else []
                 return GateResult(
                     gate="startup_smoke_test",
                     status=GateStatus.FAILED,
-                    message="Application failed to import",
+                    message=f"App failed health check within {timeout}s",
                     details=tail,
                     duration_ms=elapsed,
                 )
-            return GateResult(
-                gate="startup_smoke_test",
-                status=GateStatus.PASSED,
-                message="Application imports successfully",
-                duration_ms=elapsed,
-            )
+            else:
+                # Strategy 2: Run command and check it doesn't crash immediately
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    cmd,
+                    capture_output=True, text=True,
+                    cwd=str(work_dir),
+                    timeout=timeout,
+                    env=_safe_git_env(),
+                )
+                elapsed = int((time.monotonic() - start) * 1000)
+
+                if result.returncode != 0:
+                    output_lines = (result.stderr or "").strip().split("\n")
+                    tail = output_lines[-10:] if len(output_lines) > 10 else output_lines
+                    return GateResult(
+                        gate="startup_smoke_test",
+                        status=GateStatus.FAILED,
+                        message=f"Application exited with code {result.returncode}",
+                        details=tail,
+                        duration_ms=elapsed,
+                    )
+                return GateResult(
+                    gate="startup_smoke_test",
+                    status=GateStatus.PASSED,
+                    message="Application started and exited cleanly",
+                    duration_ms=elapsed,
+                )
         except subprocess.TimeoutExpired:
+            # For strategy 2: timeout means the app stayed alive (good!)
             elapsed = int((time.monotonic() - start) * 1000)
             return GateResult(
                 gate="startup_smoke_test",
-                status=GateStatus.ERROR,
-                message="Startup smoke test timed out",
+                status=GateStatus.PASSED,
+                message=f"Application stayed alive for {timeout}s (no crash)",
                 duration_ms=elapsed,
             )
         except Exception as e:
@@ -378,6 +433,13 @@ class QualityGateService:
                 message=f"Smoke test error: {e}",
                 duration_ms=elapsed,
             )
+        finally:
+            if process and process.poll() is None:
+                try:
+                    process.terminate()
+                    await asyncio.to_thread(process.wait, timeout=5)
+                except Exception:
+                    process.kill()
 
     async def _run_config_completeness_check(
         self, work_dir: Path, changed_files: List[str]
@@ -496,6 +558,55 @@ def _extract_top_level_modules(py_files: List[str]) -> List[str]:
             continue
         modules.add(top)
     return sorted(modules)
+
+
+def _detect_startup_command(work_dir: Path, custom_command: Optional[str] = None) -> List[str]:
+    """Detect the startup command for a project.
+
+    Priority:
+    1. Custom command from config
+    2. ``app.py`` (Python FastAPI/Flask)
+    3. ``package.json`` start script
+    4. Fallback: ``python -c "import app"``
+    """
+    if custom_command:
+        return custom_command.split()
+
+    app_py = work_dir / "app.py"
+    if app_py.exists():
+        return ["python", "app.py"]
+
+    package_json = work_dir / "package.json"
+    if package_json.exists():
+        import json
+        try:
+            pkg = json.loads(package_json.read_text())
+            if "start" in pkg.get("scripts", {}):
+                return ["npm", "start"]
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return ["python", "-c", "import app"]
+
+
+async def _poll_health(url: str, timeout: int) -> bool:
+    """Poll a health endpoint until it returns 200 or timeout expires."""
+    import time
+    import urllib.request
+    import urllib.error
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            resp = await asyncio.to_thread(
+                urllib.request.urlopen, url, timeout=2
+            )
+            if resp.status == 200:
+                return True
+        except (urllib.error.URLError, OSError, Exception):
+            pass
+        await asyncio.sleep(0.5)
+    return False
 
 
 def _detect_test_command(work_dir: Path) -> List[str]:

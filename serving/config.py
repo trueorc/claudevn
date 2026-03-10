@@ -121,6 +121,9 @@ class QualityGateConfig(BaseModel):
     syntax_check: bool = Field(default=True, description="Run syntax/import validation on changed Python files")
     test_gate: bool = Field(default=True, description="Run test suite before merge")
     startup_smoke_test: bool = Field(default=False, description="Run application startup smoke test")
+    startup_command: Optional[str] = Field(default=None, description="Custom startup command (auto-detected if None)")
+    startup_health_url: Optional[str] = Field(default=None, description="Health check URL to poll after startup (e.g. http://localhost:8002/health)")
+    startup_timeout_seconds: int = Field(default=15, description="Seconds to wait for app startup before declaring failure")
     config_completeness: bool = Field(default=False, description="Validate config completeness")
     timeout_seconds: int = Field(default=300, description="Timeout for quality gate execution")
 
