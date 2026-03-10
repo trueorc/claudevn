@@ -938,11 +938,79 @@
    Status Groups — compact inline indicators for non-chat messages
    ============================================================================= */
 
-.conv-status-group {
+/* Collapsible status box — groups consecutive status messages into one container */
+.conv-status-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.conv-status-box.expanded {
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+/* Header / toggle bar */
+.conv-status-box-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.conv-status-box-header:hover {
+  background: var(--bg-hover);
+}
+
+.conv-status-box-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.conv-status-box-label {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-status-box-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-surface, #16162a);
+  border-radius: 8px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.conv-status-box-chevron {
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: transform 0.15s ease;
+}
+
+.conv-status-box-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* Expanded body */
+.conv-status-box-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 2px 0;
+  gap: 1px;
+  padding: 0 4px 6px;
+  border-top: 1px solid var(--border);
 }
 
 /* Compact single-line status indicator */
@@ -950,17 +1018,21 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
+  padding: 4px 8px;
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1;
+  border-radius: 4px;
+}
+
+.conv-status-line:hover {
+  background: var(--bg-hover);
 }
 
 .conv-status-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 500px;
 }
 
 .conv-status-label strong {
@@ -997,13 +1069,14 @@
   color: var(--status-offline, #ef4444);
 }
 
-/* Card statuses inside groups get reduced vertical margin */
-.conv-status-group > .conv-msg {
+/* Card statuses inside the box get reduced spacing */
+.conv-status-box-body > .conv-msg {
   margin: 2px 0;
 }
 
-.conv-status-group > .conv-msg .conv-msg-bubble {
+.conv-status-box-body > .conv-msg .conv-msg-bubble {
   padding: 10px 14px;
+  border-radius: 6px;
 }
 
 /* Legacy compat — keep old system event styles for any direct usage */

@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState } from 'react'
-import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot } from 'lucide-react'
+import { useRef, useEffect, useState, useCallback } from 'react'
+import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot, ChevronDown } from 'lucide-react'
 import { MSG_TYPES } from '../../hooks/useConversation'
 import { getAvatarColor, getInitials } from '../common/UserAvatar'
 import GoalCompletionCard from './GoalCompletionCard'
@@ -512,15 +512,103 @@ function groupMessages(messages) {
   return groups
 }
 
+/**
+ * Builds a short summary label for the collapsed status group header.
+ * Shows the most recent/important status, plus a count if there are more.
+ */
+function buildGroupSummary(messages) {
+  // Pick the most "interesting" message for the summary label
+  const priority = [
+    MSG_TYPES.GOAL_PROCESSING, MSG_TYPES.GOAL_COMPLETE,
+    MSG_TYPES.DIRECTIVE_PREVIEW, MSG_TYPES.GOAL_CREATED,
+    MSG_TYPES.DIRECTIVE_APPLIED, MSG_TYPES.ATTENTION,
+    MSG_TYPES.ERROR, MSG_TYPES.THINKING,
+  ]
+
+  // Use the last message as default, but prefer higher-priority types
+  let best = messages[messages.length - 1]
+  let bestRank = priority.indexOf(best.type)
+  for (const msg of messages) {
+    const rank = priority.indexOf(msg.type)
+    if (rank !== -1 && (bestRank === -1 || rank < bestRank)) {
+      best = msg
+      bestRank = rank
+    }
+  }
+
+  const labels = {
+    [MSG_TYPES.THINKING]: 'Processing...',
+    [MSG_TYPES.GOAL_CREATED]: 'New work created',
+    [MSG_TYPES.GOAL_PROCESSING]: 'Processing work...',
+    [MSG_TYPES.GOAL_COMPLETE]: 'Work complete',
+    [MSG_TYPES.DIRECTIVE_PREVIEW]: 'Directive ready',
+    [MSG_TYPES.DIRECTIVE_APPLIED]: 'Changes applied',
+    [MSG_TYPES.DIRECTIVE_REJECTED]: 'Changes rejected',
+    [MSG_TYPES.ERROR]: 'Error',
+    [MSG_TYPES.ATTENTION]: 'Attention',
+    [MSG_TYPES.SYSTEM]: best.content?.slice(0, 40) || 'System',
+    [MSG_TYPES.PROMOTE_SUGGESTION]: 'Suggestion',
+  }
+
+  const label = labels[best.type] || 'Activity'
+  const icon = {
+    [MSG_TYPES.THINKING]: <Loader size={11} className="conv-spinner" />,
+    [MSG_TYPES.GOAL_CREATED]: <Sparkles size={11} className="conv-icon-goal" />,
+    [MSG_TYPES.GOAL_PROCESSING]: <Loader size={11} className="conv-spinner" />,
+    [MSG_TYPES.GOAL_COMPLETE]: <Check size={11} className="conv-icon-success" />,
+    [MSG_TYPES.DIRECTIVE_PREVIEW]: <Target size={11} className="conv-icon-directive" />,
+    [MSG_TYPES.DIRECTIVE_APPLIED]: <Check size={11} className="conv-icon-success" />,
+    [MSG_TYPES.DIRECTIVE_REJECTED]: <X size={11} className="conv-icon-rejected" />,
+    [MSG_TYPES.ERROR]: <AlertCircle size={11} className="conv-icon-error" />,
+    [MSG_TYPES.ATTENTION]: <AlertCircle size={11} className="conv-icon-attention" />,
+  }
+
+  return { label, icon: icon[best.type] || null, count: messages.length }
+}
+
+/**
+ * Check if a status group has any "live" content that should auto-expand
+ * (e.g. active processing stepper, pending directive needing user action).
+ */
+function hasLiveContent(messages, props) {
+  return messages.some(msg =>
+    msg.type === MSG_TYPES.GOAL_PROCESSING ||
+    msg.type === MSG_TYPES.THINKING ||
+    (msg.type === MSG_TYPES.DIRECTIVE_PREVIEW &&
+      props.pendingDirective?.directive_id === msg.directive?.directive_id)
+  )
+}
+
 function StatusGroup({ messages, props }) {
+  const live = hasLiveContent(messages, props)
+  const [expanded, setExpanded] = useState(live)
+  const toggle = useCallback(() => setExpanded(v => !v), [])
+
+  // Auto-expand when live content appears
+  useEffect(() => {
+    if (live) setExpanded(true)
+  }, [live])
+
+  const { label, icon, count } = buildGroupSummary(messages)
+
   return (
-    <div className="conv-status-group">
-      {messages.map((msg) => {
-        if (COMPACT_TYPES.has(msg.type)) {
-          return renderCompactStatus(msg)
-        }
-        return renderCardStatus(msg, props)
-      })}
+    <div className={`conv-status-box${expanded ? ' expanded' : ''}`}>
+      <button className="conv-status-box-header" onClick={toggle}>
+        <span className="conv-status-box-icon">{icon}</span>
+        <span className="conv-status-box-label">{label}</span>
+        {count > 1 && <span className="conv-status-box-count">{count}</span>}
+        <ChevronDown size={12} className={`conv-status-box-chevron${expanded ? ' open' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="conv-status-box-body">
+          {messages.map((msg) => {
+            if (COMPACT_TYPES.has(msg.type)) {
+              return renderCompactStatus(msg)
+            }
+            return renderCardStatus(msg, props)
+          })}
+        </div>
+      )}
     </div>
   )
 }
