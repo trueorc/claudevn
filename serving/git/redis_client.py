@@ -458,6 +458,39 @@ class RedisClient:
         return list(await self._redis.smembers(key))
 
     # ==========================================================================
+    # Branch Metadata Operations
+    # ==========================================================================
+
+    async def set_branch_metadata(self, project: str, branch: str, key: str, value: dict) -> None:
+        """Store metadata for a branch.
+
+        Args:
+            project: Project/repo name
+            branch: Branch name
+            key: Metadata key (e.g., 'validation_results')
+            value: Metadata value (will be JSON-serialized)
+        """
+        redis_key = f"{self._prefix}pr:{project}:{branch}:meta:{key}"
+        await self._redis.set(redis_key, json.dumps(value))
+
+    async def get_branch_metadata(self, project: str, branch: str, key: str) -> Optional[dict]:
+        """Retrieve metadata for a branch.
+
+        Args:
+            project: Project/repo name
+            branch: Branch name
+            key: Metadata key
+
+        Returns:
+            Metadata dict or None if not found
+        """
+        redis_key = f"{self._prefix}pr:{project}:{branch}:meta:{key}"
+        data = await self._redis.get(redis_key)
+        if data:
+            return json.loads(data)
+        return None
+
+    # ==========================================================================
     # Pub/Sub Operations
     # ==========================================================================
 

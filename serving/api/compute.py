@@ -1193,7 +1193,44 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
             await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
             return
 
-        # Auto-approve (work completed successfully, no conflicts)
+        # Run quality gates before auto-approve
+        from services.quality_gate_service import get_quality_gate_service
+        quality_gate = get_quality_gate_service()
+        validation = await quality_gate.validate_branch(git_project_name, branch_name)
+
+        if not validation.passed:
+            logger.warning(
+                f"Quality gates failed for {branch_name}: "
+                + ", ".join(f"{g.gate}={g.status.value}" for g in validation.gates if g.status.value != "passed")
+            )
+            # Store validation results on PR
+            await pr_service.update_status(
+                project=git_project_name,
+                branch=branch_name,
+                status=PRStatus.VALIDATION_FAILED,
+                reviewed_by="quality-gate",
+            )
+            # Store validation details in Redis
+            redis = await pr_service._get_redis()
+            await redis.set_branch_metadata(
+                git_project_name, branch_name, "validation_results", validation.to_dict()
+            )
+            # Notify compute of validation failure
+            sse_manager = pr_service._get_sse_manager()
+            await sse_manager.send_event(
+                compute_id,
+                "validation_failed",
+                {
+                    "branch": branch_name,
+                    "task_id": work.work_id,
+                    "validation": validation.to_dict(),
+                },
+            )
+            return
+
+        logger.info(f"Quality gates passed for {branch_name}")
+
+        # Auto-approve (work completed successfully, no conflicts, gates passed)
         await pr_service.update_status(
             project=git_project_name,
             branch=branch_name,

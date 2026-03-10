@@ -115,6 +115,16 @@ class AutoDrainConfig(BaseModel):
     idle_grace_period_minutes: int = Field(default=5, description="Minutes idle before drain starts")
 
 
+class QualityGateConfig(BaseModel):
+    """Quality gate configuration for PR validation."""
+    enabled: bool = Field(default=True, description="Enable quality gates for auto-merge")
+    syntax_check: bool = Field(default=True, description="Run syntax/import validation on changed Python files")
+    test_gate: bool = Field(default=True, description="Run test suite before merge")
+    startup_smoke_test: bool = Field(default=False, description="Run application startup smoke test")
+    config_completeness: bool = Field(default=False, description="Validate config completeness")
+    timeout_seconds: int = Field(default=300, description="Timeout for quality gate execution")
+
+
 class DockerImageMapping(BaseModel):
     """Maps a Docker image to the capabilities it provides."""
     image: str = Field(..., description="Docker image name:tag")
@@ -174,6 +184,7 @@ class ServingConfig(BaseModel):
     cognito: CognitoConfig = Field(default_factory=CognitoConfig)
     docker_provisioner: DockerProvisionerConfig = Field(default_factory=DockerProvisionerConfig)
     auto_drain: AutoDrainConfig = Field(default_factory=AutoDrainConfig)
+    quality_gate: QualityGateConfig = Field(default_factory=QualityGateConfig)
     demo_mode: bool = Field(default=False, description="Demo mode - blocks real compute execution")
 
     @classmethod

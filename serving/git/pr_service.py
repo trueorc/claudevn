@@ -67,6 +67,7 @@ class PRStatus(str, Enum):
     MERGED = "merged"
     CONFLICT = "conflict"
     CLOSED = "closed"
+    VALIDATION_FAILED = "validation_failed"
 
 
 @dataclass
@@ -87,6 +88,7 @@ class PullRequest:
     reviewed_by: Optional[str] = None
     merged_at: Optional[str] = None
     conflicting_files: Optional[List[str]] = None
+    validation_results: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -106,6 +108,7 @@ class PullRequest:
             "reviewed_by": self.reviewed_by,
             "merged_at": self.merged_at,
             "conflicting_files": self.conflicting_files,
+            "validation_results": self.validation_results,
         }
 
 
@@ -705,6 +708,12 @@ class PRService:
             await redis.publish_git_event(project, "pr_closed", {
                 "branch": branch,
                 "status": status.value
+            })
+
+        elif status == PRStatus.VALIDATION_FAILED:
+            # Keep in PR queue but don't add to merge queue
+            await redis.publish_git_event(project, "pr_validation_failed", {
+                "branch": branch,
             })
 
         logger.info(f"PR status updated: {project}/{branch} -> {status.value}")
