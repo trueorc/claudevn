@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot } from 'lucide-react'
+import { Loader, Check, X, AlertCircle, ArrowRight, Sparkles, Target, FileText, Clock, RefreshCw, Bot, ChevronRight } from 'lucide-react'
 import { MSG_TYPES } from '../../hooks/useConversation'
 import { getAvatarColor, getInitials } from '../common/UserAvatar'
 import GoalCompletionCard from './GoalCompletionCard'
@@ -435,7 +435,66 @@ function renderCompactMessage(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// Timeline — renders each message individually, compact types as inline lines
+// Collapsible box that wraps consecutive compact status messages
+// ---------------------------------------------------------------------------
+
+function StatusGroup({ msgs }) {
+  const [expanded, setExpanded] = useState(true)
+  const count = msgs.length
+
+  if (count === 1) {
+    return <div className="conv-status-group-single">{renderCompactMessage(msgs[0])}</div>
+  }
+
+  return (
+    <div className="conv-status-group">
+      <button
+        className="conv-status-group-toggle"
+        onClick={() => setExpanded(prev => !prev)}
+      >
+        <ChevronRight size={12} className={`conv-status-chevron ${expanded ? 'open' : ''}`} />
+        <span className="conv-status-group-summary">
+          {count} status update{count !== 1 ? 's' : ''}
+        </span>
+      </button>
+      {expanded && (
+        <div className="conv-status-group-items">
+          {msgs.map(m => <div key={m.id}>{renderCompactMessage(m)}</div>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Group consecutive compact messages, interleave with full-card messages
+// ---------------------------------------------------------------------------
+
+function buildRenderGroups(messages) {
+  const groups = []
+  let compactBuf = []
+
+  const flushCompact = () => {
+    if (compactBuf.length > 0) {
+      groups.push({ kind: 'compact', msgs: compactBuf })
+      compactBuf = []
+    }
+  }
+
+  for (const msg of messages) {
+    if (COMPACT_TYPES.has(msg.type)) {
+      compactBuf.push(msg)
+    } else {
+      flushCompact()
+      groups.push({ kind: 'full', msg })
+    }
+  }
+  flushCompact()
+  return groups
+}
+
+// ---------------------------------------------------------------------------
+// Timeline
 // ---------------------------------------------------------------------------
 
 function ConversationTimeline({ messages, currentUserId, pendingDirective, applying, onApply, onReject, onRetry, onPromoteToDirective, onDismissPromotion }) {
@@ -447,15 +506,16 @@ function ConversationTimeline({ messages, currentUserId, pendingDirective, apply
 
   if (!messages || messages.length === 0) return null
 
+  const groups = buildRenderGroups(messages)
+
   return (
     <div className="conv-timeline">
-      {messages.map((msg) => {
-        // Compact inline status messages
-        if (COMPACT_TYPES.has(msg.type)) {
-          return <div key={msg.id}>{renderCompactMessage(msg)}</div>
+      {groups.map((group, gi) => {
+        if (group.kind === 'compact') {
+          return <StatusGroup key={`sg-${group.msgs[0].id}`} msgs={group.msgs} />
         }
 
-        // Full chat messages
+        const msg = group.msg
         switch (msg.type) {
           case MSG_TYPES.USER:
             return <UserMessage key={msg.id} msg={msg} currentUserId={currentUserId} onPromoteToDirective={onPromoteToDirective} />

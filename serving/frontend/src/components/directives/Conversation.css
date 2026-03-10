@@ -989,6 +989,58 @@
   color: var(--status-offline, #ef4444);
 }
 
+/* =============================================================================
+   Collapsible Status Group — wraps consecutive compact status lines
+   ============================================================================= */
+
+/* Single status line (no grouping needed) */
+.conv-status-group-single {
+  /* Renders inline, no box */
+}
+
+/* Multi-line collapsible group */
+.conv-status-group {
+  background: var(--bg-elevated, #1a1a1a);
+  border: 1px solid var(--border-light, #333);
+  border-radius: 8px;
+}
+
+.conv-status-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #a1a1aa);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.conv-status-group-toggle:hover {
+  color: var(--text, #fafafa);
+}
+
+.conv-status-chevron {
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.conv-status-chevron.open {
+  transform: rotate(90deg);
+}
+
+.conv-status-group-summary {
+  font-weight: 500;
+}
+
+.conv-status-group-items {
+  border-top: 1px solid var(--border, #2a2a2a);
+  padding: 4px 0;
+}
+
 /* Legacy compat — keep old system event styles for any direct usage */
 .conv-msg-system-event {
   display: flex;
