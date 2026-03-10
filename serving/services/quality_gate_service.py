@@ -269,16 +269,19 @@ class QualityGateService:
         )
 
     async def _run_test_gate(self, work_dir: Path, timeout: int) -> GateResult:
-        """Run test suite in the working directory."""
+        """Run test suite in the working directory.
+
+        Detects the appropriate test runner:
+        1. ``scripts/run_unit_tests.sh`` (project-specific runner)
+        2. ``package.json`` with ``test`` script → ``npm test``
+        3. Fallback to ``python -m pytest``
+
+        Parses pytest-style summary lines to extract pass/fail counts.
+        """
         import time
         start = time.monotonic()
 
-        # Look for test runner scripts or pytest
-        test_script = work_dir / "scripts" / "run_unit_tests.sh"
-        if test_script.exists():
-            cmd = ["bash", str(test_script)]
-        else:
-            cmd = ["python", "-m", "pytest", "--tb=short", "-q"]
+        cmd = _detect_test_command(work_dir)
 
         try:
             result = await asyncio.to_thread(
@@ -289,22 +292,25 @@ class QualityGateService:
                 timeout=timeout,
             )
             elapsed = int((time.monotonic() - start) * 1000)
+            combined_output = (result.stdout + result.stderr).strip()
+            summary = _parse_test_summary(combined_output)
 
             if result.returncode != 0:
-                # Extract last 20 lines of output for context
-                output_lines = (result.stdout + result.stderr).strip().split("\n")
+                output_lines = combined_output.split("\n")
                 tail = output_lines[-20:] if len(output_lines) > 20 else output_lines
+                message = f"Test suite failed: {summary}" if summary else "Test suite failed"
                 return GateResult(
                     gate="test_suite",
                     status=GateStatus.FAILED,
-                    message="Test suite failed",
+                    message=message,
                     details=tail,
                     duration_ms=elapsed,
                 )
+            message = f"Tests passed: {summary}" if summary else "All tests passed"
             return GateResult(
                 gate="test_suite",
                 status=GateStatus.PASSED,
-                message="All tests passed",
+                message=message,
                 duration_ms=elapsed,
             )
         except subprocess.TimeoutExpired:
@@ -490,6 +496,60 @@ def _extract_top_level_modules(py_files: List[str]) -> List[str]:
             continue
         modules.add(top)
     return sorted(modules)
+
+
+def _detect_test_command(work_dir: Path) -> List[str]:
+    """Detect the appropriate test command for a project directory.
+
+    Checks in order:
+    1. scripts/run_unit_tests.sh (project runner)
+    2. package.json with "test" script (JS/TS project)
+    3. Fallback: python -m pytest
+    """
+    test_script = work_dir / "scripts" / "run_unit_tests.sh"
+    if test_script.exists():
+        return ["bash", str(test_script)]
+
+    package_json = work_dir / "package.json"
+    if package_json.exists():
+        import json
+        try:
+            pkg = json.loads(package_json.read_text())
+            if "test" in pkg.get("scripts", {}):
+                return ["npm", "test", "--", "--ci"]
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return ["python", "-m", "pytest", "--tb=short", "-q"]
+
+
+def _parse_test_summary(output: str) -> str:
+    """Extract pass/fail counts from pytest or jest output.
+
+    Pytest summary looks like: ``5 passed, 2 failed, 1 error in 1.23s``
+    Jest summary looks like: ``Tests: 2 failed, 5 passed, 7 total``
+
+    Returns a short summary string, or empty string if not parseable.
+    """
+    import re
+
+    # jest: "Tests: X failed, Y passed, Z total"
+    jest_match = re.search(r"Tests:\s+(.+total)", output)
+    if jest_match:
+        return jest_match.group(1)
+
+    # pytest summary line: capture the full "X failed, Y passed" or "X passed" etc.
+    # The summary line looks like: "2 failed, 8 passed, 1 warning in 1.23s"
+    # Match the whole summary (comma-separated counts before " in ")
+    pytest_summary = re.search(
+        r"((?:\d+\s+(?:passed|failed|error|errors|warning|warnings|skipped)"
+        r"(?:,\s*)?)+)",
+        output,
+    )
+    if pytest_summary:
+        return pytest_summary.group(1).strip().rstrip(",")
+
+    return ""
 
 
 def _safe_git_env() -> dict:

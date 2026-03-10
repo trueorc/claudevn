@@ -16,9 +16,11 @@ from services.quality_gate_service import (
     GateStatus,
     QualityGateService,
     ValidationResult,
+    _detect_test_command,
     _extract_top_level_modules,
     _parse_compile_error,
     _parse_import_error,
+    _parse_test_summary,
 )
 
 
@@ -316,31 +318,73 @@ class TestSyntaxCheck:
         assert any("timed out" in d for d in result.details)
 
 
+class TestDetectTestCommand:
+    def test_project_script(self):
+        with patch.object(Path, "exists", return_value=True):
+            cmd = _detect_test_command(Path("/tmp/work"))
+        assert cmd[0] == "bash"
+        assert "run_unit_tests.sh" in cmd[1]
+
+    def test_npm_test(self):
+        def mock_exists(self_path):
+            return "package.json" in str(self_path)
+
+        with patch.object(Path, "exists", mock_exists):
+            with patch.object(Path, "read_text", return_value='{"scripts":{"test":"jest"}}'):
+                cmd = _detect_test_command(Path("/tmp/work"))
+        assert cmd[0] == "npm"
+
+    def test_fallback_pytest(self):
+        with patch.object(Path, "exists", return_value=False):
+            cmd = _detect_test_command(Path("/tmp/work"))
+        assert cmd == ["python", "-m", "pytest", "--tb=short", "-q"]
+
+
+class TestParseTestSummary:
+    def test_pytest_passed(self):
+        output = "====== 10 passed in 1.23s ======"
+        assert "10 passed" in _parse_test_summary(output)
+
+    def test_pytest_mixed(self):
+        output = "====== 2 failed, 8 passed in 2.50s ======"
+        result = _parse_test_summary(output)
+        assert "failed" in result
+
+    def test_jest_output(self):
+        output = "Tests: 1 failed, 5 passed, 6 total"
+        result = _parse_test_summary(output)
+        assert "total" in result
+
+    def test_unparseable(self):
+        assert _parse_test_summary("some random output") == ""
+
+
 class TestTestGate:
     @pytest.mark.asyncio
-    async def test_tests_pass(self, service):
+    async def test_tests_pass_with_summary(self, service):
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = "5 passed"
+        mock_result.stdout = "collecting ...\n====== 5 passed in 1.23s ======"
         mock_result.stderr = ""
 
         with patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_result):
             result = await service._run_test_gate(Path("/tmp/work"), timeout=60)
 
         assert result.status == GateStatus.PASSED
+        assert "5 passed" in result.message
 
     @pytest.mark.asyncio
-    async def test_tests_fail(self, service):
+    async def test_tests_fail_with_summary(self, service):
         mock_result = MagicMock()
         mock_result.returncode = 1
-        mock_result.stdout = "FAILED test_foo.py::test_bar"
+        mock_result.stdout = "FAILED test_foo.py\n====== 2 failed, 3 passed in 1.00s ======"
         mock_result.stderr = ""
 
         with patch("services.quality_gate_service.asyncio.to_thread", return_value=mock_result):
             result = await service._run_test_gate(Path("/tmp/work"), timeout=60)
 
         assert result.status == GateStatus.FAILED
-        assert "Test suite failed" in result.message
+        assert "failed" in result.message
 
     @pytest.mark.asyncio
     async def test_timeout_returns_error(self, service):
