@@ -783,6 +783,8 @@ class UnifiedDirectiveService:
 
         After successful completion, updates the originating directive's
         outcome with the created issue IDs (if directive info provided).
+        Also posts a goal_complete message to the conversation if the AI agent
+        originally posted a goal_processing indicator.
         """
         try:
             from api.slim_claude_code import (
@@ -799,6 +801,10 @@ class UnifiedDirectiveService:
                 await self._backfill_directive_issue_ids(
                     directive_id, project_id, goal_id
                 )
+
+            # Surface goal_complete in conversation if AI agent initiated this
+            await self._post_goal_complete_notification(goal_id)
+
         except Exception as e:
             logger.error(f"Auto-process failed for goal {goal_id}: {e}")
 
@@ -838,6 +844,81 @@ class UnifiedDirectiveService:
                 f"Failed to backfill directive {directive_id} with "
                 f"issue IDs from goal {goal_id}: {e}"
             )
+
+    async def _post_goal_complete_notification(self, goal_id: str) -> None:
+        """Post a goal_complete conversation message if the AI agent initiated this goal.
+
+        Checks for a stored goal_processing message ID (set by the AI agent's
+        _post_goal_notifications), removes the processing indicator, and posts
+        the completion card with created issues.
+        """
+        try:
+            import json
+            from git.redis_client import get_redis
+            from services.conversation_service import get_conversation_service
+
+            redis = await get_redis()
+            key = f"claudevn:goal_processing_msg:{goal_id}"
+            raw = await redis.get(key)
+            if not raw:
+                # Not AI-agent initiated, nothing to do
+                return
+
+            info = json.loads(raw)
+            processing_msg_id = info["message_id"]
+            project_id = info["project_id"]
+
+            conv_service = get_conversation_service()
+            if not conv_service:
+                return
+
+            # Remove the goal_processing indicator and broadcast removal
+            await conv_service.remove_message(project_id, processing_msg_id)
+            from services.observability_event_bus import get_event_bus
+            bus = get_event_bus()
+            if bus:
+                removal_payload = json.dumps({
+                    'type': 'conversation_message_removed',
+                    'event': {
+                        'project_id': project_id,
+                        'message_id': processing_msg_id,
+                    },
+                }, default=str)
+                await bus._broadcast_raw(removal_payload)
+
+            # Build result payload from goal data
+            from services.goal_service import get_goal_service
+            goal_service = get_goal_service()
+            goal = await goal_service.get_goal(goal_id)
+
+            result = {}
+            if goal and goal.issue_ids:
+                result["issues_created"] = list(goal.issue_ids)
+            if goal and goal.ai_summary:
+                result["reasoning"] = goal.ai_summary
+
+            # Post goal_complete message
+            await conv_service.add_message(
+                project_id=project_id,
+                user_id="ai-agent",
+                display_name="Claude",
+                type="goal_complete",
+                content="Work items created",
+                metadata={
+                    "goal_id": goal_id,
+                    "result": result,
+                    "stage": "complete",
+                },
+            )
+
+            # Clean up the tracking key
+            await redis.delete(key)
+
+            logger.info(
+                f"Posted goal_complete notification for {goal_id} in {project_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post goal_complete notification for {goal_id}: {e}")
 
     @staticmethod
     def _map_directive_to_goal_intent(intent: DirectiveIntent):

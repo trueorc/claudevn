@@ -103,6 +103,16 @@ class ObservabilityWebSocket {
     }
   }
 
+  /**
+   * Send a message to the server.
+   * @param {object} message - The message object (must include an 'action' field)
+   */
+  send(message) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message))
+    }
+  }
+
   on(eventType, callback) {
     if (!this.subscribers.has(eventType)) {
       this.subscribers.set(eventType, [])

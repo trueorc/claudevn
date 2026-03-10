@@ -1,13 +1,16 @@
-"""Claude API Client Service for Slim Claude Code.
+"""Claude API Client Service.
 
-Provides a reusable client for interacting with the Claude API,
-with support for retries, rate limiting, and structured JSON output.
+Uses the Claude Code CLI (`claude -p`) for API calls, leveraging the
+platform's existing OAuth credential infrastructure. The CLI inherits
+CLAUDE_CODE_OAUTH_TOKEN from the process environment, set by
+ClaudeAuthService at startup.
 """
 
 import asyncio
 import json
 import logging
 import os
+import shutil
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -28,10 +31,11 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class ClaudeClient:
-    """Client for interacting with Claude API.
+    """Client for interacting with Claude via the Claude Code CLI.
 
-    Provides methods for text completion and structured JSON output,
-    with automatic retry handling for transient failures.
+    Uses `claude -p` (print mode) which reads from stdin and writes
+    the response to stdout. Inherits OAuth credentials from the
+    process environment (CLAUDE_CODE_OAUTH_TOKEN).
     """
 
     def __init__(
@@ -39,43 +43,25 @@ class ClaudeClient:
         api_key: Optional[str] = None,
         config: Optional[ClaudeConfig] = None,
     ):
-        """Initialize the Claude client.
-
-        Args:
-            api_key: Anthropic API key. If not provided, uses ANTHROPIC_API_KEY env var.
-            config: Client configuration. Uses defaults if not provided.
-
-        Raises:
-            ValueError: If no API key is available
-            ImportError: If anthropic package is not installed
-        """
-        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not self._api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable is required"
-            )
-
         self._config = config or ClaudeConfig()
-        self._client = None  # Lazy initialization
-        self._initialized = False
-
-    def _ensure_client(self) -> None:
-        """Ensure the Anthropic client is initialized."""
-        if self._client is not None:
-            return
-
-        try:
-            import anthropic
-        except ImportError:
-            raise ImportError(
-                "anthropic package is required. Install with: pip install anthropic"
+        self._claude_path = self._find_claude_cli()
+        if not self._claude_path:
+            raise RuntimeError(
+                "Claude Code CLI not found. Ensure 'claude' is installed and on PATH."
             )
+        logger.info(f"ClaudeClient initialized (CLI: {self._claude_path})")
 
-        self._client = anthropic.AsyncAnthropic(
-            api_key=self._api_key,
-            timeout=self._config.timeout_seconds,
-        )
-        self._initialized = True
+    @staticmethod
+    def _find_claude_cli() -> Optional[str]:
+        """Find the claude CLI binary."""
+        # Check common locations
+        path = shutil.which("claude")
+        if path:
+            return path
+        for candidate in ["/usr/local/bin/claude", "/usr/bin/claude", "/app/.npm-global/bin/claude"]:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+        return None
 
     async def complete(
         self,
@@ -86,47 +72,46 @@ class ClaudeClient:
         temperature: Optional[float] = None,
         model: Optional[str] = None,
     ) -> ClaudeResponse:
-        """Complete a prompt using Claude.
+        """Complete a prompt using Claude Code CLI.
 
         Args:
-            prompt: The user prompt (appended to messages if provided)
-            system: Optional system prompt for context
-            messages: Optional conversation history
-            max_tokens: Override config max_tokens
-            temperature: Override config temperature
-            model: Override config model
+            prompt: The user prompt
+            system: Optional system prompt
+            messages: Optional conversation history (prepended to prompt)
+            max_tokens: Max output tokens
+            temperature: Not directly supported by CLI (ignored)
+            model: Model to use (passed via --model)
 
         Returns:
             ClaudeResponse with content and metadata
-
-        Raises:
-            ClaudeAPIError: For non-retryable API errors
-            ClaudeRateLimitError: If rate limit exceeded after retries
-            ClaudeTimeoutError: If request times out after retries
         """
-        self._ensure_client()
+        selected_model = model or self._config.model
 
-        # Build messages list
-        message_list = []
-        if messages:
-            message_list.extend([
-                {"role": m.role, "content": m.content}
-                for m in messages
-            ])
-        message_list.append({"role": "user", "content": prompt})
-
-        # Request parameters
-        request_params = {
-            "model": model or self._config.model,
-            "max_tokens": max_tokens or self._config.max_tokens,
-            "temperature": temperature if temperature is not None else self._config.temperature,
-            "messages": message_list,
-        }
+        # Build CLI command
+        cmd = [
+            self._claude_path, "-p",
+            "--output-format", "json",
+            "--no-session-persistence",
+        ]
+        if selected_model:
+            cmd.extend(["--model", selected_model])
         if system:
-            request_params["system"] = system
+            cmd.extend(["--system-prompt", system])
 
-        # Execute with retry
-        return await self._execute_with_retry(request_params)
+        # Build the full prompt with context
+        full_prompt = ""
+        if messages:
+            for m in messages:
+                full_prompt += f"[{m.role}]: {m.content}\n\n"
+        full_prompt += prompt
+
+        logger.info(
+            f"Claude CLI call: model={selected_model}, "
+            f"cmd_args={len(cmd)}, prompt_len={len(full_prompt)}, "
+            f"system_len={len(system) if system else 0}"
+        )
+
+        return await self._execute_cli(cmd, full_prompt, selected_model)
 
     async def complete_json(
         self,
@@ -136,23 +121,7 @@ class ClaudeClient:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> T:
-        """Complete a prompt and parse response as a Pydantic model.
-
-        Args:
-            prompt: The user prompt requesting JSON output
-            schema: Pydantic model class to parse response into
-            system: Optional system prompt
-            max_tokens: Override config max_tokens
-            temperature: Override config temperature
-
-        Returns:
-            Parsed Pydantic model instance
-
-        Raises:
-            ClaudeParseError: If response cannot be parsed as JSON or validated
-            ClaudeAPIError: For non-retryable API errors
-        """
-        # Add JSON instruction to system prompt
+        """Complete a prompt and parse response as a Pydantic model."""
         json_system = (system or "") + (
             "\n\nYou must respond with valid JSON only. "
             "Do not include any text before or after the JSON. "
@@ -173,19 +142,7 @@ class ClaudeClient:
         content: str,
         schema: Type[T],
     ) -> T:
-        """Parse response content as JSON into a Pydantic model.
-
-        Args:
-            content: Raw response content
-            schema: Pydantic model class
-
-        Returns:
-            Parsed model instance
-
-        Raises:
-            ClaudeParseError: If parsing or validation fails
-        """
-        # Strip whitespace and potential markdown
+        """Parse response content as JSON into a Pydantic model."""
         json_str = content.strip()
 
         # Handle markdown code blocks
@@ -201,10 +158,8 @@ class ClaudeClient:
                     json_lines.append(line)
             json_str = "\n".join(json_lines)
 
-        # Try to find JSON object/array in the content
         json_str = json_str.strip()
         if not json_str.startswith("{") and not json_str.startswith("["):
-            # Try to extract JSON from text
             start_idx = json_str.find("{")
             if start_idx == -1:
                 start_idx = json_str.find("[")
@@ -226,112 +181,82 @@ class ClaudeClient:
                 f"Response JSON does not match schema {schema.__name__}: {e}"
             )
 
-    async def _execute_with_retry(
+    async def _execute_cli(
         self,
-        request_params: Dict[str, Any],
+        cmd: List[str],
+        prompt: str,
+        model: str,
     ) -> ClaudeResponse:
-        """Execute API request with retry logic.
+        """Execute Claude CLI and parse the response."""
+        timeout = self._config.timeout_seconds
 
-        Args:
-            request_params: Parameters for messages.create
+        has_token = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+        logger.info(
+            f"Claude CLI exec: model={model}, prompt_len={len(prompt)}, "
+            f"has_oauth_token={has_token}"
+        )
 
-        Returns:
-            ClaudeResponse with content and metadata
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
 
-        Raises:
-            ClaudeAPIError: For non-retryable errors
-            ClaudeRateLimitError: If rate limit exceeded after retries
-            ClaudeTimeoutError: If request times out after retries
-        """
-        import anthropic
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=prompt.encode()),
+                timeout=timeout,
+            )
 
-        last_error = None
-        delay = self._config.retry_delay_seconds
+        except asyncio.TimeoutError:
+            process.kill()
+            raise ClaudeTimeoutError(
+                f"Claude CLI timed out after {timeout}s"
+            )
+        except FileNotFoundError:
+            raise ClaudeAPIError(
+                f"Claude CLI not found at {self._claude_path}"
+            )
 
-        for attempt in range(self._config.max_retries + 1):
-            try:
-                response = await self._client.messages.create(**request_params)
+        raw_output = stdout.decode().strip()
+        stderr_text = stderr.decode().strip() if stderr else ""
 
-                # Extract content
-                content = ""
-                for block in response.content:
-                    if hasattr(block, "text"):
-                        content += block.text
+        if not raw_output:
+            raise ClaudeAPIError(
+                f"Claude CLI returned empty output. stderr: {stderr_text}"
+            )
 
-                return ClaudeResponse(
-                    content=content,
-                    model=response.model,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    stop_reason=response.stop_reason,
+        # Parse JSON output (claude -p --output-format json always writes JSON to stdout)
+        try:
+            data = json.loads(raw_output)
+        except json.JSONDecodeError:
+            if process.returncode != 0:
+                raise ClaudeAPIError(
+                    f"Claude CLI failed (exit {process.returncode}): {raw_output[:300]}"
                 )
+            return ClaudeResponse(
+                content=raw_output,
+                model=model or "unknown",
+                input_tokens=0,
+                output_tokens=0,
+                stop_reason="end_turn",
+            )
 
-            except anthropic.RateLimitError as e:
-                last_error = ClaudeRateLimitError(
-                    f"Rate limit exceeded: {e}",
-                    retry_after_seconds=delay,
-                )
-                if attempt < self._config.max_retries:
-                    logger.warning(
-                        f"Rate limited, retrying in {delay}s "
-                        f"(attempt {attempt + 1}/{self._config.max_retries + 1})"
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= 2  # Exponential backoff
+        # Check for CLI-level errors (e.g. "Not logged in")
+        if data.get("is_error"):
+            error_msg = data.get("result", "unknown CLI error")
+            raise ClaudeAPIError(f"Claude CLI error: {error_msg}")
 
-            except anthropic.APITimeoutError as e:
-                last_error = ClaudeTimeoutError(f"Request timed out: {e}")
-                if attempt < self._config.max_retries:
-                    logger.warning(
-                        f"Timeout, retrying in {delay}s "
-                        f"(attempt {attempt + 1}/{self._config.max_retries + 1})"
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= 2
-
-            except anthropic.APIConnectionError as e:
-                last_error = ClaudeAPIError(f"Connection error: {e}")
-                if attempt < self._config.max_retries:
-                    logger.warning(
-                        f"Connection error, retrying in {delay}s "
-                        f"(attempt {attempt + 1}/{self._config.max_retries + 1})"
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= 2
-
-            except anthropic.BadRequestError as e:
-                # Non-retryable error
-                raise ClaudeAPIError(f"Bad request: {e}", status_code=400)
-
-            except anthropic.AuthenticationError as e:
-                # Non-retryable error
-                raise ClaudeAPIError(f"Authentication failed: {e}", status_code=401)
-
-            except anthropic.PermissionDeniedError as e:
-                # Non-retryable error
-                raise ClaudeAPIError(f"Permission denied: {e}", status_code=403)
-
-            except anthropic.NotFoundError as e:
-                # Non-retryable error
-                raise ClaudeAPIError(f"Resource not found: {e}", status_code=404)
-
-            except anthropic.APIStatusError as e:
-                # Other API error - may be retryable for 5xx
-                if e.status_code >= 500 and attempt < self._config.max_retries:
-                    logger.warning(
-                        f"Server error {e.status_code}, retrying in {delay}s "
-                        f"(attempt {attempt + 1}/{self._config.max_retries + 1})"
-                    )
-                    last_error = ClaudeAPIError(str(e), status_code=e.status_code)
-                    await asyncio.sleep(delay)
-                    delay *= 2
-                else:
-                    raise ClaudeAPIError(str(e), status_code=e.status_code)
-
-        # All retries exhausted
-        if last_error:
-            raise last_error
-        raise ClaudeAPIError("Unknown error occurred")
+        content = data.get("result", "")
+        usage = data.get("usage", {})
+        return ClaudeResponse(
+            content=content,
+            model=model or "unknown",
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            stop_reason=data.get("stop_reason", "end_turn"),
+        )
 
 
 # Global service instance

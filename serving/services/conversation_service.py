@@ -1,8 +1,9 @@
 """Conversation persistence service using Redis."""
 
+import asyncio
 import json
 import logging
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from models.conversation import ConversationMessage
 
@@ -13,12 +14,20 @@ MAX_MESSAGES = 500
 # Default page size
 DEFAULT_LIMIT = 50
 
+# Type for message listener: (project_id, user_id, message_type, content) -> None
+MessageListener = Callable[[str, str, str, str], Awaitable[None]]
+
 
 class ConversationService:
     """Manages project conversation persistence in Redis."""
 
     def __init__(self, redis_client=None):
         self._redis = redis_client
+        self._message_listener: Optional[MessageListener] = None
+
+    def set_message_listener(self, listener: MessageListener) -> None:
+        """Register a listener called after each message is persisted."""
+        self._message_listener = listener
 
     def _key(self, project_id: str) -> str:
         prefix = getattr(self._redis, '_prefix', 'claudevn:') if self._redis else 'claudevn:'
@@ -102,6 +111,18 @@ class ConversationService:
 
         await self._broadcast_message(msg)
 
+        # Notify AI agent (fire-and-forget, never blocks message delivery)
+        if self._message_listener:
+            try:
+                logger.info(f"Notifying AI agent for {project_id} (type={type}, user={user_id})")
+                asyncio.create_task(
+                    self._message_listener(project_id, user_id, type, content)
+                )
+            except Exception as e:
+                logger.warning(f"Message listener notification failed: {e}")
+        else:
+            logger.debug(f"No message listener registered, skipping AI agent notification")
+
         return msg
 
     async def _broadcast_message(self, msg: ConversationMessage) -> None:
@@ -121,6 +142,23 @@ class ConversationService:
                 await bus._broadcast_raw(payload)
         except Exception as e:
             logger.debug(f"Failed to broadcast conversation message: {e}")
+
+    async def remove_message(self, project_id: str, message_id: str) -> bool:
+        """Remove a specific message from the conversation (e.g., thinking indicators)."""
+        if not self._redis:
+            return False
+        key = self._key(project_id)
+        try:
+            # Scan the list for the message and remove it
+            all_raw = await self._redis._redis.lrange(key, 0, -1)
+            for raw in all_raw:
+                msg = self._deserialize(raw)
+                if msg and msg.message_id == message_id:
+                    await self._redis._redis.lrem(key, 1, raw)
+                    return True
+        except Exception as e:
+            logger.error(f"Failed to remove message {message_id}: {e}")
+        return False
 
     async def clear(self, project_id: str) -> None:
         """Clear all messages for a project conversation."""

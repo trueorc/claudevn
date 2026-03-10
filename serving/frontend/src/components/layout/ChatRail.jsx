@@ -14,6 +14,7 @@ const CHATRAIL_MAX_MESSAGES = 500
 // outcomes and user messages. Full detail lives in the Control Center.
 const CHATRAIL_VISIBLE_TYPES = new Set([
   'user',
+  'assistant',
   'goal_complete',
   'goal_processing',
   'directive_applied',
@@ -41,7 +42,7 @@ function RailProjectHeader() {
 
 function ChatRail() {
   const { activeProject } = useProjectContext()
-  const { messages, submitting, submit } = useConversationContext()
+  const { messages, submitting, submit, sendTypingStatus } = useConversationContext()
   const [collapsed, setCollapsed] = useState(false)
   const [message, setMessage] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
@@ -85,7 +86,13 @@ function ChatRail() {
     if (!message.trim() || submitting || !activeProject) return
     const text = message.trim()
     setMessage('')
+    sendTypingStatus?.(false)
     await submit(text)
+  }
+
+  const handleInputChange = (e) => {
+    setMessage(e.target.value)
+    sendTypingStatus?.(e.target.value.length > 0)
   }
 
   const handleKeyDown = (e) => {
@@ -180,8 +187,9 @@ function ChatRail() {
 
             {recentMessages.map((msg) => {
               const isUser = msg.type === 'user' || msg.role === 'user'
+              const isAssistant = msg.type === 'assistant'
               const isError = msg.type === 'error'
-              const roleClass = isUser ? 'user' : isError ? 'error' : 'system'
+              const roleClass = isUser ? 'user' : isAssistant ? 'assistant' : isError ? 'error' : 'system'
               const timestamp = msg.timestamp
                 ? (typeof msg.timestamp === 'string'
                     ? new Date(msg.timestamp)
@@ -208,7 +216,7 @@ function ChatRail() {
                 ref={inputRef}
                 className="chat-rail-input"
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={activeProject ? 'Type a directive...' : 'Select a project'}
                 disabled={!activeProject || submitting}

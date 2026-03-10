@@ -935,9 +935,113 @@
 }
 
 /* =============================================================================
-   System Event Messages (auto-injected from backend events)
+   Status Groups — compact inline indicators for non-chat messages
    ============================================================================= */
 
+/* Compact single-line status indicator (replaces full-card rendering) */
+.conv-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.conv-status-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-status-label strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.conv-status-time {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.5;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin left accent per status type */
+.conv-status-line::before {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.conv-status-thinking::before { background: var(--text-muted); }
+.conv-status-goal::before    { background: var(--primary); }
+.conv-status-applied::before { background: var(--status-online, #22c55e); }
+.conv-status-rejected::before { background: var(--status-offline, #ef4444); }
+.conv-status-error::before   { background: var(--status-offline, #ef4444); }
+.conv-status-system::before  { background: var(--text-muted); opacity: 0.5; }
+
+.conv-status-error {
+  color: var(--status-offline, #ef4444);
+}
+
+/* =============================================================================
+   Collapsible Status Group — wraps consecutive compact status lines
+   ============================================================================= */
+
+/* Single status line (no grouping needed) */
+.conv-status-group-single {
+  /* Renders inline, no box */
+}
+
+/* Multi-line collapsible group */
+.conv-status-group {
+  background: var(--bg-elevated, #1a1a1a);
+  border: 1px solid var(--border-light, #333);
+  border-radius: 8px;
+}
+
+.conv-status-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #a1a1aa);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.conv-status-group-toggle:hover {
+  color: var(--text, #fafafa);
+}
+
+.conv-status-chevron {
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.conv-status-chevron.open {
+  transform: rotate(90deg);
+}
+
+.conv-status-group-summary {
+  font-weight: 500;
+}
+
+.conv-status-group-items {
+  border-top: 1px solid var(--border, #2a2a2a);
+  padding: 4px 0;
+}
+
+/* Legacy compat — keep old system event styles for any direct usage */
 .conv-msg-system-event {
   display: flex;
   justify-content: flex-start;
@@ -971,7 +1075,7 @@
   opacity: 0.6;
 }
 
-/* Error */
+/* Error (full-card fallback) */
 .conv-error {
   display: flex;
   align-items: center;

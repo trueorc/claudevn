@@ -390,6 +390,30 @@ async def lifespan(app: FastAPI):
     init_event_bridge()
 
     # =========================================================================
+    # OPTIONAL: AI Chat Agent Service
+    # Watches project conversations and responds using Claude when appropriate.
+    # Uses the serving auth token (CLAUDE_CODE_OAUTH_TOKEN) for API calls.
+    # ClaudeClient is lazy-initialized on first evaluation, so auth service
+    # does not need to be ready at this point.
+    # =========================================================================
+    try:
+        from services.ai_chat_context_service import (
+            AIChatContextService, set_ai_chat_context_service,
+        )
+        from services.ai_chat_agent_service import (
+            AIChatAgentService, set_ai_chat_agent_service,
+        )
+        ai_chat_context = AIChatContextService(redis_client=redis_client)
+        set_ai_chat_context_service(ai_chat_context)
+        ai_chat_agent = AIChatAgentService()
+        ai_chat_agent.start()
+        set_ai_chat_agent_service(ai_chat_agent)
+        conversation_service.set_message_listener(ai_chat_agent.on_message)
+        logger.info("AI Chat Agent Service initialized (with context service)")
+    except Exception as e:
+        logger.warning(f"AI Chat Agent Service initialization failed: {e}")
+
+    # =========================================================================
     # OPTIONAL: Presence Service
     # Tracks which users are online in which project view using Redis.
     # Degrades gracefully if Redis unavailable (returns empty presence lists).
@@ -1135,6 +1159,19 @@ async def lifespan(app: FastAPI):
         logger.info("Timing service cleaned up")
     except Exception as e:
         logger.debug(f"Timing service cleanup: {e}")
+
+    # Clean up AI chat agent service
+    try:
+        from services.ai_chat_agent_service import (
+            get_ai_chat_agent_service, set_ai_chat_agent_service,
+        )
+        agent = get_ai_chat_agent_service()
+        if agent:
+            agent.stop()
+        set_ai_chat_agent_service(None)
+        logger.info("AI Chat Agent Service cleaned up")
+    except Exception as e:
+        logger.debug(f"AI Chat Agent cleanup: {e}")
 
     # Clean up conversation service
     try:

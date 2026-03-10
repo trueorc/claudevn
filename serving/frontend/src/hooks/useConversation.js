@@ -5,6 +5,7 @@ import useGoals, { WORKFLOW_STEPS, PROCESSING_STAGES } from './useGoals'
 
 export const MSG_TYPES = {
   USER: 'user',
+  ASSISTANT: 'assistant',
   SYSTEM: 'system',
   THINKING: 'thinking',
   GOAL_CREATED: 'goal_created',
@@ -125,7 +126,7 @@ export default function useConversation(projectId) {
     }
   }, [goalError, addMsg, removeByType])
 
-  const submit = useCallback(async (text, mode = INTENT_MODES.AUTO, options = {}) => {
+  const submit = useCallback(async (text, mode = INTENT_MODES.CHAT, options = {}) => {
     if (!projectId || !text.trim() || submitting) return null
     setSubmitting(true)
     goalCompleteHandled.current = false
