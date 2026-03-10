@@ -159,6 +159,10 @@ class QualityGateService:
                 result = await self._run_config_completeness_check(work_dir, changed_files)
                 gates.append(result)
 
+            if gate_config.test_presence:
+                result = await self._run_test_presence_check(work_dir, changed_files)
+                gates.append(result)
+
         except Exception as e:
             logger.error(f"Quality gate setup failed for {project}/{branch}: {e}")
             gates.append(GateResult(
@@ -494,6 +498,131 @@ class QualityGateService:
             message=f"All {unique_vars} env var reference(s) have config entries",
             duration_ms=elapsed,
         )
+
+
+    async def _run_test_presence_check(
+        self, work_dir: Path, changed_files: List[str]
+    ) -> GateResult:
+        """Check that new source files have corresponding test files.
+
+        For each new/changed source file (non-test), looks for a
+        corresponding test file. Reports files that lack tests.
+        """
+        import time
+        start = time.monotonic()
+
+        source_files, test_files = _classify_source_and_test_files(changed_files)
+
+        if not source_files:
+            elapsed = int((time.monotonic() - start) * 1000)
+            return GateResult(
+                gate="test_presence",
+                status=GateStatus.SKIPPED,
+                message="No source files changed (only tests/config/docs)",
+                duration_ms=elapsed,
+            )
+
+        # Check which source files have corresponding test files in the diff
+        # OR already existing test files in the work directory
+        missing: List[str] = []
+        for src in source_files:
+            expected_tests = _expected_test_paths(src)
+            has_test = any(t in test_files for t in expected_tests)
+            if not has_test:
+                # Check if test file already exists in the repo
+                has_test = any((work_dir / t).exists() for t in expected_tests)
+            if not has_test:
+                missing.append(src)
+
+        elapsed = int((time.monotonic() - start) * 1000)
+
+        if missing:
+            details = [
+                f"{f} — no corresponding test file found"
+                for f in sorted(missing)
+            ]
+            return GateResult(
+                gate="test_presence",
+                status=GateStatus.FAILED,
+                message=f"{len(missing)} source file(s) lack unit tests",
+                details=details,
+                duration_ms=elapsed,
+            )
+        return GateResult(
+            gate="test_presence",
+            status=GateStatus.PASSED,
+            message=f"All {len(source_files)} source file(s) have test coverage",
+            duration_ms=elapsed,
+        )
+
+
+def _classify_source_and_test_files(
+    changed_files: List[str],
+) -> tuple:
+    """Split changed files into source files and test files.
+
+    Skips non-code files (configs, docs, etc.) and init files.
+    Returns (source_files, test_files) as lists of paths.
+    """
+    code_extensions = {".py", ".js", ".jsx", ".ts", ".tsx"}
+    # Patterns that indicate a test file
+    test_indicators = ("test_", "_test.", ".test.", ".spec.", "tests/", "test/")
+    # Files to skip (not expected to have tests)
+    skip_patterns = ("__init__", "conftest", "setup.py", "config.py", "migrations/")
+
+    source_files = []
+    test_files = []
+
+    for f in changed_files:
+        ext = Path(f).suffix
+        if ext not in code_extensions:
+            continue
+        if any(s in f for s in skip_patterns):
+            continue
+
+        basename = Path(f).name
+        is_test = any(indicator in f.lower() for indicator in test_indicators)
+
+        if is_test:
+            test_files.append(f)
+        else:
+            source_files.append(f)
+
+    return source_files, test_files
+
+
+def _expected_test_paths(source_path: str) -> List[str]:
+    """Generate expected test file paths for a source file.
+
+    Examples:
+        ``serving/services/quality_gate_service.py``
+        → ``serving/tests/test_quality_gate_service.py``
+
+        ``src/components/App.jsx``
+        → ``src/components/App.test.jsx``, ``src/components/__tests__/App.jsx``
+    """
+    p = Path(source_path)
+    stem = p.stem
+    ext = p.suffix
+    parent = p.parent
+
+    paths = []
+
+    if ext == ".py":
+        # Python: tests/test_{name}.py or test_{name}.py alongside
+        # Look for tests/ directory at each parent level
+        parts = list(parent.parts)
+        for i in range(len(parts), 0, -1):
+            test_dir = Path(*parts[:i]) / "tests"
+            paths.append(str(test_dir / f"test_{stem}.py"))
+        paths.append(str(parent / f"test_{stem}.py"))
+    elif ext in (".js", ".jsx", ".ts", ".tsx"):
+        # JS/TS: Name.test.ext or __tests__/Name.ext
+        paths.append(str(parent / f"{stem}.test{ext}"))
+        paths.append(str(parent / f"{stem}.spec{ext}"))
+        paths.append(str(parent / "__tests__" / f"{stem}{ext}"))
+
+    return paths
 
 
 def _parse_compile_error(stderr: str, py_file: str, work_dir: str) -> str:

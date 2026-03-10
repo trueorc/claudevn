@@ -125,6 +125,7 @@ class QualityGateConfig(BaseModel):
     startup_health_url: Optional[str] = Field(default=None, description="Health check URL to poll after startup (e.g. http://localhost:8002/health)")
     startup_timeout_seconds: int = Field(default=15, description="Seconds to wait for app startup before declaring failure")
     config_completeness: bool = Field(default=False, description="Validate config completeness")
+    test_presence: bool = Field(default=True, description="Check that new code files have corresponding test files")
     timeout_seconds: int = Field(default=300, description="Timeout for quality gate execution")
 
 

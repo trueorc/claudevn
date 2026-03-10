@@ -1020,10 +1020,18 @@ fi
             "",
             "Focus ONLY on what the task description asks for. Do not:",
             "- Add functionality beyond what is requested",
-            "- Write comprehensive test suites — only write Tier 1 tests "
-            "(mockable unit tests covering new functionality)",
             "- Create detailed documentation unless documentation is the task",
             "- Refactor or improve unrelated code",
+            "",
+            "## Testing Requirements",
+            "",
+            "You MUST include Tier 1 unit tests for all new or modified functionality:",
+            "- Mock external dependencies (DB, APIs, file system, network)",
+            "- Cover the happy path and key error cases",
+            "- Place tests alongside existing test conventions in the project",
+            "- Do NOT write Tier 2 (integration/system) tests — those are handled separately",
+            "",
+            "Your PR will not be approved without accompanying unit tests.",
             "",
         ])
 

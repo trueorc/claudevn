@@ -16,9 +16,11 @@ from services.quality_gate_service import (
     GateStatus,
     QualityGateService,
     ValidationResult,
+    _classify_source_and_test_files,
     _collect_known_config_vars,
     _detect_startup_command,
     _detect_test_command,
+    _expected_test_paths,
     _extract_top_level_modules,
     _parse_compile_error,
     _parse_import_error,
@@ -41,6 +43,7 @@ def mock_config():
     config.quality_gate.test_gate = True
     config.quality_gate.startup_smoke_test = False
     config.quality_gate.config_completeness = False
+    config.quality_gate.test_presence = False
     config.quality_gate.timeout_seconds = 60
     config.git.repos_path = "/repos"
     return config
@@ -631,3 +634,85 @@ class TestConfigCompletenessCheck:
             )
         assert result.status == GateStatus.FAILED
         assert "REACT_APP_API" in str(result.details)
+
+
+# ---------------------------------------------------------------------------
+# Test presence gate (#265)
+# ---------------------------------------------------------------------------
+
+class TestClassifySourceAndTestFiles:
+    def test_splits_correctly(self):
+        files = [
+            "serving/services/foo.py",
+            "serving/tests/test_foo.py",
+            "src/App.jsx",
+            "src/App.test.jsx",
+            "README.md",
+            "serving/__init__.py",
+        ]
+        sources, tests = _classify_source_and_test_files(files)
+        assert "serving/services/foo.py" in sources
+        assert "src/App.jsx" in sources
+        assert "serving/tests/test_foo.py" in tests
+        assert "src/App.test.jsx" in tests
+        assert len(sources) == 2
+        assert len(tests) == 2
+
+    def test_skips_non_code(self):
+        sources, tests = _classify_source_and_test_files(["docs/guide.md", "config.yaml"])
+        assert sources == []
+        assert tests == []
+
+    def test_skips_init_and_config(self):
+        sources, _ = _classify_source_and_test_files(["__init__.py", "config.py"])
+        assert sources == []
+
+
+class TestExpectedTestPaths:
+    def test_python_file(self):
+        paths = _expected_test_paths("serving/services/quality_gate_service.py")
+        assert "serving/services/tests/test_quality_gate_service.py" in paths
+        assert "serving/tests/test_quality_gate_service.py" in paths
+
+    def test_js_file(self):
+        paths = _expected_test_paths("src/components/App.jsx")
+        assert "src/components/App.test.jsx" in paths
+        assert "src/components/App.spec.jsx" in paths
+        assert "src/components/__tests__/App.jsx" in paths
+
+
+class TestTestPresenceCheck:
+    @pytest.mark.asyncio
+    async def test_no_source_files_skipped(self, service):
+        result = await service._run_test_presence_check(
+            Path("/tmp/work"), ["serving/tests/test_foo.py", "README.md"]
+        )
+        assert result.status == GateStatus.SKIPPED
+
+    @pytest.mark.asyncio
+    async def test_source_with_test_in_diff_passes(self, service):
+        result = await service._run_test_presence_check(
+            Path("/tmp/work"),
+            ["serving/services/foo.py", "serving/tests/test_foo.py"],
+        )
+        assert result.status == GateStatus.PASSED
+
+    @pytest.mark.asyncio
+    async def test_source_with_existing_test_passes(self, service):
+        with patch.object(Path, "exists", return_value=True):
+            result = await service._run_test_presence_check(
+                Path("/tmp/work"),
+                ["serving/services/foo.py"],
+            )
+        assert result.status == GateStatus.PASSED
+
+    @pytest.mark.asyncio
+    async def test_source_without_test_fails(self, service):
+        with patch.object(Path, "exists", return_value=False):
+            result = await service._run_test_presence_check(
+                Path("/tmp/work"),
+                ["serving/services/foo.py"],
+            )
+        assert result.status == GateStatus.FAILED
+        assert "foo.py" in str(result.details)
+        assert "no corresponding test" in str(result.details)
