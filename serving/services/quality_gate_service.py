@@ -584,8 +584,12 @@ def _classify_source_and_test_files(
         # Config/boilerplate files
         "vite.config", "eslint.config", "tsconfig", "tailwind.config",
         "postcss.config", "jest.config", "babel.config", "webpack.config",
-        "setup-tests", "setupTests", "main.tsx", "main.ts", "main.jsx",
+        "vitest.config",
+        "setup-tests", "setupTests",
+        # Application entry points (not expected to have direct tests)
+        "main.tsx", "main.ts", "main.jsx", "main.py",
         "index.ts", "index.js",
+        "app.py", "App.jsx", "App.tsx",
     )
 
     source_files = []

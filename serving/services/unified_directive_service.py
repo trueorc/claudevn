@@ -894,8 +894,8 @@ class UnifiedDirectiveService:
             result = {}
             if goal and goal.issue_ids:
                 result["issues_created"] = list(goal.issue_ids)
-            if goal and goal.ai_summary:
-                result["reasoning"] = goal.ai_summary
+            if goal and getattr(goal, 'summary', None):
+                result["reasoning"] = goal.summary
 
             # Post goal_complete message
             await conv_service.add_message(
