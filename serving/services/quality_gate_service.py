@@ -280,12 +280,21 @@ class QualityGateService:
         2. ``package.json`` with ``test`` script → ``npm test``
         3. Fallback to ``python -m pytest``
 
+        Skips if no test runner is available or no test files exist.
         Parses pytest-style summary lines to extract pass/fail counts.
         """
         import time
         start = time.monotonic()
 
         cmd = _detect_test_command(work_dir)
+        if cmd is None:
+            elapsed = int((time.monotonic() - start) * 1000)
+            return GateResult(
+                gate="test_suite",
+                status=GateStatus.SKIPPED,
+                message="No test runner available (pytest not installed, no package.json test script)",
+                duration_ms=elapsed,
+            )
 
         try:
             result = await asyncio.to_thread(
@@ -568,7 +577,16 @@ def _classify_source_and_test_files(
     # Patterns that indicate a test file
     test_indicators = ("test_", "_test.", ".test.", ".spec.", "tests/", "test/")
     # Files to skip (not expected to have tests)
-    skip_patterns = ("__init__", "conftest", "setup.py", "config.py", "migrations/")
+    skip_patterns = (
+        "__init__", "conftest", "setup.py", "config.py", "migrations/",
+        # System files bundled by serving
+        "mcp_stdio_server.py",
+        # Config/boilerplate files
+        "vite.config", "eslint.config", "tsconfig", "tailwind.config",
+        "postcss.config", "jest.config", "babel.config", "webpack.config",
+        "setup-tests", "setupTests", "main.tsx", "main.ts", "main.jsx",
+        "index.ts", "index.js",
+    )
 
     source_files = []
     test_files = []
@@ -816,13 +834,15 @@ async def _poll_health(url: str, timeout: int) -> bool:
     return False
 
 
-def _detect_test_command(work_dir: Path) -> List[str]:
+def _detect_test_command(work_dir: Path) -> Optional[List[str]]:
     """Detect the appropriate test command for a project directory.
 
     Checks in order:
     1. scripts/run_unit_tests.sh (project runner)
     2. package.json with "test" script (JS/TS project)
-    3. Fallback: python -m pytest
+    3. python -m pytest (only if pytest is installed)
+
+    Returns None if no test runner is available.
     """
     test_script = work_dir / "scripts" / "run_unit_tests.sh"
     if test_script.exists():
@@ -838,7 +858,23 @@ def _detect_test_command(work_dir: Path) -> List[str]:
         except (json.JSONDecodeError, OSError):
             pass
 
-    return ["python", "-m", "pytest", "--tb=short", "-q"]
+    # Only use pytest if it's actually installed
+    if shutil.which("pytest") or _check_pytest_available():
+        return ["python", "-m", "pytest", "--tb=short", "-q"]
+
+    return None
+
+
+def _check_pytest_available() -> bool:
+    """Check if pytest is importable in the current Python environment."""
+    try:
+        result = subprocess.run(
+            ["python", "-c", "import pytest"],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 def _parse_test_summary(output: str) -> str:
