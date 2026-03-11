@@ -1131,6 +1131,47 @@ class WorkMapService:
 
         return await self._issue_service._check_unblock_issue_dependents(work.issue_id)
 
+    async def revert_completed_work(self, work_id: str) -> bool:
+        """Revert a completed work item and its parent issue back to IN_PROGRESS.
+
+        Called when the PR merge fails after work was already marked COMPLETED.
+        This prevents dependent work from being dispatched against unmerged code.
+
+        Returns:
+            True if revert succeeded, False if work not found or not completed.
+        """
+        work = self._work_items.get(work_id)
+        if not work or work.status != WorkStatus.COMPLETED:
+            return False
+
+        # Revert work item to IN_PROGRESS
+        work.status = WorkStatus.IN_PROGRESS
+        work.result = None
+        await self._save_to_redis()
+        logger.info(f"Reverted work {work_id} from COMPLETED to IN_PROGRESS")
+
+        # Revert parent issue: DONE → BACKLOG → READY → IN_PROGRESS
+        # (following valid transition rules)
+        if work.issue_id:
+            issue = await self._issue_service.get_issue(work.issue_id)
+            if issue and issue.status == IssueStatus.DONE:
+                reason = "PR merge or quality gates failed — reverting to retry"
+                await self._issue_service.update_issue_status(
+                    work.issue_id, IssueStatus.BACKLOG, reason=reason, trigger_cascade=False
+                )
+                await self._issue_service.update_issue_status(
+                    work.issue_id, IssueStatus.READY, trigger_cascade=False
+                )
+                await self._issue_service.update_issue_status(
+                    work.issue_id, IssueStatus.IN_PROGRESS, trigger_cascade=False
+                )
+                logger.info(
+                    f"Reverted issue {work.issue_id} from DONE to IN_PROGRESS "
+                    f"(work {work_id} merge failed)"
+                )
+
+        return True
+
     async def _complete_parent_issue(self, work: WorkItem, trigger_cascade: bool = True) -> None:
         """Complete the parent Issue when its WorkItem finishes.
 
