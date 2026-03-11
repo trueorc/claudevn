@@ -1147,7 +1147,7 @@ class WorkMapService:
         # Revert work item to IN_PROGRESS
         work.status = WorkStatus.IN_PROGRESS
         work.result = None
-        await self._save_to_redis()
+        await self._save_to_redis(work)
         logger.info(f"Reverted work {work_id} from COMPLETED to IN_PROGRESS")
 
         # Revert parent issue: DONE → BACKLOG → READY → IN_PROGRESS

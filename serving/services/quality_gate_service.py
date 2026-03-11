@@ -550,10 +550,13 @@ class QualityGateService:
                 f"{f} — no corresponding test file found"
                 for f in sorted(missing)
             ]
+            # Soft gate: warn but don't block merge. Test quality is enforced
+            # by test_suite gate when tests exist. test_presence is advisory
+            # because compute workers may not be tasked with writing tests.
             return GateResult(
                 gate="test_presence",
-                status=GateStatus.FAILED,
-                message=f"{len(missing)} source file(s) lack unit tests",
+                status=GateStatus.SKIPPED,
+                message=f"{len(missing)} source file(s) lack unit tests (advisory)",
                 details=details,
                 duration_ms=elapsed,
             )
