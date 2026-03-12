@@ -654,6 +654,7 @@ fi
         claude_md_path = working_dir / "CLAUDE.md"
         claude_md_path.write_text(claude_md_content)
         logger.debug(f"Created CLAUDE.md at {claude_md_path}")
+        self._ensure_claude_md_ignored(working_dir)
 
         # Set up MCP tools — copies script to workspace and returns SDK config
         mcp_servers = self._setup_mcp_tools(working_dir, work_assigned_event)
@@ -811,6 +812,7 @@ fi
         claude_md_content = self._create_claude_md(work_event)
         claude_md_path = repo_path / "CLAUDE.md"
         claude_md_path.write_text(claude_md_content)
+        self._ensure_claude_md_ignored(repo_path)
 
         # Set up MCP tools
         mcp_servers = self._setup_mcp_tools(repo_path, work_event)
@@ -1068,6 +1070,21 @@ fi
         ])
 
         return "\n".join(sections)
+
+    def _ensure_claude_md_ignored(self, repo_path: Path) -> None:
+        """Ensure CLAUDE.md is listed in .gitignore so it is never committed."""
+        gitignore_path = repo_path / ".gitignore"
+        entry = "CLAUDE.md"
+        if gitignore_path.exists():
+            existing = gitignore_path.read_text()
+            if entry in existing.splitlines():
+                return
+            # Append with a leading newline to avoid joining the last line
+            with gitignore_path.open("a") as f:
+                f.write(f"\n{entry}\n")
+        else:
+            gitignore_path.write_text(f"{entry}\n")
+        logger.debug(f"Ensured {entry} is in {gitignore_path}")
 
     def _setup_mcp_tools(
         self, working_dir: Path, work_assigned_event: Dict[str, Any]

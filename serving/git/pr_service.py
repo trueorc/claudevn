@@ -1211,33 +1211,42 @@ class PRService:
         repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         results = []
 
-        while True:
-            branch = await redis.pop_merge_queue(project)
-            if not branch:
-                break
+        if not await redis.acquire_merge_lock(project):
+            # Another process is already processing merges for this project.
+            # Our branch is already queued, so it will be picked up by that process.
+            logger.debug(f"Merge lock busy for {project}, deferring to existing processor")
+            return []
 
-            try:
-                result = await self.merge(project, branch)
-                results.append(result)
+        try:
+            while True:
+                branch = await redis.pop_merge_queue(project)
+                if not branch:
+                    break
 
-                # After a successful merge, sync upstream so the next
-                # merge in the queue starts from the latest state.
-                if result.get("success"):
-                    try:
-                        self._sync_upstream(project, repo_path)
-                    except Exception as e:
-                        logger.warning(
-                            f"Inter-merge upstream sync failed for {project}: {e}. "
-                            "Continuing with next merge."
-                        )
-            except ValueError as e:
-                results.append({
-                    "success": False,
-                    "branch": branch,
-                    "error": str(e)
-                })
-                # Skip failed PRs and continue processing remaining clean ones.
-                # Conflicting PRs are already marked CONFLICT by merge().
+                try:
+                    result = await self.merge(project, branch)
+                    results.append(result)
+
+                    # After a successful merge, sync upstream so the next
+                    # merge in the queue starts from the latest state.
+                    if result.get("success"):
+                        try:
+                            self._sync_upstream(project, repo_path)
+                        except Exception as e:
+                            logger.warning(
+                                f"Inter-merge upstream sync failed for {project}: {e}. "
+                                "Continuing with next merge."
+                            )
+                except ValueError as e:
+                    results.append({
+                        "success": False,
+                        "branch": branch,
+                        "error": str(e)
+                    })
+                    # Skip failed PRs and continue processing remaining clean ones.
+                    # Conflicting PRs are already marked CONFLICT by merge().
+        finally:
+            await redis.release_merge_lock(project)
 
         return results
 

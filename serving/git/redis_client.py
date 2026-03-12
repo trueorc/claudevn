@@ -491,6 +491,35 @@ class RedisClient:
         return None
 
     # ==========================================================================
+    # Merge Lock Operations
+    # ==========================================================================
+
+    async def acquire_merge_lock(self, project: str, timeout: int = 120) -> bool:
+        """Acquire a distributed lock for merge queue processing.
+
+        Uses SET NX EX for an atomic acquire-or-fail operation.
+
+        Args:
+            project: Project/repo name
+            timeout: Lock TTL in seconds (default 120)
+
+        Returns:
+            True if lock was acquired, False if already held
+        """
+        key = self._key(f"merge_lock:{project}")
+        result = await self._redis.set(key, "1", nx=True, ex=timeout)
+        return result is not None
+
+    async def release_merge_lock(self, project: str) -> None:
+        """Release the distributed merge lock.
+
+        Args:
+            project: Project/repo name
+        """
+        key = self._key(f"merge_lock:{project}")
+        await self._redis.delete(key)
+
+    # ==========================================================================
     # Pub/Sub Operations
     # ==========================================================================
 

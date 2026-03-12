@@ -231,6 +231,22 @@ class ProjectService:
         if not project:
             return {}
 
+        # Cancel all pending work items and issues before destroying git repos,
+        # so orphaned work cannot be dispatched to a repo that no longer exists.
+        work_map_counts = {}
+        try:
+            from services.work_map_service import get_work_map_service
+            work_map = get_work_map_service()
+            work_map_counts = await work_map.cascade_delete_project(project_id)
+            logger.info(
+                f"Cancelled work for project {project_id}: "
+                f"{work_map_counts.get('work_item_count', 0)} work items, "
+                f"{work_map_counts.get('issue_count', 0)} issues, "
+                f"{work_map_counts.get('goal_count', 0)} goals"
+            )
+        except Exception as e:
+            logger.warning(f"Work map cleanup failed for project {project_id}: {e}")
+
         repo_count = 0
 
         # Clean up Git repositories (both internal and cloned linked repos)
@@ -277,7 +293,7 @@ class ProjectService:
         await self._delete_project_storage(project_id)
 
         logger.info(f"Deleted project {project_id} (repos={repo_count})")
-        return {"repo_count": repo_count}
+        return {"repo_count": repo_count, **work_map_counts}
 
     async def add_repo(
         self,
