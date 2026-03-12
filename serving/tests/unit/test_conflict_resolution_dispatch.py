@@ -155,9 +155,15 @@ class TestAutoCreateAndMergePr:
             return_value=AsyncMock(add_to_merge_queue=AsyncMock())
         )
 
+        mock_quality_gate = MagicMock()
+        mock_quality_gate.validate_branch = AsyncMock(
+            return_value=MagicMock(passed=True, gates=[])
+        )
+
         with patch("api.compute._resolve_git_project_name", return_value="proj-1_repo-abc"), \
              patch("git.pr_service.PRService", return_value=mock_pr_service), \
-             patch("api.compute._dispatch_conflict_resolution_work", new_callable=AsyncMock) as mock_dispatch:
+             patch("api.compute._dispatch_conflict_resolution_work", new_callable=AsyncMock) as mock_dispatch, \
+             patch("services.quality_gate_service.get_quality_gate_service", return_value=mock_quality_gate):
             await _auto_create_and_merge_pr(mock_work_item, "feat/my-branch", "compute-001")
 
         mock_pr_service.update_status.assert_awaited_once()
@@ -184,9 +190,15 @@ class TestAutoCreateAndMergePr:
         conflict_pr_after_merge = _make_pr("conflict", conflicting_files=["file.py"])
         mock_pr_service.get_pr = AsyncMock(return_value=conflict_pr_after_merge)
 
+        mock_quality_gate = MagicMock()
+        mock_quality_gate.validate_branch = AsyncMock(
+            return_value=MagicMock(passed=True, gates=[])
+        )
+
         with patch("api.compute._resolve_git_project_name", return_value="proj-1_repo-abc"), \
              patch("git.pr_service.PRService", return_value=mock_pr_service), \
-             patch("api.compute._dispatch_conflict_resolution_work", new_callable=AsyncMock) as mock_dispatch:
+             patch("api.compute._dispatch_conflict_resolution_work", new_callable=AsyncMock) as mock_dispatch, \
+             patch("services.quality_gate_service.get_quality_gate_service", return_value=mock_quality_gate):
             await _auto_create_and_merge_pr(mock_work_item, "feat/my-branch", "compute-001")
 
         # Should still have approved, but then detected conflict during merge
