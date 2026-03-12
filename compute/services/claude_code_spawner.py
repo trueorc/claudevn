@@ -577,37 +577,69 @@ fi
             if not branch_name:
                 branch_name = f"work/{self.compute_id}/{task_id}"
 
-            try:
-                if is_conflict_resolution:
-                    # Check out the existing conflicting branch rather than creating a new one
-                    logger.info(
-                        f"Conflict resolution task {task_id}: checking out existing branch {branch_name}"
-                    )
-                    repo_path = self._setup_existing_branch(
-                        instance_workspace=instance_workspace,
-                        repo_url=repo_url,
-                        branch=branch_name,
-                        git_token=git_token,
-                    )
-                else:
-                    repo_path = self._setup_branch(
-                        instance_workspace=instance_workspace,
-                        repo_url=repo_url,
-                        base_branch=base_branch,
-                        feature_branch=branch_name,
-                        git_token=git_token,
-                    )
-                logger.info(f"Git branch set up for task {task_id}")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to set up Git branch for task {task_id}: {e.stderr}")
-                self._cleanup_workspace(instance_workspace)
-                await self.send_claude_code_failed(task_id, instance_id, f"Git setup failed: {e.stderr}", exit_code=-1)
-                return False
-            except Exception as e:
-                logger.error(f"Failed to set up Git branch for task {task_id}: {e}")
-                self._cleanup_workspace(instance_workspace)
-                await self.send_claude_code_failed(task_id, instance_id, f"Git setup failed: {e}", exit_code=-1)
-                return False
+            max_retries = 3
+            retry_delay = 10  # seconds
+            last_error = None
+
+            for attempt in range(1, max_retries + 1):
+                try:
+                    if is_conflict_resolution:
+                        logger.info(
+                            f"Conflict resolution task {task_id}: checking out existing branch {branch_name}"
+                        )
+                        repo_path = self._setup_existing_branch(
+                            instance_workspace=instance_workspace,
+                            repo_url=repo_url,
+                            branch=branch_name,
+                            git_token=git_token,
+                        )
+                    else:
+                        repo_path = self._setup_branch(
+                            instance_workspace=instance_workspace,
+                            repo_url=repo_url,
+                            base_branch=base_branch,
+                            feature_branch=branch_name,
+                            git_token=git_token,
+                        )
+                    logger.info(f"Git branch set up for task {task_id}")
+                    break  # Success — exit retry loop
+                except subprocess.CalledProcessError as e:
+                    last_error = f"Git setup failed: {e.stderr}"
+                    is_transient = any(code in str(e.stderr) for code in ("500", "503", "Connection refused"))
+                    if is_transient and attempt < max_retries:
+                        logger.warning(
+                            f"Git setup attempt {attempt}/{max_retries} failed for task {task_id} "
+                            f"(transient error), retrying in {retry_delay}s: {e.stderr}"
+                        )
+                        # Clean up partial clone before retry
+                        repo_dir = instance_workspace / "repo"
+                        if repo_dir.exists():
+                            import shutil as _shutil
+                            _shutil.rmtree(repo_dir, ignore_errors=True)
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    logger.error(f"Failed to set up Git branch for task {task_id}: {e.stderr}")
+                    self._cleanup_workspace(instance_workspace)
+                    await self.send_claude_code_failed(task_id, instance_id, last_error, exit_code=-1)
+                    return False
+                except Exception as e:
+                    last_error = f"Git setup failed: {e}"
+                    is_transient = any(code in str(e) for code in ("500", "503", "Connection refused"))
+                    if is_transient and attempt < max_retries:
+                        logger.warning(
+                            f"Git setup attempt {attempt}/{max_retries} failed for task {task_id} "
+                            f"(transient error), retrying in {retry_delay}s: {e}"
+                        )
+                        repo_dir = instance_workspace / "repo"
+                        if repo_dir.exists():
+                            import shutil as _shutil
+                            _shutil.rmtree(repo_dir, ignore_errors=True)
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    logger.error(f"Failed to set up Git branch for task {task_id}: {e}")
+                    self._cleanup_workspace(instance_workspace)
+                    await self.send_claude_code_failed(task_id, instance_id, last_error, exit_code=-1)
+                    return False
         else:
             logger.warning(f"No repository URL provided for task {task_id}, skipping Git setup")
 
@@ -622,6 +654,7 @@ fi
         claude_md_path = working_dir / "CLAUDE.md"
         claude_md_path.write_text(claude_md_content)
         logger.debug(f"Created CLAUDE.md at {claude_md_path}")
+        self._ensure_claude_md_ignored(working_dir)
 
         # Set up MCP tools — copies script to workspace and returns SDK config
         mcp_servers = self._setup_mcp_tools(working_dir, work_assigned_event)
@@ -779,6 +812,7 @@ fi
         claude_md_content = self._create_claude_md(work_event)
         claude_md_path = repo_path / "CLAUDE.md"
         claude_md_path.write_text(claude_md_content)
+        self._ensure_claude_md_ignored(repo_path)
 
         # Set up MCP tools
         mcp_servers = self._setup_mcp_tools(repo_path, work_event)
@@ -1020,14 +1054,37 @@ fi
             "",
             "Focus ONLY on what the task description asks for. Do not:",
             "- Add functionality beyond what is requested",
-            "- Write comprehensive test suites — only write Tier 1 tests "
-            "(mockable unit tests covering new functionality)",
             "- Create detailed documentation unless documentation is the task",
             "- Refactor or improve unrelated code",
+            "",
+            "## Testing Requirements",
+            "",
+            "You MUST include Tier 1 unit tests for all new or modified functionality:",
+            "- Mock external dependencies (DB, APIs, file system, network)",
+            "- Cover the happy path and key error cases",
+            "- Place tests alongside existing test conventions in the project",
+            "- Do NOT write Tier 2 (integration/system) tests — those are handled separately",
+            "",
+            "Your PR will not be approved without accompanying unit tests.",
             "",
         ])
 
         return "\n".join(sections)
+
+    def _ensure_claude_md_ignored(self, repo_path: Path) -> None:
+        """Ensure CLAUDE.md is listed in .gitignore so it is never committed."""
+        gitignore_path = repo_path / ".gitignore"
+        entry = "CLAUDE.md"
+        if gitignore_path.exists():
+            existing = gitignore_path.read_text()
+            if entry in existing.splitlines():
+                return
+            # Append with a leading newline to avoid joining the last line
+            with gitignore_path.open("a") as f:
+                f.write(f"\n{entry}\n")
+        else:
+            gitignore_path.write_text(f"{entry}\n")
+        logger.debug(f"Ensured {entry} is in {gitignore_path}")
 
     def _setup_mcp_tools(
         self, working_dir: Path, work_assigned_event: Dict[str, Any]

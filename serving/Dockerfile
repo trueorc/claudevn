@@ -52,6 +52,10 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # Create necessary directories
 RUN mkdir -p data/serving logs db data/repos data/ssh_keys marketplace/skills/system marketplace/skills/user
 
+# Set global git identity so merge commits always succeed inside the container
+RUN git config --global user.email "claudevn@system" \
+    && git config --global user.name "ClaudeVN"
+
 # Expose port (API with built-in Git Smart HTTP)
 EXPOSE 8002
 

@@ -67,6 +67,7 @@ class PRStatus(str, Enum):
     MERGED = "merged"
     CONFLICT = "conflict"
     CLOSED = "closed"
+    VALIDATION_FAILED = "validation_failed"
 
 
 @dataclass
@@ -87,6 +88,7 @@ class PullRequest:
     reviewed_by: Optional[str] = None
     merged_at: Optional[str] = None
     conflicting_files: Optional[List[str]] = None
+    validation_results: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -106,6 +108,7 @@ class PullRequest:
             "reviewed_by": self.reviewed_by,
             "merged_at": self.merged_at,
             "conflicting_files": self.conflicting_files,
+            "validation_results": self.validation_results,
         }
 
 
@@ -707,6 +710,12 @@ class PRService:
                 "status": status.value
             })
 
+        elif status == PRStatus.VALIDATION_FAILED:
+            # Keep in PR queue but don't add to merge queue
+            await redis.publish_git_event(project, "pr_validation_failed", {
+                "branch": branch,
+            })
+
         logger.info(f"PR status updated: {project}/{branch} -> {status.value}")
 
         return await self.get_pr(project, branch)
@@ -1202,33 +1211,42 @@ class PRService:
         repo_path = Path(self._config.git.repos_path) / f"{project}.git"
         results = []
 
-        while True:
-            branch = await redis.pop_merge_queue(project)
-            if not branch:
-                break
+        if not await redis.acquire_merge_lock(project):
+            # Another process is already processing merges for this project.
+            # Our branch is already queued, so it will be picked up by that process.
+            logger.debug(f"Merge lock busy for {project}, deferring to existing processor")
+            return []
 
-            try:
-                result = await self.merge(project, branch)
-                results.append(result)
+        try:
+            while True:
+                branch = await redis.pop_merge_queue(project)
+                if not branch:
+                    break
 
-                # After a successful merge, sync upstream so the next
-                # merge in the queue starts from the latest state.
-                if result.get("success"):
-                    try:
-                        self._sync_upstream(project, repo_path)
-                    except Exception as e:
-                        logger.warning(
-                            f"Inter-merge upstream sync failed for {project}: {e}. "
-                            "Continuing with next merge."
-                        )
-            except ValueError as e:
-                results.append({
-                    "success": False,
-                    "branch": branch,
-                    "error": str(e)
-                })
-                # Skip failed PRs and continue processing remaining clean ones.
-                # Conflicting PRs are already marked CONFLICT by merge().
+                try:
+                    result = await self.merge(project, branch)
+                    results.append(result)
+
+                    # After a successful merge, sync upstream so the next
+                    # merge in the queue starts from the latest state.
+                    if result.get("success"):
+                        try:
+                            self._sync_upstream(project, repo_path)
+                        except Exception as e:
+                            logger.warning(
+                                f"Inter-merge upstream sync failed for {project}: {e}. "
+                                "Continuing with next merge."
+                            )
+                except ValueError as e:
+                    results.append({
+                        "success": False,
+                        "branch": branch,
+                        "error": str(e)
+                    })
+                    # Skip failed PRs and continue processing remaining clean ones.
+                    # Conflicting PRs are already marked CONFLICT by merge().
+        finally:
+            await redis.release_merge_lock(project)
 
         return results
 

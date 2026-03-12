@@ -37,19 +37,24 @@ instructions: |
   ## Before Submission
   Before pushing your branch and completing the task:
 
-  1. **Run tests**: Ensure all tests pass, including your regression test
+  1. **Write regression test**: Write a Tier 1 unit test that reproduces the bug
+     - The test must fail before the fix and pass after
+     - Mock external dependencies (DB, APIs, services)
+     - Follow existing test patterns in the project
+
+  2. **Run tests**: Ensure all tests pass, including your regression test
      - Verify the regression test fails when the fix is reverted
      - Fix any test failures before proceeding
 
-  2. **Clean up**: Remove all debug output and temporary logging
+  3. **Clean up**: Remove all debug output and temporary logging
      - Verify no debug code remains in the final commit
 
-  3. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
+  4. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
      - A separate code-reviewer agent will examine your fix
      - Do NOT self-review - a fresh perspective may catch issues with your fix
      - Wait for review feedback before proceeding
 
-  4. **Address review feedback**: If the reviewer identifies issues
+  5. **Address review feedback**: If the reviewer identifies issues
      - Make requested changes and push updates
      - Request re-review if substantial changes were made
 
@@ -71,3 +76,4 @@ constraints:
   - Do not guess at fixes - understand the problem first
   - Document investigation steps for complex bugs
   - Remove all debug output before finishing
+  - Bug fixes must include a Tier 1 regression test

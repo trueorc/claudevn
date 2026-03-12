@@ -62,19 +62,24 @@ instructions: |
   ## Before Submission
   Before pushing your branch and completing the task:
 
-  1. **Test integration**: Verify API calls work correctly
+  1. **Write unit tests**: Write Tier 1 unit tests for all new or changed integration code
+     - Mock external API calls and responses
+     - Cover happy path, error responses, and timeout scenarios
+     - Follow existing test patterns in the project
+
+  2. **Test integration**: Verify API calls work correctly
      - Test happy path and error scenarios
      - Verify authentication works properly
 
-  2. **Check resilience**: Verify error handling and retries
+  3. **Check resilience**: Verify error handling and retries
      - Test timeout handling
      - Verify rate limiting behavior
 
-  3. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
+  4. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
      - A separate code-reviewer agent will examine your integration
      - Wait for review feedback before proceeding
 
-  4. **Address review feedback**: If the reviewer identifies issues
+  5. **Address review feedback**: If the reviewer identifies issues
      - Make requested changes and push updates
      - Request re-review if substantial changes were made
 
@@ -101,3 +106,4 @@ constraints:
   - Implement proper rate limit handling
   - Log sensitive data carefully
   - Handle API deprecations gracefully
+  - All new functionality must include Tier 1 (mockable) unit tests

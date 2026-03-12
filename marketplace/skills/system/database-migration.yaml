@@ -48,19 +48,24 @@ instructions: |
   ## Before Submission
   Before pushing your branch and completing the task:
 
-  1. **Test migration**: Apply and rollback in test environment
+  1. **Write unit tests**: Write Tier 1 unit tests for migration-related code
+     - Mock database connections and queries
+     - Test schema change logic and data transformations
+     - Follow existing test patterns in the project
+
+  2. **Test migration**: Apply and rollback in test environment
      - Verify both up and down migrations work correctly
      - Test with realistic data volumes
 
-  2. **Check impact**: Review performance and data integrity
+  3. **Check impact**: Review performance and data integrity
      - Estimate migration time for production data
      - Verify no data loss occurs
 
-  3. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
+  4. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
      - A separate code-reviewer agent will examine your migration
      - Wait for review feedback before proceeding
 
-  4. **Address review feedback**: If the reviewer identifies issues
+  5. **Address review feedback**: If the reviewer identifies issues
      - Make requested changes and push updates
      - Request re-review if substantial changes were made
 
@@ -87,3 +92,4 @@ constraints:
   - Test migrations with realistic data volumes
   - Document breaking changes clearly
   - Coordinate with deployment schedules
+  - All new functionality must include Tier 1 (mockable) unit tests

@@ -40,6 +40,9 @@ RUN pip install --no-cache-dir /app/shared/
 COPY compute/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Testing tools so compute workers can run project tests
+RUN pip install --no-cache-dir pytest pytest-asyncio
+
 # Copy compute application
 COPY compute/ .
 

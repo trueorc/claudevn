@@ -91,7 +91,11 @@ export function ConversationProvider({ children }) {
   const projectId = activeProject?.project_id || null
 
   const conversation = useConversation(projectId)
-  const { messages, clear: clearConversation } = conversation
+  const { messages, clear: clearConversation, resumePolling } = conversation
+
+  // Keep a stable ref to resumePolling for the WebSocket handler.
+  const resumePollingRef = useRef(resumePolling)
+  useEffect(() => { resumePollingRef.current = resumePolling }, [resumePolling])
 
   // Stored messages loaded from server (or sessionStorage fallback) when project changes.
   // Shown while useConversation's internal state is still empty (e.g. after page refresh).
@@ -148,6 +152,13 @@ export function ConversationProvider({ children }) {
         if (prev.some(m => m.id === localMsg.id)) return prev
         return [...prev, localMsg]
       })
+
+      // When the AI agent posts a goal_processing message server-side,
+      // the frontend needs to start polling so the processing card shows
+      // stage transitions (decomposing → characterizing → creating_issues).
+      if (localMsg.type === 'goal_processing' && localMsg.goal_id && resumePollingRef.current) {
+        resumePollingRef.current(localMsg.goal_id, localMsg.stage || 'queued')
+      }
     }
 
     const handleMessageRemoved = (eventData) => {
