@@ -208,9 +208,11 @@ class TestHandleWorkStatusUpdateOrder:
         # cascade_dependents is now called inside finalize_work() which is
         # invoked from _auto_create_and_merge_pr, not directly from
         # _handle_work_status_update.
-        mock_auto_merge = AsyncMock(
-            side_effect=lambda *a, **kw: call_order.append("auto_merge")
-        )
+        def _auto_merge_side_effect(*a, **kw):
+            call_order.append("auto_merge")
+            return True
+
+        mock_auto_merge = AsyncMock(side_effect=_auto_merge_side_effect)
 
         # Mock RepoManager for branch verification
         mock_repo_mgr = MagicMock()

@@ -36,18 +36,23 @@ instructions: |
   ## Before Submission
   Before pushing your branch and completing the task:
 
-  1. **Run tests**: Execute the test suite and ensure all tests pass
+  1. **Write unit tests**: Write Tier 1 unit tests for all new or changed code
+     - Mock external dependencies (DB, APIs, services)
+     - Cover happy path and key error/edge cases
+     - Follow existing test patterns and directory structure in the project
+
+  2. **Run tests**: Execute the test suite and ensure all tests pass
      - If tests fail, fix the issues before proceeding
 
-  2. **Check code quality**: Run linters and formatters
+  3. **Check code quality**: Run linters and formatters
      - Fix any linting errors or warnings
 
-  3. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
+  4. **Request code review**: Use `claudevn_request_review()` to signal your branch is ready
      - A separate code-reviewer agent will examine your changes
      - Do NOT self-review - a fresh perspective catches issues you may have missed
      - Wait for review feedback before proceeding
 
-  4. **Address review feedback**: If the reviewer identifies issues
+  5. **Address review feedback**: If the reviewer identifies issues
      - Make requested changes and push updates
      - Request re-review if substantial changes were made
 
@@ -69,3 +74,4 @@ constraints:
   - Do not modify configuration without approval
   - Keep PRs focused on a single concern
   - Do not add excessive comments or documentation
+  - All new functionality must include Tier 1 (mockable) unit tests

@@ -808,9 +808,16 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         # finalize_work() inside _auto_create_and_merge_pr handles
         # IMPLEMENTED → COMPLETED + DONE transitions and dependency cascade
         branch_name = event.branch_name or work.branch_name
+        merge_ok = False
         if branch_name and work.project_id:
-            await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+            merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
+        if not merge_ok and branch_name and work.project_id:
+            # Merge or quality gates failed — revert work/issue so they don't appear done
+            logger.warning(
+                f"Reverting work {work.work_id} to IN_PROGRESS — PR merge did not succeed"
+            )
+            await work_map.revert_completed_work(work.work_id)
 
 
 async def _handle_rejection_redispatch(event: ComputeEventRequest) -> None:
@@ -1118,10 +1125,10 @@ async def _handle_conflict_resolution_completed(event, work_map) -> None:
     # finalize_work() inside _auto_create_and_merge_pr handles cascade
     branch_name = event.branch_name or work.branch_name
     if branch_name and work.project_id:
-        await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+        merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
 
-async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> None:
+async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> bool:
     """Auto-create a PR and trigger merge queue processing after work completion.
 
     Handles both fresh PRs and post-conflict-resolution re-entry (where
@@ -1131,6 +1138,9 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         work: Completed WorkItem
         branch_name: Branch name with the work's commits
         compute_id: Compute instance that completed the work
+
+    Returns:
+        True if the PR was merged successfully, False otherwise.
     """
     from git.pr_service import PRService, PRStatus
 
@@ -1172,14 +1182,14 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                     await _dispatch_conflict_resolution_work(
                         work, branch_name, compute_id, existing_pr
                     )
-                    return
+                    return False
             else:
                 # PR exists in a non-conflict state — nothing to do
                 logger.info(
                     f"PR already exists for {branch_name} "
                     f"(status: {existing_pr.status.value if existing_pr else 'unknown'})"
                 )
-                return
+                return False
 
         # If the PR has conflicts on creation (not post-resolution), dispatch resolution.
         if not conflict_resolved and pr.status == PRStatus.CONFLICT:
@@ -1187,9 +1197,61 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 f"PR has conflicts on creation, dispatching conflict resolution for {branch_name}"
             )
             await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
-            return
+            return False
 
-        # Auto-approve (work completed successfully, no conflicts)
+        # Run quality gates before auto-approve
+        from services.quality_gate_service import get_quality_gate_service
+        quality_gate = get_quality_gate_service()
+        validation = await quality_gate.validate_branch(git_project_name, branch_name)
+
+        if not validation.passed:
+            logger.warning(
+                f"Quality gates failed for {branch_name}: "
+                + ", ".join(f"{g.gate}={g.status.value}" for g in validation.gates if g.status.value != "passed")
+            )
+            # Store validation results on PR
+            await pr_service.update_status(
+                project=git_project_name,
+                branch=branch_name,
+                status=PRStatus.VALIDATION_FAILED,
+                reviewed_by="quality-gate",
+            )
+            # Store validation details in Redis
+            redis = await pr_service._get_redis()
+            await redis.set_branch_metadata(
+                git_project_name, branch_name, "validation_results", validation.to_dict()
+            )
+            # Notify compute of validation failure
+            sse_manager = pr_service._get_sse_manager()
+            await sse_manager.send_event(
+                compute_id,
+                "validation_failed",
+                {
+                    "branch": branch_name,
+                    "task_id": work.work_id,
+                    "validation": validation.to_dict(),
+                },
+            )
+            # Post quality gate failure to project chat so users see it
+            try:
+                from services.conversation_service import get_conversation_service
+                conv_service = get_conversation_service()
+                failed_gates = [g.gate for g in validation.gates if g.status.value != "passed"]
+                await conv_service.add_message(
+                    project_id=work.project_id,
+                    user_id="system",
+                    display_name="System",
+                    type="error",
+                    content=f"Quality gates failed for **{work.title}** (branch `{branch_name}`): {', '.join(failed_gates)}. Work reverted to in-progress.",
+                    metadata={"work_id": work.work_id, "branch": branch_name, "event_type": "quality_gate_failed"},
+                )
+            except Exception as e:
+                logger.warning(f"Failed to post quality gate failure to chat: {e}")
+            return False
+
+        logger.info(f"Quality gates passed for {branch_name}")
+
+        # Auto-approve (work completed successfully, no conflicts, gates passed)
         await pr_service.update_status(
             project=git_project_name,
             branch=branch_name,
@@ -1230,8 +1292,16 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
             else:
                 logger.warning(f"Auto-merge failed for {result.get('branch', branch_name)}: {result.get('error')}")
 
+        # Check if OUR branch was successfully merged
+        our_merged = any(
+            r.get("success") and r.get("branch", "") == branch_name
+            for r in results
+        )
+        return our_merged
+
     except Exception as e:
         logger.warning(f"Auto PR/merge failed for {branch_name}: {e}")
+        return False
 
 
 # =============================================================================

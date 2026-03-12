@@ -155,6 +155,7 @@ class PRResponse(BaseModel):
     updated_at: Optional[str]
     reviewed_by: Optional[str]
     merged_at: Optional[str]
+    validation_results: Optional[dict] = None
 
 
 class MergeRequest(BaseModel):
@@ -225,7 +226,8 @@ def pr_to_response(pr: PullRequest) -> PRResponse:
         created_at=pr.created_at,
         updated_at=pr.updated_at,
         reviewed_by=pr.reviewed_by,
-        merged_at=pr.merged_at
+        merged_at=pr.merged_at,
+        validation_results=pr.validation_results,
     )
 
 
@@ -699,6 +701,26 @@ async def check_mergeable(project: str, branch: str):
     """Check if a PR can be merged."""
     pr_service = get_pr_service()
     return await pr_service.check_mergeable(project, branch)
+
+
+@router.get("/prs/{project}/{branch}/validation")
+async def get_validation_results(project: str, branch: str):
+    """Get quality gate validation results for a PR.
+
+    Returns the most recent validation results stored on the PR,
+    including per-gate status, messages, and details.
+    """
+    from git.redis_client import get_redis, RedisClient
+
+    redis = await get_redis()
+    client = RedisClient(redis)
+    results = await client.get_branch_metadata(project, branch, "validation_results")
+    if not results:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No validation results for {project}/{branch}",
+        )
+    return results
 
 
 # ==========================================================================
