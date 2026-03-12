@@ -117,6 +117,10 @@
   opacity: 0.6;
 }
 
+.status-implemented .node-circle {
+  filter: drop-shadow(0 0 2px #f59e0b);
+}
+
 /* Legend */
 .graph-legend {
   position: absolute;
@@ -167,6 +171,10 @@
 
 .legend-dot.status-blocked {
   background: #ef4444;
+}
+
+.legend-dot.status-implemented {
+  background: #f59e0b;
 }
 
 .legend-dot.status-done {

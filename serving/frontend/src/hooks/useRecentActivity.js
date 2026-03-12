@@ -7,7 +7,8 @@ const STATUS_LABELS = {
   in_progress: 'started',
   in_review: 'moved to review',
   testing: 'moved to testing',
-  done: 'completed',
+  implemented: 'implemented — pending merge',
+  done: 'merged',
   blocked: 'blocked',
   cancelled: 'cancelled',
 }

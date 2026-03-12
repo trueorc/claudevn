@@ -69,7 +69,7 @@ class TestCompleteTaskConflictDetection:
                 assert result is not None
                 assert result.merge_status == MergeStatus.QUEUED
                 assert result.task_id == "work-123"
-                assert result.status == "completed"
+                assert result.status == "implemented"
 
                 # Verify dry-run merge was called
                 mock_pr_service.dry_run_merge.assert_called_once_with(

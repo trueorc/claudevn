@@ -14,6 +14,8 @@ export function StatusBadge({ status }) {
     healthy: 'success',
     running: 'success',
     completed: 'success',
+    done: 'success',
+    implemented: 'warning',
     degraded: 'warning',
     draining: 'warning',
     benched: 'warning',

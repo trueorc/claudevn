@@ -88,6 +88,8 @@ function getStatusColor(status) {
     case 'done':
     case 'completed':
       return '#6b7280'
+    case 'implemented':
+      return '#f59e0b'
     case 'in_progress':
     case 'in_review':
       return '#3b82f6'
@@ -105,6 +107,8 @@ function getStatusFill(status) {
     case 'done':
     case 'completed':
       return 'rgba(107,114,128,0.10)'
+    case 'implemented':
+      return 'rgba(245,158,11,0.10)'
     case 'in_progress':
     case 'in_review':
       return 'rgba(59,130,246,0.10)'

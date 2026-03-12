@@ -39,6 +39,7 @@ class PlanSummaryResponse(BaseModel):
     blocked_count: int = 0
     backlog_count: int = 0
     failed_count: int = 0
+    implemented_count: int = 0
     done_count: int = 0
     total_count: int = 0
 
@@ -57,9 +58,10 @@ class PlanSummaryResponse(BaseModel):
     blocked_items: List[dict] = Field(default_factory=list)  # blocked issues
     backlog_items: List[dict] = Field(default_factory=list)  # backlog (waiting on deps)
     failed_items: List[dict] = Field(default_factory=list)   # failed issues
+    implemented_items: List[dict] = Field(default_factory=list)  # implemented, pending merge
 
     # Done items
-    done_items: List[dict] = Field(default_factory=list)      # completed issues
+    done_items: List[dict] = Field(default_factory=list)      # merged to main
 
     # Decision traces
     recent_traces: List[dict] = Field(default_factory=list)  # last 10 traces
@@ -133,6 +135,7 @@ async def get_plan_summary(
         blocked = [i for i in all_issues if i.status == IssueStatus.BLOCKED]
         backlog = [i for i in all_issues if i.status == IssueStatus.BACKLOG]
         failed = [i for i in all_issues if i.status == IssueStatus.FAILED]
+        implemented = [i for i in all_issues if i.status == IssueStatus.IMPLEMENTED]
         done = [i for i in all_issues if i.status == IssueStatus.DONE]
 
         response.running_items = [_serialize_issue(i) for i in in_progress]
@@ -140,6 +143,7 @@ async def get_plan_summary(
         response.blocked_items = [_serialize_issue(i) for i in blocked]
         response.backlog_items = [_serialize_issue(i) for i in backlog[:20]]
         response.failed_items = [_serialize_issue(i) for i in failed]
+        response.implemented_items = [_serialize_issue(i) for i in implemented]
         response.done_items = [_serialize_issue(i) for i in done]
 
         response.in_progress_count = len(in_progress)
@@ -147,6 +151,7 @@ async def get_plan_summary(
         response.blocked_count = len(blocked)
         response.backlog_count = len(backlog)
         response.failed_count = len(failed)
+        response.implemented_count = len(implemented)
         response.done_count = len(done)
         response.total_count = len(all_issues)
 

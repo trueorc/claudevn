@@ -706,9 +706,9 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         and event.exit_code == 0
     )
 
-    # Check if work is already in a terminal state (#829)
-    # MCP report_progress(status=COMPLETED) may have already marked it done
-    already_terminal = work.status in (WorkStatus.COMPLETED, WorkStatus.FAILED)
+    # Check if work is already in a terminal/near-terminal state (#829)
+    # MCP report_progress(status=COMPLETED) may have already marked it implemented
+    already_terminal = work.status in (WorkStatus.IMPLEMENTED, WorkStatus.COMPLETED, WorkStatus.FAILED)
 
     if already_terminal:
         logger.info(
@@ -782,7 +782,7 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
 
     # Post-completion side effects run regardless of who set the terminal state,
     # since MCP progress doesn't handle PR creation or tracking (#829)
-    if is_success or (already_terminal and work.status == WorkStatus.COMPLETED):
+    if is_success or (already_terminal and work.status in (WorkStatus.IMPLEMENTED, WorkStatus.COMPLETED)):
         # Record specialization utilization
         try:
             from services.specialization_service import get_specialization_service
@@ -804,22 +804,20 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         except Exception as e:
             logger.debug(f"Context affinity tracking skipped: {e}")
 
-        # Auto-create PR and trigger merge if branch exists, then cascade (#832)
+        # Auto-create PR and trigger merge if branch exists (#832)
+        # finalize_work() inside _auto_create_and_merge_pr handles
+        # IMPLEMENTED → COMPLETED + DONE transitions and dependency cascade
         branch_name = event.branch_name or work.branch_name
         merge_ok = False
         if branch_name and work.project_id:
             merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-        if merge_ok:
-            # Merge succeeded — trigger dependency cascade so dependents get merged code
-            await work_map.cascade_dependents(work.work_id)
-        elif branch_name and work.project_id:
+        if not merge_ok and branch_name and work.project_id:
             # Merge or quality gates failed — revert work/issue so they don't appear done
             logger.warning(
                 f"Reverting work {work.work_id} to IN_PROGRESS — PR merge did not succeed"
             )
             await work_map.revert_completed_work(work.work_id)
-
 
 
 async def _handle_rejection_redispatch(event: ComputeEventRequest) -> None:
@@ -1124,13 +1122,10 @@ async def _handle_conflict_resolution_completed(event, work_map) -> None:
     )
 
     # Re-trigger the PR merge pipeline with the original work item
+    # finalize_work() inside _auto_create_and_merge_pr handles cascade
     branch_name = event.branch_name or work.branch_name
     if branch_name and work.project_id:
         merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
-
-        # Only cascade if merge actually succeeded
-        if merge_ok and work.status == WorkStatus.COMPLETED:
-            await work_map.cascade_dependents(work.work_id)
 
 
 async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> bool:
@@ -1273,7 +1268,18 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         results = await pr_service.process_merge_queue(git_project_name)
         for result in results:
             if result.get("success"):
-                logger.info(f"Auto-merged branch {result.get('branch', branch_name)}")
+                merged_branch = result.get("branch", branch_name)
+                logger.info(f"Auto-merged branch {merged_branch}")
+
+                # Finalize work: IMPLEMENTED → COMPLETED + DONE + cascade
+                if merged_branch == branch_name:
+                    try:
+                        work_map = get_work_map_service()
+                        await work_map.finalize_work(work.work_id)
+                    except Exception as fin_err:
+                        logger.warning(
+                            f"Failed to finalize work {work.work_id} after merge: {fin_err}"
+                        )
             elif result.get("reason") == "conflict":
                 # Merge conflict — dispatch resolution to the branch's compute
                 conflict_branch = result.get("branch", branch_name)

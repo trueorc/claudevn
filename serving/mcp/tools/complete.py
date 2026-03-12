@@ -145,7 +145,7 @@ async def complete_task(input: CompleteTaskInput) -> tuple[Optional[CompleteResp
 
         return CompleteResponse(
             task_id=input.task_id,
-            status="completed",
+            status="implemented",
             merge_status=merge_status,
             next_task=next_task
         ), None

@@ -73,39 +73,40 @@ def dependent_issue(service, parent_issue):
 
 
 class TestCompleteWorkCascadeFlag:
-    """Test that trigger_cascade=False suppresses dependency cascade."""
+    """Test two-phase complete: complete_work() → IMPLEMENTED, finalize_work() → COMPLETED + cascade."""
 
     @pytest.mark.asyncio
-    async def test_complete_work_default_cascades(
+    async def test_complete_work_sets_implemented(
         self, service, sample_work, parent_issue, dependent_issue
     ):
-        """Default complete_work triggers cascade — dependent moves to READY."""
+        """complete_work() sets IMPLEMENTED — cascade deferred until finalize_work()."""
         work = await service.complete_work(
             work_id="work-1",
             result={"summary": "Done"},
             compute_id="compute-1",
         )
+        assert work is not None
+        assert work.status == WorkStatus.IMPLEMENTED
+        assert parent_issue.status == IssueStatus.IMPLEMENTED
+        # Cascade deferred — dependent still BACKLOG until finalize_work()
+        assert dependent_issue.status == IssueStatus.BACKLOG
+
+    @pytest.mark.asyncio
+    async def test_finalize_work_completes_and_cascades(
+        self, service, sample_work, parent_issue, dependent_issue
+    ):
+        """finalize_work() transitions IMPLEMENTED → COMPLETED and triggers cascade."""
+        await service.complete_work(
+            work_id="work-1",
+            result={"summary": "Done"},
+            compute_id="compute-1",
+        )
+        # After finalize (post-merge), cascade fires
+        work = await service.finalize_work("work-1")
         assert work is not None
         assert work.status == WorkStatus.COMPLETED
         assert parent_issue.status == IssueStatus.DONE
         assert dependent_issue.status == IssueStatus.READY
-
-    @pytest.mark.asyncio
-    async def test_complete_work_no_cascade(
-        self, service, sample_work, parent_issue, dependent_issue
-    ):
-        """complete_work(trigger_cascade=False) does NOT unblock dependents."""
-        work = await service.complete_work(
-            work_id="work-1",
-            result={"summary": "Done"},
-            compute_id="compute-1",
-            trigger_cascade=False,
-        )
-        assert work is not None
-        assert work.status == WorkStatus.COMPLETED
-        assert parent_issue.status == IssueStatus.DONE
-        # Dependent should still be BACKLOG — cascade was suppressed
-        assert dependent_issue.status == IssueStatus.BACKLOG
 
 
 class TestCascadeDependents:
@@ -115,35 +116,37 @@ class TestCascadeDependents:
     async def test_cascade_after_complete(
         self, service, sample_work, parent_issue, dependent_issue
     ):
-        """cascade_dependents() unblocks dependents when parent is DONE."""
-        # Complete without cascade
+        """cascade_dependents() unblocks dependents only after parent issue is DONE."""
+        # complete_work → IMPLEMENTED, cascade_dependents is a no-op (parent not DONE yet)
         await service.complete_work(
             work_id="work-1",
             result={"summary": "Done"},
             compute_id="compute-1",
-            trigger_cascade=False,
         )
         assert dependent_issue.status == IssueStatus.BACKLOG
 
-        # Now trigger cascade explicitly
+        # finalize_work transitions to COMPLETED + DONE, then cascade fires
+        await service.finalize_work("work-1")
+        assert parent_issue.status == IssueStatus.DONE
+
+        # Now cascade_dependents is a no-op (finalize already cascaded)
+        # but calling it explicitly should still work idempotently
         unblocked = await service.cascade_dependents("work-1")
-        assert "issue-2" in unblocked
+        # Already READY from finalize, so nothing new to unblock
+        assert "issue-2" not in unblocked
         assert dependent_issue.status == IssueStatus.READY
 
     @pytest.mark.asyncio
     async def test_cascade_idempotent(
         self, service, sample_work, parent_issue, dependent_issue
     ):
-        """Calling cascade_dependents() twice is safe (idempotent)."""
+        """Calling cascade_dependents() twice after finalize is safe (idempotent)."""
         await service.complete_work(
             work_id="work-1",
             result={"summary": "Done"},
             compute_id="compute-1",
-            trigger_cascade=False,
         )
-
-        unblocked1 = await service.cascade_dependents("work-1")
-        assert "issue-2" in unblocked1
+        await service.finalize_work("work-1")
         assert dependent_issue.status == IssueStatus.READY
 
         # Second call — already READY, nothing new to unblock
@@ -185,7 +188,7 @@ class TestHandleWorkStatusUpdateOrder:
 
     @pytest.mark.asyncio
     async def test_merge_before_cascade_order(self):
-        """Verify the order: complete_work → merge PR → cascade_dependents."""
+        """Verify the order: complete_work (→ IMPLEMENTED) → auto_merge (→ finalize_work → cascade)."""
         call_order = []
 
         mock_work = MagicMock(
@@ -201,13 +204,15 @@ class TestHandleWorkStatusUpdateOrder:
         mock_work_map.complete_work = AsyncMock(
             side_effect=lambda **kw: call_order.append("complete_work")
         )
-        mock_work_map.cascade_dependents = AsyncMock(
-            side_effect=lambda *a: call_order.append("cascade_dependents")
-        )
 
-        mock_auto_merge = AsyncMock(
-            side_effect=lambda *a, **kw: call_order.append("auto_merge")
-        )
+        # cascade_dependents is now called inside finalize_work() which is
+        # invoked from _auto_create_and_merge_pr, not directly from
+        # _handle_work_status_update.
+        def _auto_merge_side_effect(*a, **kw):
+            call_order.append("auto_merge")
+            return True
+
+        mock_auto_merge = AsyncMock(side_effect=_auto_merge_side_effect)
 
         # Mock RepoManager for branch verification
         mock_repo_mgr = MagicMock()
@@ -231,4 +236,6 @@ class TestHandleWorkStatusUpdateOrder:
 
             await _handle_work_status_update(event)
 
-        assert call_order == ["complete_work", "auto_merge", "cascade_dependents"]
+        # complete_work fires first (sets IMPLEMENTED), then auto_merge fires
+        # (which internally calls finalize_work → cascade_dependents).
+        assert call_order == ["complete_work", "auto_merge"]

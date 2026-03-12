@@ -10,6 +10,8 @@ function getStatusClass(status) {
     case 'done':
     case 'completed':
       return 'directive-chip--done'
+    case 'implemented':
+      return 'directive-chip--implemented'
     case 'in_progress':
     case 'in_review':
       return 'directive-chip--progress'
@@ -28,6 +30,7 @@ function getDirectiveStatus(issues) {
   let hasProgress = false
   let hasBlocked = false
   let hasReady = false
+  let hasImplemented = false
   let allDone = true
 
   for (const issue of issues) {
@@ -35,12 +38,14 @@ function getDirectiveStatus(issues) {
     if (s === 'in_progress' || s === 'in_review') hasProgress = true
     else if (s === 'blocked') hasBlocked = true
     else if (s === 'ready') hasReady = true
+    else if (s === 'implemented') hasImplemented = true
 
     if (s !== 'done' && s !== 'completed') allDone = false
   }
 
   if (hasProgress) return 'progress'
   if (hasBlocked) return 'blocked'
+  if (hasImplemented) return 'implemented'
   if (hasReady) return 'ready'
   if (allDone) return 'done'
   return 'backlog'
@@ -51,11 +56,12 @@ function getStatusSortOrder(status) {
     case 'blocked': return 0
     case 'in_progress':
     case 'in_review': return 1
-    case 'ready': return 2
-    case 'backlog': return 3
+    case 'implemented': return 2
+    case 'ready': return 3
+    case 'backlog': return 4
     case 'done':
-    case 'completed': return 4
-    default: return 5
+    case 'completed': return 5
+    default: return 6
   }
 }
 
@@ -66,7 +72,7 @@ function DirectiveSection({ directive, issues, expanded, onToggle }) {
     const counts = { done: 0, progress: 0, ready: 0, blocked: 0, backlog: 0 }
     for (const issue of issues) {
       const s = issue.status?.toLowerCase()
-      if (s === 'done' || s === 'completed') counts.done++
+      if (s === 'done' || s === 'completed' || s === 'implemented') counts.done++
       else if (s === 'in_progress' || s === 'in_review') counts.progress++
       else if (s === 'ready') counts.ready++
       else if (s === 'blocked') counts.blocked++

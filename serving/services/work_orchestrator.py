@@ -322,13 +322,14 @@ class WorkOrchestrator:
                     issue_id = work.issue_id or (work.context.get("issue_id") if work.context else None)
                     if issue_id:
                         parent_issue = await work_map.get_issue(issue_id)
-                        if parent_issue and parent_issue.status == IssueStatus.DONE:
+                        if parent_issue and parent_issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
+                            target_status = WorkStatus.COMPLETED if parent_issue.status == IssueStatus.DONE else WorkStatus.IMPLEMENTED
                             await work_map.update_status(
-                                work.work_id, WorkStatus.COMPLETED
+                                work.work_id, target_status
                             )
                             logger.info(
-                                f"Completed orphan work {work.work_id}: "
-                                f"parent issue {issue_id} is already DONE"
+                                f"Synced orphan work {work.work_id} to {target_status.value}: "
+                                f"parent issue {issue_id} is {parent_issue.status.value}"
                             )
                             continue
 
@@ -443,14 +444,14 @@ class WorkOrchestrator:
                 if retry_after and now < retry_after:
                     continue
 
-                # Don't retry work whose parent issue is already DONE
+                # Don't retry work whose parent issue is already IMPLEMENTED or DONE
                 issue_id = work.issue_id or (work.context.get("issue_id") if work.context else None)
                 if issue_id:
                     parent_issue = await work_map.get_issue(issue_id)
-                    if parent_issue and parent_issue.status == IssueStatus.DONE:
+                    if parent_issue and parent_issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
                         logger.info(
                             f"Skipping retry for work {work.work_id}: "
-                            f"parent issue {issue_id} is already DONE"
+                            f"parent issue {issue_id} is {parent_issue.status.value}"
                         )
                         continue
 
@@ -712,17 +713,18 @@ class WorkOrchestrator:
                     )
                     continue
 
-                # Skip (and cancel) orphan work whose parent issue is already DONE
+                # Skip (and cancel) orphan work whose parent issue is already IMPLEMENTED or DONE
                 issue_id = work.issue_id or (work.context.get("issue_id") if work.context else None)
                 if issue_id:
                     parent_issue = await work_map.get_issue(issue_id)
-                    if parent_issue and parent_issue.status == IssueStatus.DONE:
+                    if parent_issue and parent_issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
+                        target_status = WorkStatus.COMPLETED if parent_issue.status == IssueStatus.DONE else WorkStatus.IMPLEMENTED
                         logger.info(
                             f"Cancelling orphan work {work.work_id}: "
-                            f"parent issue {issue_id} is already DONE"
+                            f"parent issue {issue_id} is {parent_issue.status.value}"
                         )
                         await work_map.update_status(
-                            work.work_id, WorkStatus.COMPLETED
+                            work.work_id, target_status
                         )
                         continue
 

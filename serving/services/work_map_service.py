@@ -1088,15 +1088,15 @@ class WorkMapService:
         compute_id: Optional[str] = None,
         trigger_cascade: bool = True
     ) -> Optional[WorkItem]:
-        """Mark work as completed with result.
+        """Mark work as implemented (code done, pending merge).
 
-        After completing the work item, if it has a parent issue_id,
-        auto-complete the parent Issue which triggers the dependency
-        cascade (unblocking dependent Issues from backlog → ready).
+        Sets WorkStatus.IMPLEMENTED and IssueStatus.IMPLEMENTED.
+        The work transitions to COMPLETED only after the branch is
+        merged to main via finalize_work().
 
-        Set trigger_cascade=False to suppress the dependency cascade,
-        allowing the caller to merge PRs before triggering it via
-        cascade_dependents().
+        The trigger_cascade parameter is preserved for API compatibility
+        but cascade never triggers at this stage — it triggers in
+        finalize_work() after merge.
         """
         work = await self._assignment_service.complete_work(
             work_id, result, compute_id, save_callback=self._save_to_redis
@@ -1105,7 +1105,45 @@ class WorkMapService:
             return None
 
         if work.issue_id:
-            await self._complete_parent_issue(work, trigger_cascade=trigger_cascade)
+            await self._complete_parent_issue(work, trigger_cascade=False)
+
+        return work
+
+    async def finalize_work(self, work_id: str) -> Optional[WorkItem]:
+        """Finalize work after branch merge to main.
+
+        Transitions WorkStatus.IMPLEMENTED → COMPLETED and
+        IssueStatus.IMPLEMENTED → DONE, then triggers dependency cascade.
+
+        Called by the auto-merge flow after successful merge.
+        """
+        work = self._work_items.get(work_id)
+        if not work:
+            return None
+
+        if work.status != WorkStatus.IMPLEMENTED:
+            logger.warning(
+                f"Cannot finalize work {work_id}: status is {work.status.value}, "
+                f"expected implemented"
+            )
+            return None
+
+        # Transition work to COMPLETED
+        await self._assignment_service.update_status(
+            work_id, WorkStatus.COMPLETED, save_callback=self._save_to_redis
+        )
+
+        # Check if this unblocks other work items
+        await self._assignment_service._check_unblock_dependents(work_id, self._save_to_redis)
+
+        # Finalize parent issue (IMPLEMENTED → DONE + cascade)
+        if work.issue_id:
+            await self._issue_service.finalize_issue(
+                work.issue_id, work.assigned_to, trigger_cascade=True
+            )
+            logger.info(
+                f"Finalized work {work_id} and issue {work.issue_id} after merge"
+            )
 
         return work
 
@@ -1132,60 +1170,64 @@ class WorkMapService:
         return await self._issue_service._check_unblock_issue_dependents(work.issue_id)
 
     async def revert_completed_work(self, work_id: str) -> bool:
-        """Revert a completed work item and its parent issue back to IN_PROGRESS.
+        """Revert an implemented work item and its parent issue back to IN_PROGRESS.
 
-        Called when the PR merge fails after work was already marked COMPLETED.
+        Called when the PR merge fails after work was already marked IMPLEMENTED.
         This prevents dependent work from being dispatched against unmerged code.
 
         Returns:
-            True if revert succeeded, False if work not found or not completed.
+            True if revert succeeded, False if work not found or not in implemented state.
         """
         work = self._work_items.get(work_id)
-        if not work or work.status != WorkStatus.COMPLETED:
+        if not work or work.status not in (WorkStatus.IMPLEMENTED, WorkStatus.COMPLETED):
             return False
 
+        prev_status = work.status
         # Revert work item to IN_PROGRESS
         work.status = WorkStatus.IN_PROGRESS
         work.result = None
         await self._save_to_redis(work)
-        logger.info(f"Reverted work {work_id} from COMPLETED to IN_PROGRESS")
+        logger.info(f"Reverted work {work_id} from {prev_status.value} to IN_PROGRESS")
 
-        # Revert parent issue: DONE → BACKLOG → READY → IN_PROGRESS
-        # (following valid transition rules)
+        # Revert parent issue back to IN_PROGRESS
         if work.issue_id:
             issue = await self._issue_service.get_issue(work.issue_id)
-            if issue and issue.status == IssueStatus.DONE:
+            if issue and issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
                 reason = "PR merge or quality gates failed — reverting to retry"
-                await self._issue_service.update_issue_status(
-                    work.issue_id, IssueStatus.BACKLOG, reason=reason, trigger_cascade=False
-                )
-                await self._issue_service.update_issue_status(
-                    work.issue_id, IssueStatus.READY, trigger_cascade=False
-                )
-                await self._issue_service.update_issue_status(
-                    work.issue_id, IssueStatus.IN_PROGRESS, trigger_cascade=False
-                )
+                # Walk through valid transitions back to IN_PROGRESS
+                if issue.status == IssueStatus.DONE:
+                    await self._issue_service.update_issue_status(
+                        work.issue_id, IssueStatus.BACKLOG, reason=reason, trigger_cascade=False
+                    )
+                    await self._issue_service.update_issue_status(
+                        work.issue_id, IssueStatus.READY, trigger_cascade=False
+                    )
+                    await self._issue_service.update_issue_status(
+                        work.issue_id, IssueStatus.IN_PROGRESS, trigger_cascade=False
+                    )
+                elif issue.status == IssueStatus.IMPLEMENTED:
+                    await self._issue_service.update_issue_status(
+                        work.issue_id, IssueStatus.IN_PROGRESS, reason=reason, trigger_cascade=False
+                    )
                 logger.info(
-                    f"Reverted issue {work.issue_id} from DONE to IN_PROGRESS "
+                    f"Reverted issue {work.issue_id} from {issue.status.value} to IN_PROGRESS "
                     f"(work {work_id} merge failed)"
                 )
 
         return True
 
-    async def _complete_parent_issue(self, work: WorkItem, trigger_cascade: bool = True) -> None:
-        """Complete the parent Issue when its WorkItem finishes.
+    async def _complete_parent_issue(self, work: WorkItem, trigger_cascade: bool = False) -> None:
+        """Set the parent Issue to IMPLEMENTED when its WorkItem finishes.
 
-        Marks the parent Issue as DONE with the work result. When
-        trigger_cascade=True (default), also triggers
-        _check_unblock_issue_dependents to cascade and move dependent
-        Issues from backlog → ready.
+        Marks the parent Issue as IMPLEMENTED (code done, pending merge).
+        The issue transitions to DONE only after merge via finalize_work().
         """
         issue = await self._issue_service.get_issue(work.issue_id)
         if not issue:
             logger.warning(f"Parent issue {work.issue_id} not found for work {work.work_id}")
             return
 
-        if issue.status == IssueStatus.DONE:
+        if issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
             return
 
         issue_result = IssueResult(
@@ -1193,13 +1235,13 @@ class WorkMapService:
             branch=work.branch_name,
         )
 
-        completed = await self._issue_service.complete_issue(
-            work.issue_id, issue_result, work.assigned_to, trigger_cascade=trigger_cascade
+        implemented = await self._issue_service.complete_issue(
+            work.issue_id, issue_result, work.assigned_to, trigger_cascade=False
         )
-        if completed:
+        if implemented:
             logger.info(
-                f"Auto-completed issue {work.issue_id} from work {work.work_id} "
-                f"(cascade will unblock dependents)"
+                f"Issue {work.issue_id} marked as implemented from work {work.work_id} "
+                f"(pending merge to main)"
             )
 
     # ============ Blocker Operations (delegated to AssignmentService) ============

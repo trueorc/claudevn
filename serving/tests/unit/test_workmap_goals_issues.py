@@ -272,7 +272,13 @@ class TestIssueStatusFlow:
         assert updated.status == IssueStatus.IN_PROGRESS
         assert updated.started_at is not None
 
-        # in_progress → done
+        # in_progress → implemented (code done, pending merge)
+        updated = await service.update_issue_status(
+            issue.issue_id, IssueStatus.IMPLEMENTED
+        )
+        assert updated.status == IssueStatus.IMPLEMENTED
+
+        # implemented → done (after merge — sets completed_at)
         updated = await service.update_issue_status(
             issue.issue_id, IssueStatus.DONE
         )
@@ -328,7 +334,7 @@ class TestIssueStatusFlow:
             issue.issue_id, result
         )
 
-        assert completed.status == IssueStatus.DONE
+        assert completed.status == IssueStatus.IMPLEMENTED
         assert completed.result is not None
         assert completed.result.branch == "feat/issue-123"
         assert len(completed.result.commits) == 2
@@ -371,9 +377,10 @@ class TestDependencyResolution:
 
         assert dependent.status == IssueStatus.BACKLOG
 
-        # Complete the dependency
+        # Complete the dependency and finalize (merge → DONE + cascade)
         await service.update_issue_status(dep.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(dep.issue_id, IssueResult())
+        await service._issue_service.finalize_issue(dep.issue_id)
 
         # Check dependent is now ready
         dependent = await service.get_issue(dependent.issue_id)
@@ -397,17 +404,19 @@ class TestDependencyResolution:
             depends_on=[dep1.issue_id, dep2.issue_id]
         ))
 
-        # Complete first dep
+        # Complete and finalize first dep
         await service.update_issue_status(dep1.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(dep1.issue_id, IssueResult())
+        await service._issue_service.finalize_issue(dep1.issue_id)
 
-        # Dependent should still be backlog
+        # Dependent should still be backlog (dep2 not done)
         dependent = await service.get_issue(dependent.issue_id)
         assert dependent.status == IssueStatus.BACKLOG
 
-        # Complete second dep
+        # Complete and finalize second dep
         await service.update_issue_status(dep2.issue_id, IssueStatus.IN_PROGRESS)
         await service.complete_issue(dep2.issue_id, IssueResult())
+        await service._issue_service.finalize_issue(dep2.issue_id)
 
         # Now dependent should be ready
         dependent = await service.get_issue(dependent.issue_id)
@@ -628,11 +637,12 @@ class TestGoalCompletion:
         )
         response = await service.create_issues_batch(request)
 
-        # Complete all issues
+        # Complete and finalize all issues (finalize triggers goal completion check)
         for item in response.created_issues:
             issue_id = item["id"]
             await service.update_issue_status(issue_id, IssueStatus.IN_PROGRESS)
             await service.complete_issue(issue_id, IssueResult())
+            await service._issue_service.finalize_issue(issue_id)
 
         # Check goal is done
         goal = await service.get_goal(goal.goal_id)

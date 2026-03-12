@@ -641,8 +641,9 @@ class IssueOpsService:
     VALID_TRANSITIONS = {
         IssueStatus.BACKLOG: [IssueStatus.READY],
         IssueStatus.READY: [IssueStatus.IN_PROGRESS, IssueStatus.BACKLOG],
-        IssueStatus.IN_PROGRESS: [IssueStatus.BLOCKED, IssueStatus.DONE, IssueStatus.FAILED],
+        IssueStatus.IN_PROGRESS: [IssueStatus.BLOCKED, IssueStatus.IMPLEMENTED, IssueStatus.FAILED],
         IssueStatus.BLOCKED: [IssueStatus.IN_PROGRESS, IssueStatus.READY],
+        IssueStatus.IMPLEMENTED: [IssueStatus.DONE, IssueStatus.IN_PROGRESS],
         IssueStatus.DONE: [IssueStatus.BACKLOG],
         IssueStatus.FAILED: [IssueStatus.READY, IssueStatus.IN_PROGRESS, IssueStatus.BACKLOG],
     }
@@ -780,12 +781,41 @@ class IssueOpsService:
         compute_id: Optional[str] = None,
         trigger_cascade: bool = True
     ) -> Optional[Issue]:
-        """Mark an issue as done with result."""
+        """Mark an issue as implemented (code done, pending merge).
+
+        Sets IMPLEMENTED status. The issue transitions to DONE only after
+        the branch is merged to main via finalize_issue().
+        """
         issue = self._issues.get(issue_id)
         if not issue:
             return None
 
         issue.result = result
+        await self.update_issue_status(issue_id, IssueStatus.IMPLEMENTED, compute_id, trigger_cascade=False)
+
+        return issue
+
+    async def finalize_issue(
+        self,
+        issue_id: str,
+        compute_id: Optional[str] = None,
+        trigger_cascade: bool = True
+    ) -> Optional[Issue]:
+        """Mark an issue as done after merge to main.
+
+        Transitions IMPLEMENTED → DONE, triggers dependency cascade,
+        checks goal completion, and queues evaluation.
+        """
+        issue = self._issues.get(issue_id)
+        if not issue:
+            return None
+
+        if issue.status != IssueStatus.IMPLEMENTED:
+            logger.warning(
+                f"Cannot finalize issue {issue_id}: status is {issue.status.value}, expected implemented"
+            )
+            return None
+
         await self.update_issue_status(issue_id, IssueStatus.DONE, compute_id, trigger_cascade=trigger_cascade)
 
         if issue.goal_id and self._goal_service:
