@@ -1183,8 +1183,8 @@ class WorkMapService:
             return False
 
         prev_status = work.status
-        # Revert work item to IN_PROGRESS
-        work.status = WorkStatus.IN_PROGRESS
+        # Revert work item to IN_PROGRESS via assignment service
+        await self._assignment_service.update_status(work_id, WorkStatus.IN_PROGRESS)
         work.result = None
         await self._save_to_redis(work)
         logger.info(f"Reverted work {work_id} from {prev_status.value} to IN_PROGRESS")
@@ -1193,24 +1193,27 @@ class WorkMapService:
         if work.issue_id:
             issue = await self._issue_service.get_issue(work.issue_id)
             if issue and issue.status in (IssueStatus.IMPLEMENTED, IssueStatus.DONE):
+                orig_status = issue.status
                 reason = "PR merge or quality gates failed — reverting to retry"
-                # Walk through valid transitions back to IN_PROGRESS
                 if issue.status == IssueStatus.DONE:
+                    # DONE → BACKLOG (auto-promotion may move to READY)
                     await self._issue_service.update_issue_status(
                         work.issue_id, IssueStatus.BACKLOG, reason=reason, trigger_cascade=False
                     )
-                    await self._issue_service.update_issue_status(
-                        work.issue_id, IssueStatus.READY, trigger_cascade=False
-                    )
+                    # Re-read: auto-promotion may have moved to READY already
+                    issue = await self._issue_service.get_issue(work.issue_id)
+                    if issue and issue.status == IssueStatus.BACKLOG:
+                        await self._issue_service.update_issue_status(
+                            work.issue_id, IssueStatus.READY, trigger_cascade=False
+                        )
+                if issue:
+                    issue = await self._issue_service.get_issue(work.issue_id)
+                if issue and issue.status != IssueStatus.IN_PROGRESS:
                     await self._issue_service.update_issue_status(
                         work.issue_id, IssueStatus.IN_PROGRESS, trigger_cascade=False
                     )
-                elif issue.status == IssueStatus.IMPLEMENTED:
-                    await self._issue_service.update_issue_status(
-                        work.issue_id, IssueStatus.IN_PROGRESS, reason=reason, trigger_cascade=False
-                    )
                 logger.info(
-                    f"Reverted issue {work.issue_id} from {issue.status.value} to IN_PROGRESS "
+                    f"Reverted issue {work.issue_id} from {orig_status.value} to IN_PROGRESS "
                     f"(work {work_id} merge failed)"
                 )
 

@@ -1124,8 +1124,17 @@ async def _handle_conflict_resolution_completed(event, work_map) -> None:
     # Re-trigger the PR merge pipeline with the original work item
     # finalize_work() inside _auto_create_and_merge_pr handles cascade
     branch_name = event.branch_name or work.branch_name
+    merge_ok = False
     if branch_name and work.project_id:
         merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+
+    if not merge_ok and branch_name and work.project_id:
+        # Merge or quality gates failed after conflict resolution — revert
+        logger.warning(
+            f"Reverting work {original_work_id} to IN_PROGRESS — "
+            f"PR merge did not succeed after conflict resolution"
+        )
+        await work_map.revert_completed_work(original_work_id)
 
 
 async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> bool:
