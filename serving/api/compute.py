@@ -1260,12 +1260,44 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
 
         logger.info(f"Quality gates passed for {branch_name}")
 
+        # Lead compute review gate — dispatch review to a separate compute
+        # instance before auto-approving. If review is unavailable or times
+        # out, auto-approve to avoid blocking the pipeline.
+        reviewed_by = "auto-approved"
+        try:
+            from services.lead_compute_service import get_lead_compute_service
+            lead_service = get_lead_compute_service()
+            if lead_service.enabled:
+                review_result = await lead_service.review_pr(
+                    project=git_project_name,
+                    branch=branch_name,
+                    compute_id=compute_id,
+                    work_title=work.title,
+                    work_description=work.description or "",
+                    project_id=work.project_id,
+                )
+                reviewed_by = f"lead:{review_result.reviewer_id}"
+
+                if not review_result.approved:
+                    logger.warning(
+                        f"Lead review rejected {branch_name}: {review_result.summary}"
+                    )
+                    await pr_service.update_status(
+                        project=git_project_name,
+                        branch=branch_name,
+                        status=PRStatus.REJECTED,
+                        reviewed_by=reviewed_by,
+                    )
+                    return False
+        except Exception as e:
+            logger.debug(f"Lead review skipped for {branch_name}: {e}")
+
         # Auto-approve (work completed successfully, no conflicts, gates passed)
         await pr_service.update_status(
             project=git_project_name,
             branch=branch_name,
             status=PRStatus.APPROVED,
-            reviewed_by="auto-approved",
+            reviewed_by=reviewed_by,
         )
 
         # Add to merge queue (needed for post-resolution re-entry where the
