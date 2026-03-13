@@ -1238,6 +1238,20 @@ class WorkOrchestrator:
                 "requirements": work.description,
             }
 
+            # Enrich context with goal, dependency, and project info (#263)
+            try:
+                from services.work_context_enrichment_service import (
+                    get_work_context_enrichment_service,
+                )
+                enrichment = get_work_context_enrichment_service()
+                context = await enrichment.enrich(
+                    work_context=context,
+                    work_id=work.work_id,
+                    project_id=work.project_id,
+                )
+            except Exception as e:
+                logger.debug(f"Context enrichment skipped for {work.work_id}: {e}")
+
             # Include repo details so compute knows the correct clone URL and project name.
             # Always override repository and base_branch — compute must clone from
             # the internal serving URL, never from an external origin.
