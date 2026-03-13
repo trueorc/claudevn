@@ -148,6 +148,25 @@ class GoalDecomposerService:
             goal_id=goal_id,
         )
 
+        # Validate decomposition structure before proceeding
+        from services.decomposition_validation_service import (
+            get_decomposition_validation_service,
+        )
+        validator = get_decomposition_validation_service()
+        validation = validator.validate(result, auto_fix=True)
+
+        if not validation.valid and validation.fixed_result:
+            logger.info(
+                f"Using auto-fixed decomposition for goal {goal_id} "
+                f"({len(validation.errors)} error(s) fixed)"
+            )
+            result = validation.fixed_result
+        elif not validation.valid:
+            logger.warning(
+                f"Decomposition for goal {goal_id} has unfixable errors: "
+                + "; ".join(e.message for e in validation.errors[:5])
+            )
+
         logger.info(
             f"Decomposed goal {goal_id} into {len(result.issues)} issues "
             f"with confidence {result.confidence:.2f}"
