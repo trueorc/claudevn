@@ -33,6 +33,7 @@ class EventType(str, Enum):
     DECISION_TRACE = "decision_trace"
     COMPUTE_REGISTERED = "compute_registered"
     COMPUTE_DEREGISTERED = "compute_deregistered"
+    GOAL_PROCESSING_STAGE = "goal_processing_stage"
 
 
 class ActivityStateChangeEvent(BaseModel):
@@ -482,6 +483,29 @@ class ComputeDeregisteredEvent(BaseModel):
     })
 
 
+class GoalProcessingStageEvent(BaseModel):
+    """Event emitted when goal processing stage changes (decomposing, characterizing, etc.)."""
+    event_type: str = Field(default=EventType.GOAL_PROCESSING_STAGE, description="Event type")
+    event_id: str = Field(..., description="Unique event identifier")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="When event occurred")
+
+    # Broadcast to all subscribers (global, not session-scoped)
+    session_id: str = Field(default="global", description="Global session for broadcast")
+    goal_id: str = Field(..., description="Goal being processed")
+    project_id: Optional[str] = Field(None, description="Project ID")
+
+    # Stage info
+    stage: str = Field(..., description="Current processing stage")
+    previous_stage: Optional[str] = Field(None, description="Previous stage (None for first)")
+
+    # Optional result payload (on completion)
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+    model_config = ConfigDict(json_encoders={
+        datetime: lambda v: v.isoformat() if v else None
+    })
+
+
 # Union type for all event types
 ObservabilityEvent = Union[
     ActivityStateChangeEvent,
@@ -499,7 +523,8 @@ ObservabilityEvent = Union[
     IssueEvaluationStatusEvent,
     DecisionTraceEvent,
     ComputeRegisteredEvent,
-    ComputeDeregisteredEvent
+    ComputeDeregisteredEvent,
+    GoalProcessingStageEvent
 ]
 
 

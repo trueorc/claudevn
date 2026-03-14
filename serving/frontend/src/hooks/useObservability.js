@@ -32,7 +32,8 @@ function useObservability(options = {}) {
         'work_status_change',
         'compute_registered',
         'compute_deregistered',
-        'comment_evaluation_status'
+        'comment_evaluation_status',
+        'goal_processing_stage'
       ]
 
       eventTypes.forEach(eventType => {

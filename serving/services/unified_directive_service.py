@@ -893,7 +893,21 @@ class UnifiedDirectiveService:
 
             result = {}
             if goal and goal.issue_ids:
-                result["issues_created"] = list(goal.issue_ids)
+                # Fetch full issue details for frontend display
+                from services.work_map_service import get_work_map_service
+                wm_service = get_work_map_service()
+                issues_with_details = []
+                for iid in goal.issue_ids:
+                    issue = await wm_service.get_issue(iid)
+                    if issue:
+                        issues_with_details.append({
+                            "issue_id": issue.issue_id,
+                            "title": issue.title,
+                            "priority": issue.priority.value if issue.priority else None,
+                        })
+                    else:
+                        issues_with_details.append({"issue_id": iid, "title": iid})
+                result["issues_created"] = issues_with_details
             if goal and getattr(goal, 'summary', None):
                 result["reasoning"] = goal.summary
 

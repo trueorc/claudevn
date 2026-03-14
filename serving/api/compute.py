@@ -1242,20 +1242,41 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 },
             )
             # Post quality gate failure to project chat so users see it
+            failed_gates = [g.gate for g in validation.gates if g.status.value != "passed"]
+            failure_msg = (
+                f"Quality gates failed for **{work.title}** "
+                f"(branch `{branch_name}`): {', '.join(failed_gates)}. "
+                "Work reverted to in-progress."
+            )
             try:
                 from services.conversation_service import get_conversation_service
                 conv_service = get_conversation_service()
-                failed_gates = [g.gate for g in validation.gates if g.status.value != "passed"]
                 await conv_service.add_message(
                     project_id=work.project_id,
                     user_id="system",
                     display_name="System",
                     type="error",
-                    content=f"Quality gates failed for **{work.title}** (branch `{branch_name}`): {', '.join(failed_gates)}. Work reverted to in-progress.",
+                    content=failure_msg,
                     metadata={"work_id": work.work_id, "branch": branch_name, "event_type": "quality_gate_failed"},
                 )
             except Exception as e:
                 logger.warning(f"Failed to post quality gate failure to chat: {e}")
+            # Emit notification for the notification feed
+            try:
+                from services.notification_service import get_notification_service
+                from models.notification import NotificationLevel, NotificationCategory
+                notification_service = get_notification_service()
+                if notification_service:
+                    notification_service.emit(
+                        title=f"Quality gates failed: {work.title}",
+                        message=failure_msg,
+                        level=NotificationLevel.ERROR,
+                        category=NotificationCategory.WORK,
+                        project_id=work.project_id,
+                        entity_id=work.work_id,
+                    )
+            except Exception as e:
+                logger.debug(f"Could not emit quality gate notification: {e}")
             return False
 
         logger.info(f"Quality gates passed for {branch_name}")
@@ -2158,6 +2179,28 @@ async def register_instance(
                 metadata=request.metadata,
             )
             await registry.update_heartbeat(request.instance_id)
+
+            # Re-sync auth_status on reconnect (token may have been
+            # added/refreshed while compute was disconnected)
+            from services.claude_auth_service import get_claude_auth_service
+            from models.compute import ComputeAuthStatus
+
+            auth_svc = get_claude_auth_service()
+            if auth_svc:
+                token_info = auth_svc.get_token_info(request.instance_id)
+                if token_info and token_info.get("status") == "active":
+                    expires_at_str = token_info.get("expires_at")
+                    expires_at = (
+                        datetime.fromisoformat(expires_at_str)
+                        if expires_at_str
+                        else None
+                    )
+                    await registry.update_auth_status(
+                        request.instance_id,
+                        ComputeAuthStatus.AUTHORIZED,
+                        auth_expires_at=expires_at,
+                    )
+
             logger.info(
                 f"Compute {request.instance_id} re-registered — "
                 f"preserved {existing.status.value} status"
@@ -2189,6 +2232,32 @@ async def register_instance(
         )
 
         registered = await registry.add_instance(instance)
+
+        # Sync auth_status from existing tokens (fixes startup ordering:
+        # _sync_registry_auth_status runs before compute nodes register,
+        # so newly registered nodes default to UNAUTHORIZED even when
+        # active tokens exist in Redis)
+        from services.claude_auth_service import get_claude_auth_service
+        from models.compute import ComputeAuthStatus
+
+        auth_svc = get_claude_auth_service()
+        if auth_svc:
+            token_info = auth_svc.get_token_info(request.instance_id)
+            if token_info and token_info.get("status") == "active":
+                expires_at_str = token_info.get("expires_at")
+                expires_at = (
+                    datetime.fromisoformat(expires_at_str)
+                    if expires_at_str
+                    else None
+                )
+                await registry.update_auth_status(
+                    request.instance_id,
+                    ComputeAuthStatus.AUTHORIZED,
+                    auth_expires_at=expires_at,
+                )
+                logger.info(
+                    f"Synced auth_status to AUTHORIZED for newly registered {request.instance_id}"
+                )
 
         logger.info(
             f"Registered compute instance {request.instance_id} "

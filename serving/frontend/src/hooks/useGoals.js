@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { autoProcessGoal, getProcessingStatus } from '../api/goals'
+import useObservability from './useObservability'
 
 /**
  * Workflow steps for goal processing.
@@ -24,11 +25,12 @@ export const PROCESSING_STAGES = {
 
 export const POLL_CONFIG = {
   INITIAL_INTERVAL_MS: 2000,
-  MAX_INTERVAL_MS: 30000,
-  BACKOFF_MULTIPLIER: 1.5,
-  TIMEOUT_MS: 5 * 60 * 1000,          // 5 minutes
-  STALL_THRESHOLD_MS: 2 * 60 * 1000,  // 2 minutes same stage
+  MAX_INTERVAL_MS: 5000,               // 5s cap — active processing, not background
+  BACKOFF_MULTIPLIER: 1.3,
+  STAGE_TIMEOUT_MS: 5 * 60 * 1000,    // 5 minutes per stage before timeout
+  STALL_THRESHOLD_MS: 4 * 60 * 1000,  // 4 minutes same stage before stall warning
   MAX_CONSECUTIVE_ERRORS: 5,
+  RESET_INTERVAL_MS: 2000,            // Reset to this on stage change
 }
 
 /**
@@ -51,6 +53,9 @@ function useGoals() {
   const lastStageChangeRef = useRef(null)
   const lastStageRef = useRef(null)
   const consecutiveErrorsRef = useRef(0)
+
+  // WebSocket for real-time stage updates (push)
+  const { latestEvent } = useObservability({ autoConnect: true })
 
   /**
    * Stop polling for processing status.
@@ -75,20 +80,20 @@ function useGoals() {
     setIsTimedOut(false)
     setIsStalled(false)
 
-    const schedulePoll = (interval) => {
-      pollTimeoutRef.current = setTimeout(async () => {
-        const elapsed = Date.now() - pollingStartRef.current
+    let currentInterval = POLL_CONFIG.INITIAL_INTERVAL_MS
 
-        // Check timeout
-        if (elapsed >= POLL_CONFIG.TIMEOUT_MS) {
+    const schedulePoll = () => {
+      pollTimeoutRef.current = setTimeout(async () => {
+        // Per-stage timeout: reset clock on each stage change
+        const sinceStageChange = Date.now() - lastStageChangeRef.current
+        if (sinceStageChange >= POLL_CONFIG.STAGE_TIMEOUT_MS) {
           stopPolling()
           setIsTimedOut(true)
           setLoading(false)
           return
         }
 
-        // Check stall (same stage for too long)
-        const sinceStageChange = Date.now() - lastStageChangeRef.current
+        // Stall warning (stage not changing for a while)
         if (sinceStageChange >= POLL_CONFIG.STALL_THRESHOLD_MS) {
           setIsStalled(true)
         }
@@ -97,10 +102,11 @@ function useGoals() {
           const status = await getProcessingStatus(goalId)
           consecutiveErrorsRef.current = 0
 
-          // Track stage changes for stall detection
+          // Track stage changes — reset interval for fast transition detection
           if (status.stage !== lastStageRef.current) {
             lastStageRef.current = status.stage
             lastStageChangeRef.current = Date.now()
+            currentInterval = POLL_CONFIG.RESET_INTERVAL_MS
             setIsStalled(false)
           }
 
@@ -141,22 +147,67 @@ function useGoals() {
           }
         }
 
-        // Schedule next poll with backoff
-        const nextInterval = Math.min(
-          interval * POLL_CONFIG.BACKOFF_MULTIPLIER,
+        // Gentle backoff capped at 5s, resets on stage change
+        currentInterval = Math.min(
+          currentInterval * POLL_CONFIG.BACKOFF_MULTIPLIER,
           POLL_CONFIG.MAX_INTERVAL_MS
         )
-        schedulePoll(nextInterval)
-      }, interval)
+        schedulePoll()
+      }, currentInterval)
     }
 
-    schedulePoll(POLL_CONFIG.INITIAL_INTERVAL_MS)
+    schedulePoll()
   }, [stopPolling])
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => stopPolling()
   }, [stopPolling])
+
+  // Handle real-time push events from WebSocket (goal_processing_stage)
+  const lastPushEventRef = useRef(null)
+  useEffect(() => {
+    if (!latestEvent || latestEvent === lastPushEventRef.current) return
+    lastPushEventRef.current = latestEvent
+
+    if (latestEvent.type !== 'goal_processing_stage') return
+
+    const eventData = latestEvent.data
+    const goalId = currentGoalIdRef.current
+    if (!goalId || eventData?.goal_id !== goalId) return
+
+    const stage = eventData.stage
+
+    // Update stage tracking refs (same as polling path)
+    if (stage !== lastStageRef.current) {
+      lastStageRef.current = stage
+      lastStageChangeRef.current = Date.now()
+      setIsStalled(false)
+    }
+
+    setProcessingStage(stage)
+
+    if (stage === PROCESSING_STAGES.COMPLETE) {
+      // Complete needs result data — trigger one final poll to get it
+      // (the push event doesn't carry the full result payload)
+      getProcessingStatus(goalId).then(status => {
+        stopPolling()
+        setExecutionResult(status.result)
+        setStep(WORKFLOW_STEPS.COMPLETE)
+        setLoading(false)
+      }).catch(() => {
+        // Fallback: mark complete without result
+        stopPolling()
+        setStep(WORKFLOW_STEPS.COMPLETE)
+        setLoading(false)
+      })
+    } else if (stage === PROCESSING_STAGES.FAILED) {
+      stopPolling()
+      setError(eventData.error || 'Processing failed')
+      setStep(WORKFLOW_STEPS.INPUT)
+      setLoading(false)
+    }
+  }, [latestEvent, stopPolling])
 
   /**
    * Auto-process a goal: fires async request, then polls for status.

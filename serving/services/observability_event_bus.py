@@ -176,7 +176,8 @@ class ObservabilityEventBus:
             event: Event to broadcast
         """
         # For work status events, comment evaluation events, and compute events, broadcast to ALL subscribers
-        if isinstance(event, (WorkStatusChangeEvent, CommentEvaluationStatusEvent, ComputeRegisteredEvent, ComputeDeregisteredEvent)):
+        from models.observability import GoalProcessingStageEvent
+        if isinstance(event, (WorkStatusChangeEvent, CommentEvaluationStatusEvent, ComputeRegisteredEvent, ComputeDeregisteredEvent, GoalProcessingStageEvent)):
             await self._broadcast_to_all(event)
             return
 
