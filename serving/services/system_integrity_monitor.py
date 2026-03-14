@@ -394,6 +394,14 @@ class SystemIntegrityMonitor:
     # Anomaly Checks
     # =========================================================================
 
+    def _resolve_git_project_name(self, project_id: str) -> str:
+        """Resolve project_id to git repo name (e.g. proj_abc -> proj_abc_repo_def)."""
+        try:
+            from api.compute import _resolve_git_project_name
+            return _resolve_git_project_name(project_id)
+        except Exception:
+            return project_id
+
     async def _check_merged_not_finalized(self) -> List[AnomalyResult]:
         """Check 1: Work items whose PR is MERGED but status is still active."""
         anomalies: List[AnomalyResult] = []
@@ -415,8 +423,11 @@ class SystemIntegrityMonitor:
                     if not work.branch_name or not work.project_id:
                         continue
                     try:
+                        git_project = self._resolve_git_project_name(
+                            work.project_id
+                        )
                         pr = await pr_service.get_pr(
-                            work.project_id, work.branch_name
+                            git_project, work.branch_name
                         )
                         if pr and pr.status == PRStatus.MERGED:
                             anomalies.append(AnomalyResult(
@@ -516,8 +527,8 @@ class SystemIntegrityMonitor:
             pr_service = get_pr_service()
             wm = get_work_map_service()
 
-            # Get unique project IDs from active work
-            project_ids = set()
+            # Get unique project IDs from active work, resolve to git names
+            raw_project_ids = set()
             for status_val in ("in_progress", "implemented", "assigned", "pending"):
                 try:
                     from models.work_map import WorkStatus
@@ -525,11 +536,12 @@ class SystemIntegrityMonitor:
                     result = await wm.list_work(status=ws, limit=100)
                     for w in result.items:
                         if w.project_id:
-                            project_ids.add(w.project_id)
+                            raw_project_ids.add(w.project_id)
                 except Exception:
                     continue
 
-            for project_id in project_ids:
+            for raw_project_id in raw_project_ids:
+                project_id = self._resolve_git_project_name(raw_project_id)
                 try:
                     prs = await pr_service.list_prs(project_id)
                 except Exception:

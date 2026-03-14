@@ -1,4 +1,4 @@
-import { Check, FileText } from 'lucide-react'
+import { Check } from 'lucide-react'
 
 const STAGE_LABELS = {
   queued: 'Queuing work',
@@ -50,15 +50,7 @@ export default function GoalCompletionCard({ issues = [], reasoning, startedAt, 
           ))}
         </div>
         {issues.length > 0 && (
-          <ul className="conv-issues-list conv-complete-issues">
-            {issues.map((issue, i) => (
-              <li key={issue.issue_id || i} className="conv-issue-item">
-                <FileText size={12} />
-                <span>{issue.title}</span>
-                {issue.priority && <span className="conv-tag conv-tag-priority">{issue.priority}</span>}
-              </li>
-            ))}
-          </ul>
+          <p className="conv-issues-summary">{issues.length} issue{issues.length !== 1 ? 's' : ''} created</p>
         )}
         {reasoning && (
           <p className="conv-reasoning">{reasoning}</p>

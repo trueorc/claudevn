@@ -1152,6 +1152,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         True if the PR was merged successfully, False otherwise.
     """
     from git.pr_service import PRService, PRStatus
+    from services.work_map_service import get_work_map_service
 
     try:
         pr_service = PRService()
