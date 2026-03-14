@@ -39,7 +39,7 @@ class FakeWorkItem:
 
 @dataclass
 class FakeIssue:
-    id: str
+    issue_id: str
     status: object
     project_id: str = "proj_test"
     goal_id: str = "goal_1"
@@ -47,7 +47,7 @@ class FakeIssue:
 
 @dataclass
 class FakeGoal:
-    id: str
+    goal_id: str
     status: object
     project_id: str = "proj_test"
 
@@ -278,7 +278,7 @@ class TestStuckIssues:
 
         from models.work_map import IssueStatus, WorkStatus
 
-        fake_issue = FakeIssue(id="issue_1", status=IssueStatus.IN_PROGRESS)
+        fake_issue = FakeIssue(issue_id="issue_1", status=IssueStatus.IN_PROGRESS)
         fake_work = FakeWorkItem(
             work_id="w1", status=WorkStatus.COMPLETED, issue_id="issue_1"
         )
@@ -305,7 +305,7 @@ class TestStuckIssues:
 
         from models.work_map import IssueStatus, WorkStatus
 
-        fake_issue = FakeIssue(id="issue_1", status=IssueStatus.IN_PROGRESS)
+        fake_issue = FakeIssue(issue_id="issue_1", status=IssueStatus.IN_PROGRESS)
         fake_work = FakeWorkItem(
             work_id="w1", status=WorkStatus.IN_PROGRESS, issue_id="issue_1"
         )
@@ -336,10 +336,10 @@ class TestStuckGoals:
 
         from models.work_map import GoalStatus, IssueStatus
 
-        fake_goal = FakeGoal(id="goal_1", status=GoalStatus.IN_PROGRESS)
+        fake_goal = FakeGoal(goal_id="goal_1", status=GoalStatus.IN_PROGRESS)
         fake_issues = [
-            FakeIssue(id="i1", status=IssueStatus.DONE),
-            FakeIssue(id="i2", status=IssueStatus.DONE),
+            FakeIssue(issue_id="i1", status=IssueStatus.DONE),
+            FakeIssue(issue_id="i2", status=IssueStatus.DONE),
         ]
 
         mock_wm = AsyncMock()
@@ -361,10 +361,10 @@ class TestStuckGoals:
 
         from models.work_map import GoalStatus, IssueStatus
 
-        fake_goal = FakeGoal(id="goal_1", status=GoalStatus.IN_PROGRESS)
+        fake_goal = FakeGoal(goal_id="goal_1", status=GoalStatus.IN_PROGRESS)
         fake_issues = [
-            FakeIssue(id="i1", status=IssueStatus.DONE),
-            FakeIssue(id="i2", status=IssueStatus.IN_PROGRESS),
+            FakeIssue(issue_id="i1", status=IssueStatus.DONE),
+            FakeIssue(issue_id="i2", status=IssueStatus.IN_PROGRESS),
         ]
 
         mock_wm = AsyncMock()

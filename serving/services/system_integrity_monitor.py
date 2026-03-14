@@ -455,7 +455,7 @@ class SystemIntegrityMonitor:
                     # Find all work items for this issue
                     issue_work = [
                         w for w in wm._work_items.values()
-                        if w.issue_id == issue.id
+                        if w.issue_id == issue.issue_id
                     ]
                     if not issue_work:
                         continue
@@ -463,10 +463,10 @@ class SystemIntegrityMonitor:
                         anomalies.append(AnomalyResult(
                             check_type="stuck_issue",
                             entity_type="issue",
-                            entity_id=issue.id,
+                            entity_id=issue.issue_id,
                             project_id=getattr(issue, 'project_id', None),
                             description=(
-                                f"Issue {issue.id} is {status.value} but all "
+                                f"Issue {issue.issue_id} is {status.value} but all "
                                 f"{len(issue_work)} work item(s) are completed"
                             ),
                             remediation_action="finalize_issue",
@@ -486,17 +486,17 @@ class SystemIntegrityMonitor:
             goals_result = await wm.list_goals(status=GoalStatus.IN_PROGRESS)
 
             for goal in goals_result.items:
-                issues = await wm.get_goal_issues(goal.id)
+                issues = await wm.get_goal_issues(goal.goal_id)
                 if not issues:
                     continue
                 if all(i.status == IssueStatus.DONE for i in issues):
                     anomalies.append(AnomalyResult(
                         check_type="stuck_goal",
                         entity_type="goal",
-                        entity_id=goal.id,
+                        entity_id=goal.goal_id,
                         project_id=getattr(goal, 'project_id', None),
                         description=(
-                            f"Goal {goal.id} is in_progress but all "
+                            f"Goal {goal.goal_id} is in_progress but all "
                             f"{len(issues)} issues are done"
                         ),
                         remediation_action="check_goal_completion",
