@@ -193,16 +193,17 @@ class SystemIntegrityMonitor:
                     if check_stats:
                         check_stats["remediated"] += 1
                     logger.info(f"[Integrity] Remediated: {anomaly.description}")
+                    self._notify_success(anomaly)
                     # Clean tracker on success — anomaly resolved
                     self._attempt_tracker.pop(tracker_key, None)
                 else:
                     self._stats["anomalies_failed"] += 1
                     if check_stats:
                         check_stats["failed"] += 1
-                    self._notify(anomaly, consecutive)
+                    self._notify_failure(anomaly, consecutive)
             else:
                 # Notification-only anomaly
-                self._notify(anomaly, consecutive)
+                self._notify_failure(anomaly, consecutive)
 
         self._cleanup_tracker()
 
@@ -255,7 +256,29 @@ class SystemIntegrityMonitor:
     # Notification
     # =========================================================================
 
-    def _notify(self, anomaly: AnomalyResult, consecutive: int) -> None:
+    def _notify_success(self, anomaly: AnomalyResult) -> None:
+        """Notify that an anomaly was detected AND successfully remediated."""
+        try:
+            from services.notification_service import get_notification_service
+            from models.notification import NotificationLevel, NotificationCategory
+
+            notification_service = get_notification_service()
+            if not notification_service:
+                return
+
+            notification_service.emit(
+                title=f"[Integrity] Auto-fixed: {anomaly.entity_type}",
+                message=f"Detected and resolved: {anomaly.description}",
+                level=NotificationLevel.SUCCESS,
+                category=NotificationCategory.SYSTEM,
+                project_id=anomaly.project_id,
+                entity_id=anomaly.entity_id,
+            )
+        except Exception as e:
+            logger.debug(f"[Integrity] Could not emit success notification: {e}")
+
+    def _notify_failure(self, anomaly: AnomalyResult, consecutive: int) -> None:
+        """Notify that an anomaly was detected but could NOT be remediated."""
         try:
             from services.notification_service import get_notification_service
             from models.notification import NotificationLevel, NotificationCategory
@@ -270,16 +293,22 @@ class SystemIntegrityMonitor:
                 else NotificationLevel.WARNING
             )
 
+            action_note = (
+                " Manual intervention required."
+                if consecutive >= ESCALATION_THRESHOLD
+                else " Will retry."
+            )
+
             notification_service.emit(
-                title=f"[Integrity] {anomaly.entity_type} {anomaly.entity_id}",
-                message=anomaly.description,
+                title=f"[Integrity] Cannot resolve: {anomaly.entity_type}",
+                message=f"{anomaly.description}.{action_note}",
                 level=level,
                 category=NotificationCategory.SYSTEM,
                 project_id=anomaly.project_id,
                 entity_id=anomaly.entity_id,
             )
         except Exception as e:
-            logger.debug(f"[Integrity] Could not emit notification: {e}")
+            logger.debug(f"[Integrity] Could not emit failure notification: {e}")
 
     # =========================================================================
     # Remediation

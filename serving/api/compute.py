@@ -812,8 +812,10 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         if branch_name and work.project_id:
             merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-        if not merge_ok and branch_name and work.project_id:
-            # Merge or quality gates failed — revert work/issue so they don't appear done
+        if not merge_ok and not already_terminal and branch_name and work.project_id:
+            # Merge or quality gates failed on the FIRST attempt — revert so they don't appear done.
+            # Skip revert when already_terminal: a duplicate event finding a PR mid-review
+            # should not undo the prior event's IMPLEMENTED status.
             logger.warning(
                 f"Reverting work {work.work_id} to IN_PROGRESS — PR merge did not succeed"
             )

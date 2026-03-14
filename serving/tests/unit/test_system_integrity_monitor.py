@@ -157,7 +157,27 @@ class TestThrottling:
 # ---------------------------------------------------------------------------
 
 class TestNotification:
-    def test_notify_warning_below_threshold(self):
+    def test_success_notification(self):
+        monitor = SystemIntegrityMonitor()
+        anomaly = AnomalyResult(
+            check_type="merged_not_finalized",
+            entity_type="work",
+            entity_id="w1",
+            project_id="proj_test",
+            description="Work w1 auto-finalized",
+            remediation_action="finalize_work",
+        )
+
+        with patch(NOTIF_PATCH) as mock_get:
+            mock_svc = MagicMock()
+            mock_get.return_value = mock_svc
+            monitor._notify_success(anomaly)
+            mock_svc.emit.assert_called_once()
+            from models.notification import NotificationLevel
+            call_kwargs = mock_svc.emit.call_args
+            assert call_kwargs.kwargs.get("level") == NotificationLevel.SUCCESS
+
+    def test_failure_warning_below_threshold(self):
         monitor = SystemIntegrityMonitor()
         anomaly = AnomalyResult(
             check_type="stuck_goal",
@@ -171,13 +191,14 @@ class TestNotification:
         with patch(NOTIF_PATCH) as mock_get:
             mock_svc = MagicMock()
             mock_get.return_value = mock_svc
-            monitor._notify(anomaly, consecutive=1)
+            monitor._notify_failure(anomaly, consecutive=1)
             mock_svc.emit.assert_called_once()
             from models.notification import NotificationLevel
             call_kwargs = mock_svc.emit.call_args
             assert call_kwargs.kwargs.get("level") == NotificationLevel.WARNING
+            assert "Will retry" in call_kwargs.kwargs.get("message", "")
 
-    def test_notify_error_at_threshold(self):
+    def test_failure_error_at_threshold(self):
         monitor = SystemIntegrityMonitor()
         anomaly = AnomalyResult(
             check_type="stuck_goal",
@@ -191,11 +212,12 @@ class TestNotification:
         with patch(NOTIF_PATCH) as mock_get:
             mock_svc = MagicMock()
             mock_get.return_value = mock_svc
-            monitor._notify(anomaly, consecutive=ESCALATION_THRESHOLD)
+            monitor._notify_failure(anomaly, consecutive=ESCALATION_THRESHOLD)
             mock_svc.emit.assert_called_once()
             from models.notification import NotificationLevel
             call_kwargs = mock_svc.emit.call_args
             assert call_kwargs.kwargs.get("level") == NotificationLevel.ERROR
+            assert "Manual intervention" in call_kwargs.kwargs.get("message", "")
 
 
 # ---------------------------------------------------------------------------
