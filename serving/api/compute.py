@@ -808,18 +808,46 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         # finalize_work() inside _auto_create_and_merge_pr handles
         # IMPLEMENTED → COMPLETED + DONE transitions and dependency cascade
         branch_name = event.branch_name or work.branch_name
-        merge_ok = False
+        pr_result = "pending"
         if branch_name and work.project_id:
-            merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+            pr_result = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-        if not merge_ok and not already_terminal and branch_name and work.project_id:
-            # Merge or quality gates failed on the FIRST attempt — revert so they don't appear done.
-            # Skip revert when already_terminal: a duplicate event finding a PR mid-review
-            # should not undo the prior event's IMPLEMENTED status.
+        if pr_result == "revert" and not already_terminal:
+            # Code needs changes (quality gates failed, review rejected) — revert
+            # so the work can be re-dispatched with corrective instructions.
             logger.warning(
-                f"Reverting work {work.work_id} to IN_PROGRESS — PR merge did not succeed"
+                f"Reverting work {work.work_id} to IN_PROGRESS — code needs changes"
             )
             await work_map.revert_completed_work(work.work_id)
+        elif pr_result == "pending" and not already_terminal and branch_name and work.project_id:
+            # PR pipeline issue but code is done (IMPLEMENTED). Do NOT revert —
+            # that would burn retry budget re-doing already-complete work.
+            # The integrity monitor's stuck_pr / merged_not_finalized checks
+            # will handle the PR-level retry.
+            logger.warning(
+                f"PR pipeline pending for work {work.work_id} — keeping IMPLEMENTED "
+                f"(branch {branch_name} has code, PR will be retried)"
+            )
+            try:
+                from services.conversation_service import get_conversation_service
+                conv_service = get_conversation_service()
+                await conv_service.add_message(
+                    project_id=work.project_id,
+                    user_id="system",
+                    display_name="System",
+                    type="assistant",
+                    content=(
+                        f"**{work.title}** code is complete but PR merge pending. "
+                        f"Branch `{branch_name}` will be retried automatically."
+                    ),
+                    metadata={
+                        "work_id": work.work_id,
+                        "branch": branch_name,
+                        "event_type": "pr_merge_pending",
+                    },
+                )
+            except Exception:
+                pass
 
 
 async def _handle_rejection_redispatch(event: ComputeEventRequest) -> None:
@@ -1126,20 +1154,25 @@ async def _handle_conflict_resolution_completed(event, work_map) -> None:
     # Re-trigger the PR merge pipeline with the original work item
     # finalize_work() inside _auto_create_and_merge_pr handles cascade
     branch_name = event.branch_name or work.branch_name
-    merge_ok = False
+    pr_result = "pending"
     if branch_name and work.project_id:
-        merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+        pr_result = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-    if not merge_ok and branch_name and work.project_id:
-        # Merge or quality gates failed after conflict resolution — revert
+    if pr_result == "revert" and branch_name and work.project_id:
+        # Quality gates / review rejected after conflict resolution — revert
         logger.warning(
             f"Reverting work {original_work_id} to IN_PROGRESS — "
-            f"PR merge did not succeed after conflict resolution"
+            f"code needs changes after conflict resolution"
         )
         await work_map.revert_completed_work(original_work_id)
+    elif pr_result == "pending":
+        logger.info(
+            f"PR pipeline pending for {original_work_id} after conflict resolution — "
+            f"integrity monitor will retry"
+        )
 
 
-async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> bool:
+async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> str:
     """Auto-create a PR and trigger merge queue processing after work completion.
 
     Handles both fresh PRs and post-conflict-resolution re-entry (where
@@ -1151,7 +1184,9 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         compute_id: Compute instance that completed the work
 
     Returns:
-        True if the PR was merged successfully, False otherwise.
+        "merged"  — PR was merged successfully
+        "pending" — PR pipeline issue, code is fine, keep IMPLEMENTED
+        "revert"  — Code needs changes (quality gates failed, review rejected)
     """
     from git.pr_service import PRService, PRStatus
     from services.work_map_service import get_work_map_service
@@ -1194,14 +1229,14 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                     await _dispatch_conflict_resolution_work(
                         work, branch_name, compute_id, existing_pr
                     )
-                    return False
+                    return "pending"
             else:
                 # PR exists in a non-conflict state — nothing to do
                 logger.info(
                     f"PR already exists for {branch_name} "
                     f"(status: {existing_pr.status.value if existing_pr else 'unknown'})"
                 )
-                return False
+                return "pending"
 
         # If the PR has conflicts on creation (not post-resolution), dispatch resolution.
         if not conflict_resolved and pr.status == PRStatus.CONFLICT:
@@ -1209,7 +1244,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 f"PR has conflicts on creation, dispatching conflict resolution for {branch_name}"
             )
             await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
-            return False
+            return "pending"
 
         # Run quality gates before auto-approve
         from services.quality_gate_service import get_quality_gate_service
@@ -1249,7 +1284,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
             failure_msg = (
                 f"Quality gates failed for **{work.title}** "
                 f"(branch `{branch_name}`): {', '.join(failed_gates)}. "
-                "Work reverted to in-progress."
+                "Work will be re-dispatched."
             )
             try:
                 from services.conversation_service import get_conversation_service
@@ -1280,7 +1315,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                     )
             except Exception as e:
                 logger.debug(f"Could not emit quality gate notification: {e}")
-            return False
+            return "revert"
 
         logger.info(f"Quality gates passed for {branch_name}")
 
@@ -1312,7 +1347,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                         status=PRStatus.REJECTED,
                         reviewed_by=reviewed_by,
                     )
-                    return False
+                    return "revert"
         except Exception as e:
             logger.debug(f"Lead review skipped for {branch_name}: {e}")
 
@@ -1381,11 +1416,11 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
             r.get("success") and r.get("branch", "") == branch_name
             for r in results
         )
-        return our_merged
+        return "merged" if our_merged else "pending"
 
     except Exception as e:
         logger.warning(f"Auto PR/merge failed for {branch_name}: {e}")
-        return False
+        return "pending"
 
 
 # =============================================================================
