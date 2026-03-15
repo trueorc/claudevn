@@ -983,7 +983,7 @@ async def lifespan(app: FastAPI):
     # =========================================================================
     try:
         integrity_enabled = os.getenv('INTEGRITY_MONITOR_ENABLED', 'true').lower() == 'true'
-        integrity_interval = int(os.getenv('INTEGRITY_MONITOR_INTERVAL_SECONDS', '60'))
+        integrity_interval = int(os.getenv('INTEGRITY_MONITOR_INTERVAL_SECONDS', '600'))
         if integrity_enabled:
             await start_system_integrity_monitor(check_interval=integrity_interval)
             logger.info(
