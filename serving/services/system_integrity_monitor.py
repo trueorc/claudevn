@@ -203,6 +203,9 @@ class SystemIntegrityMonitor:
                         check_stats["remediated"] += 1
                     logger.info(f"[Integrity] Remediated: {anomaly.description}")
                     self._notify_success(anomaly)
+                    await self._emit_activity(
+                        anomaly, f"Auto-fixed: {anomaly.description}"
+                    )
                     # Clean tracker on success — anomaly resolved
                     self._attempt_tracker.pop(tracker_key, None)
                 else:
@@ -210,9 +213,17 @@ class SystemIntegrityMonitor:
                     if check_stats:
                         check_stats["failed"] += 1
                     self._notify_failure(anomaly, consecutive)
+                    await self._emit_activity(
+                        anomaly,
+                        f"Failed to fix: {anomaly.description}"
+                        + (f" (attempt {consecutive})" if consecutive > 1 else ""),
+                    )
             else:
                 # Notification-only anomaly
                 self._notify_failure(anomaly, consecutive)
+                await self._emit_activity(
+                    anomaly, f"Detected: {anomaly.description}"
+                )
 
         self._cleanup_tracker()
 
@@ -269,6 +280,30 @@ class SystemIntegrityMonitor:
     # =========================================================================
     # Notification
     # =========================================================================
+
+    async def _emit_activity(self, anomaly: AnomalyResult, description: str) -> None:
+        """Emit activity event to the project activity log (plan page)."""
+        if not anomaly.project_id:
+            return
+        try:
+            from services.project_service import get_project_service
+            from models.project import ActivityEventType
+
+            svc = get_project_service()
+            # Use a generic event type — the description carries the detail
+            await svc.record_activity_event(
+                project_id=anomaly.project_id,
+                event_type=ActivityEventType.WORK_FAILED if "Failed" in description
+                    else ActivityEventType.WORK_COMPLETED,
+                description=description,
+                metadata={
+                    "source": "integrity_monitor",
+                    "check_type": anomaly.check_type,
+                    "entity_id": anomaly.entity_id,
+                },
+            )
+        except Exception as e:
+            logger.debug(f"[Integrity] Could not emit activity event: {e}")
 
     def _notify_success(self, anomaly: AnomalyResult) -> None:
         """Notify that an anomaly was detected AND successfully remediated."""
