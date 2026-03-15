@@ -888,6 +888,45 @@ class TestFailedIssueMergedPR:
         assert len(results) == 0
 
     @pytest.mark.asyncio
+    async def test_detects_via_fallback_branch_scan(self):
+        """Work item has stale branch_name — fallback scans merged PRs by issue prefix."""
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus, WorkStatus
+        from git.pr_service import PRStatus
+
+        fake_issue = FakeIssue(
+            issue_id="issue_2d364", status=IssueStatus.FAILED, project_id="proj_a"
+        )
+        # Work item has python-002 branch (stale), but merged PR is on python-001
+        fake_work = FakeWorkItem(
+            work_id="w1", status=WorkStatus.FAILED,
+            branch_name="f/issue_2d364/python-002", project_id="proj_a",
+            issue_id="issue_2d364",
+        )
+        # Direct lookup returns nothing (no PR for python-002)
+        # But list_prs returns a merged PR on python-001
+        merged_pr = FakePR(branch="f/issue_2d364/python-001", status=PRStatus.MERGED)
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(
+            return_value=FakeListResult(items=[fake_issue])
+        )
+        mock_wm._work_items = {"w1": fake_work}
+
+        mock_pr_svc = AsyncMock()
+        mock_pr_svc.get_pr = AsyncMock(return_value=None)  # Direct lookup misses
+        mock_pr_svc.list_prs = AsyncMock(return_value=[merged_pr])
+
+        with patch(WM_PATCH, return_value=mock_wm), \
+             patch(PR_PATCH, return_value=mock_pr_svc):
+            results = await monitor._check_failed_issue_merged_pr()
+
+        assert len(results) == 1
+        assert results[0].check_type == "failed_issue_merged_pr"
+        assert "python-001" in results[0].description
+
+    @pytest.mark.asyncio
     async def test_no_flag_when_no_work_items(self):
         monitor = SystemIntegrityMonitor()
 

@@ -227,6 +227,11 @@ class SystemIntegrityMonitor:
                 f"{len(all_anomalies)} anomalies detected "
                 f"({elapsed_ms:.0f}ms)"
             )
+        elif self._stats["cycles"] % 10 == 0:
+            logger.info(
+                f"[Integrity] Sweep #{self._stats['cycles']}: "
+                f"clean ({elapsed_ms:.0f}ms)"
+            )
 
     # =========================================================================
     # Throttling
@@ -947,6 +952,7 @@ class SystemIntegrityMonitor:
                 # Check if ANY work item's branch has a merged PR
                 has_merged_pr = False
                 merged_branch = None
+                git_project = None
                 for work in issue_work:
                     if not work.branch_name or not work.project_id:
                         continue
@@ -963,6 +969,23 @@ class SystemIntegrityMonitor:
                             break
                     except Exception:
                         continue
+
+                # Fallback: work may have been retried on a different compute,
+                # so the branch_name on the work item is stale. Scan all merged
+                # PRs for branches matching f/{issue_id}/ prefix.
+                if not has_merged_pr and git_project:
+                    try:
+                        all_prs = await pr_service.list_prs(
+                            git_project, status=PRStatus.MERGED
+                        )
+                        issue_prefix = f"f/{issue.issue_id}/"
+                        for pr in all_prs:
+                            if pr.branch and pr.branch.startswith(issue_prefix):
+                                has_merged_pr = True
+                                merged_branch = pr.branch
+                                break
+                    except Exception:
+                        pass
 
                 if has_merged_pr:
                     anomalies.append(AnomalyResult(
