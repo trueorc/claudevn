@@ -363,6 +363,8 @@ class SystemIntegrityMonitor:
                 return await self._remediate_recover_failed_issue(
                     anomaly.entity_id, ctx
                 )
+            elif action == "dispatch_conflict_resolution":
+                return await self._remediate_dispatch_conflict_resolution(ctx)
             else:
                 logger.warning(f"[Integrity] Unknown remediation: {action}")
                 return False
@@ -480,6 +482,51 @@ class SystemIntegrityMonitor:
         goal.status = GoalStatus.FAILED
         await wm._goal_service._save_goal_to_redis(goal)
         return True
+
+    async def _remediate_dispatch_conflict_resolution(
+        self, ctx: Dict[str, Any]
+    ) -> bool:
+        """Dispatch conflict resolution to a compute — rebase and re-push."""
+        project = ctx.get("project")
+        branch = ctx.get("branch")
+        compute_id = ctx.get("compute_id")
+        task_id = ctx.get("task_id")
+        if not project or not branch:
+            return False
+
+        from api.git import get_pr_service
+        from services.work_map_service import get_work_map_service
+
+        pr_service = get_pr_service()
+        pr = await pr_service.get_pr(project, branch)
+        if not pr:
+            return False
+
+        # Find the work item for this PR
+        wm = get_work_map_service()
+        work = wm._work_items.get(task_id) if task_id else None
+        if not work:
+            # Try to find by branch
+            for w in wm._work_items.values():
+                if w.branch_name == branch:
+                    work = w
+                    break
+        if not work:
+            return False
+
+        target_compute = compute_id or work.assigned_to
+        if not target_compute:
+            return False
+
+        try:
+            from api.compute import _dispatch_conflict_resolution_work
+            await _dispatch_conflict_resolution_work(
+                work, branch, target_compute, pr
+            )
+            return True
+        except Exception as e:
+            logger.error(f"[Integrity] Conflict resolution dispatch failed: {e}")
+            return False
 
     async def _remediate_recover_failed_issue(
         self, issue_id: str, ctx: Dict[str, Any]
@@ -678,8 +725,31 @@ class SystemIntegrityMonitor:
                     continue
 
                 for pr in prs:
+                    # 4c: PENDING with conflicts — needs conflict resolution dispatch
+                    if pr.status == PRStatus.PENDING:
+                        conflicting = getattr(pr, 'conflicting_files', None)
+                        rejection = getattr(pr, 'rejection_reason', None)
+                        if conflicting or (rejection and 'Conflict' in str(rejection)):
+                            anomalies.append(AnomalyResult(
+                                check_type="stuck_pr_conflict",
+                                entity_type="pr",
+                                entity_id=f"{project_id}/{pr.branch}",
+                                project_id=project_id,
+                                description=(
+                                    f"PR {pr.branch} has merge conflicts — "
+                                    f"dispatching rebase"
+                                ),
+                                remediation_action="dispatch_conflict_resolution",
+                                context={
+                                    "project": project_id,
+                                    "branch": pr.branch,
+                                    "compute_id": getattr(pr, 'compute_id', None),
+                                    "task_id": getattr(pr, 'task_id', None),
+                                },
+                            ))
+
                     # 4a: CONFLICT but actually mergeable
-                    if pr.status == PRStatus.CONFLICT:
+                    elif pr.status == PRStatus.CONFLICT:
                         try:
                             check = await pr_service.check_mergeable(
                                 project_id, pr.branch
