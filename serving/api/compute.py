@@ -725,6 +725,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
                 work.work_id, WorkStatus.IN_PROGRESS, event.compute_id
             )
             logger.info(f"Work {work.work_id} started (ASSIGNED -> IN_PROGRESS)")
+            if work.project_id:
+                await _emit_activity(
+                    work.project_id, "work_started",
+                    f"**{work.title}** started on {event.compute_id}",
+                    work_id=work.work_id, compute_id=event.compute_id,
+                )
         return
 
     # Determine if this is a success or failure event
@@ -797,6 +803,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
                     f"Work {work.work_id} completed (task {event.task_id}), "
                     "cascade deferred until after PR merge"
                 )
+                if work.project_id:
+                    await _emit_activity(
+                        work.project_id, "work_completed",
+                        f"**{work.title}** code complete — entering merge pipeline",
+                        work_id=work.work_id, compute_id=event.compute_id,
+                    )
         else:
             error = event.error or f"Exit code {event.exit_code}"
             await work_map.fail_work_and_update_issue(
@@ -807,6 +819,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
             logger.info(
                 f"Work {work.work_id} failed (task {event.task_id}): {error}"
             )
+            if work.project_id:
+                await _emit_activity(
+                    work.project_id, "work_failed",
+                    f"**{work.title}** failed: {error}",
+                    work_id=work.work_id, compute_id=event.compute_id,
+                )
 
     # Post-completion side effects run regardless of who set the terminal state,
     # since MCP progress doesn't handle PR creation or tracking (#829)
@@ -1014,31 +1032,28 @@ async def _release_compute_after_merge(compute_id: str) -> None:
         logger.debug(f"Could not release compute {compute_id}: {e}")
 
 
-async def _emit_merge_activity(
-    project_id: str, branch: str, event: str
+async def _emit_activity(
+    project_id: str, event_type: str, description: str,
+    work_id: str = None, compute_id: str = None,
+    metadata: dict = None
 ) -> None:
-    """Fire-and-forget activity event for merge lifecycle."""
+    """Fire-and-forget activity event for plan page observability."""
     try:
         from services.project_service import get_project_service
         from models.project import ActivityEventType
 
         svc = get_project_service()
-        type_map = {
-            "merged": (ActivityEventType.PR_MERGED, f"Merged `{branch}` into main"),
-            "conflict": (ActivityEventType.PR_CONFLICT, f"Conflict on `{branch}` — needs rebase"),
-            "rebasing": (ActivityEventType.PR_REBASING, f"Dispatched rebase for `{branch}`"),
-        }
-        evt_type, description = type_map.get(
-            event, (ActivityEventType.BRANCH_MERGED, f"Merge event: {branch}")
-        )
+        evt_type = ActivityEventType(event_type)
         await svc.record_activity_event(
             project_id=project_id,
             event_type=evt_type,
             description=description,
-            metadata={"branch": branch, "merge_event": event},
+            work_id=work_id,
+            compute_id=compute_id,
+            metadata=metadata or {},
         )
     except Exception as e:
-        logger.debug(f"Failed to emit merge activity event: {e}")
+        logger.debug(f"Failed to emit activity event: {e}")
 
 
 async def _dispatch_conflict_resolution_work(
@@ -1258,6 +1273,11 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 title=work.title,
             )
             logger.info(f"Auto-created PR for branch {branch_name} (work {work.work_id})")
+            await _emit_activity(
+                work.project_id, "pr_created",
+                f"PR created for **{work.title}** (`{branch_name}`)",
+                work_id=work.work_id, compute_id=compute_id,
+            )
         except ValueError:
             # PR already exists — likely post-conflict-resolution re-entry.
             # Check if the existing PR had conflicts and they're now resolved.
@@ -1376,6 +1396,11 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                     )
             except Exception as e:
                 logger.debug(f"Could not emit quality gate notification: {e}")
+            await _emit_activity(
+                work.project_id, "pr_quality_failed",
+                f"Quality gates failed for **{work.title}** — will re-dispatch",
+                work_id=work.work_id, compute_id=compute_id,
+            )
             return "revert"
 
         logger.info(f"Quality gates passed for {branch_name}")
@@ -1432,7 +1457,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
 
             if result.get("success"):
                 logger.info(f"Auto-merged branch {result_branch}")
-                await _emit_merge_activity(work.project_id, result_branch, "merged")
+                await _emit_activity(work.project_id, "pr_merged", f"Merged `{result_branch}` into main")
 
                 # Finalize the work item for this merged branch and release its compute
                 try:
@@ -1440,6 +1465,11 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                     if result_branch == branch_name:
                         await work_map.finalize_work(work.work_id)
                         await _release_compute_after_merge(compute_id)
+                        await _emit_activity(
+                            work.project_id, "work_finalized",
+                            f"**{work.title}** merged and finalized",
+                            work_id=work.work_id, compute_id=compute_id,
+                        )
                     else:
                         # Another branch merged in the same queue run —
                         # look up its work item by PR task_id
@@ -1448,6 +1478,12 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                         )
                         if merged_pr and merged_pr.task_id:
                             await work_map.finalize_work(merged_pr.task_id)
+                            await _emit_activity(
+                                work.project_id, "work_finalized",
+                                f"Work `{merged_pr.task_id}` merged and finalized",
+                                work_id=merged_pr.task_id,
+                                compute_id=merged_pr.compute_id,
+                            )
                         if merged_pr and merged_pr.compute_id:
                             await _release_compute_after_merge(merged_pr.compute_id)
                 except Exception as fin_err:
@@ -1478,15 +1514,14 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
 
                 if conflict_work:
                     dispatch_compute = conflict_pr.compute_id or compute_id
-                    await _emit_merge_activity(
-                        work.project_id, result_branch, "conflict"
+                    await _emit_activity(
+                        work.project_id, "pr_conflict",
+                        f"Conflict on `{result_branch}` — dispatching rebase to {dispatch_compute}",
+                        work_id=conflict_work.work_id, compute_id=dispatch_compute,
                     )
                     await _dispatch_conflict_resolution_work(
                         conflict_work, result_branch,
                         dispatch_compute, conflict_pr
-                    )
-                    await _emit_merge_activity(
-                        work.project_id, result_branch, "rebasing"
                     )
                 else:
                     logger.warning(
