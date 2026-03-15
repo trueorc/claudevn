@@ -13,6 +13,8 @@ Checks (run every sweep cycle):
   5. Stale high-progress work on disconnected computes
   6. Pipeline stalls (READY issues or PENDING work with idle computes)
   7. Orphaned work assigned to disconnected computes
+  8. Failed work items whose parent issue is still IN_PROGRESS
+  9. Goals stuck in PLANNING (decomposition may have failed)
 """
 
 import asyncio
@@ -38,6 +40,8 @@ COOLDOWNS = {
     "stale_high_progress": 300,
     "pipeline_stall": 120,
     "orphaned_work": 120,
+    "failed_work_impact": 180,
+    "stuck_planning_goal": 300,
 }
 
 # How many consecutive detections before escalating notification to ERROR
@@ -163,6 +167,8 @@ class SystemIntegrityMonitor:
             self._check_stale_high_progress,
             self._check_pipeline_stall,
             self._check_orphaned_work,
+            self._check_failed_work_impact,
+            self._check_stuck_planning_goals,
         ):
             try:
                 results = await check_fn()
@@ -337,6 +343,14 @@ class SystemIntegrityMonitor:
                 return await self._remediate_trigger_dispatch()
             elif action == "requeue_orphaned":
                 return await self._remediate_requeue_orphaned(anomaly.entity_id)
+            elif action == "fail_parent_issue":
+                return await self._remediate_fail_parent_issue(
+                    anomaly.entity_id, ctx
+                )
+            elif action == "fail_stuck_planning_goal":
+                return await self._remediate_fail_stuck_planning_goal(
+                    anomaly.entity_id
+                )
             else:
                 logger.warning(f"[Integrity] Unknown remediation: {action}")
                 return False
@@ -418,6 +432,32 @@ class SystemIntegrityMonitor:
         wm = get_work_map_service()
         result = await wm.mark_work_timed_out(work_id, max_retries=3)
         return result is not None
+
+    async def _remediate_fail_parent_issue(
+        self, issue_id: str, ctx: Dict[str, Any]
+    ) -> bool:
+        """Mark an issue as FAILED when its work items have all failed."""
+        from services.work_map_service import get_work_map_service
+        from models.work_map import IssueStatus
+
+        wm = get_work_map_service()
+        await wm._issue_service.update_issue_status(
+            issue_id, IssueStatus.FAILED
+        )
+        return True
+
+    async def _remediate_fail_stuck_planning_goal(self, goal_id: str) -> bool:
+        """Mark a stuck PLANNING goal as FAILED so the user knows decomposition stalled."""
+        from services.work_map_service import get_work_map_service
+        from models.work_map import GoalStatus
+
+        wm = get_work_map_service()
+        goal = wm._goals.get(goal_id)
+        if not goal:
+            return False
+        goal.status = GoalStatus.FAILED
+        await wm._save_to_redis(goal)
+        return True
 
     # =========================================================================
     # Anomaly Checks
@@ -770,6 +810,109 @@ class SystemIntegrityMonitor:
                             ),
                             remediation_action="requeue_orphaned",
                         ))
+        except RuntimeError:
+            pass
+        return anomalies
+
+    async def _check_failed_work_impact(self) -> List[AnomalyResult]:
+        """Check 8: Issues stuck IN_PROGRESS when all work items are FAILED.
+
+        When work fails but the parent issue isn't updated, the issue blocks
+        downstream work indefinitely. This detects the gap and marks the
+        parent issue as FAILED so the system can move on.
+        """
+        anomalies: List[AnomalyResult] = []
+        try:
+            from services.work_map_service import get_work_map_service
+            from models.work_map import IssueStatus, WorkStatus
+
+            wm = get_work_map_service()
+
+            for status in (IssueStatus.IN_PROGRESS, IssueStatus.IMPLEMENTED):
+                try:
+                    result = await wm.list_issues(status=status, limit=100)
+                except Exception:
+                    continue
+                for issue in result.items:
+                    issue_work = [
+                        w for w in wm._work_items.values()
+                        if w.issue_id == issue.issue_id
+                    ]
+                    if not issue_work:
+                        continue
+                    # All work items are terminal but at least one is FAILED
+                    # (i.e., not all COMPLETED — that's _check_stuck_issues)
+                    terminal = all(
+                        w.status in (WorkStatus.COMPLETED, WorkStatus.FAILED)
+                        for w in issue_work
+                    )
+                    has_failed = any(
+                        w.status == WorkStatus.FAILED for w in issue_work
+                    )
+                    if terminal and has_failed:
+                        failed_count = sum(
+                            1 for w in issue_work if w.status == WorkStatus.FAILED
+                        )
+                        anomalies.append(AnomalyResult(
+                            check_type="failed_work_impact",
+                            entity_type="issue",
+                            entity_id=issue.issue_id,
+                            project_id=getattr(issue, 'project_id', None),
+                            description=(
+                                f"Issue {issue.issue_id} is {status.value} but "
+                                f"{failed_count}/{len(issue_work)} work item(s) "
+                                f"failed — issue should be marked FAILED"
+                            ),
+                            remediation_action="fail_parent_issue",
+                        ))
+        except RuntimeError:
+            pass
+        return anomalies
+
+    async def _check_stuck_planning_goals(self) -> List[AnomalyResult]:
+        """Check 9: Goals stuck in PLANNING for too long.
+
+        If decomposition fails silently (compute crash, timeout, error),
+        the goal stays in PLANNING forever. After 15 minutes with no
+        issues created, mark as FAILED.
+        """
+        anomalies: List[AnomalyResult] = []
+        try:
+            from services.work_map_service import get_work_map_service
+            from models.work_map import GoalStatus
+
+            wm = get_work_map_service()
+            goals_result = await wm.list_goals(status=GoalStatus.PLANNING)
+            now = datetime.now(timezone.utc)
+
+            for goal in goals_result.items:
+                # Check how long it's been in PLANNING
+                created_at = getattr(goal, 'created_at', None)
+                if not created_at:
+                    continue
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                age_seconds = (now - created_at).total_seconds()
+
+                if age_seconds < 900:  # 15 minutes grace period
+                    continue
+
+                # Verify no issues have been created
+                issues = await wm.get_goal_issues(goal.goal_id)
+                if issues:
+                    continue  # Decomposition produced issues, probably transitioning
+
+                anomalies.append(AnomalyResult(
+                    check_type="stuck_planning_goal",
+                    entity_type="goal",
+                    entity_id=goal.goal_id,
+                    project_id=getattr(goal, 'project_id', None),
+                    description=(
+                        f"Goal {goal.goal_id} stuck in PLANNING for "
+                        f"{int(age_seconds / 60)}m with no issues created"
+                    ),
+                    remediation_action="fail_stuck_planning_goal",
+                ))
         except RuntimeError:
             pass
         return anomalies

@@ -528,6 +528,8 @@ class TestStats:
         assert "by_check_type" in stats
         assert "merged_not_finalized" in stats["by_check_type"]
         assert "orphaned_work" in stats["by_check_type"]
+        assert "failed_work_impact" in stats["by_check_type"]
+        assert "stuck_planning_goal" in stats["by_check_type"]
 
 
 # ---------------------------------------------------------------------------
@@ -585,3 +587,229 @@ class TestRemediation:
 
         assert success
         mock_dispatcher.trigger.assert_called_once_with(reason="integrity_pipeline_stall")
+
+    @pytest.mark.asyncio
+    async def test_fail_parent_issue_remediation(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus
+
+        mock_wm = AsyncMock()
+        mock_wm._issue_service = AsyncMock()
+
+        anomaly = AnomalyResult(
+            check_type="failed_work_impact",
+            entity_type="issue",
+            entity_id="issue_1",
+            project_id="proj_test",
+            description="test",
+            remediation_action="fail_parent_issue",
+        )
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            success = await monitor._attempt_remediation(anomaly)
+
+        assert success
+        mock_wm._issue_service.update_issue_status.assert_awaited_once_with(
+            "issue_1", IssueStatus.FAILED
+        )
+
+    @pytest.mark.asyncio
+    async def test_fail_stuck_planning_goal_remediation(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import GoalStatus
+
+        fake_goal = FakeGoal(goal_id="g1", status=GoalStatus.PLANNING)
+
+        mock_wm = AsyncMock()
+        mock_wm._goals = {"g1": fake_goal}
+
+        anomaly = AnomalyResult(
+            check_type="stuck_planning_goal",
+            entity_type="goal",
+            entity_id="g1",
+            project_id="proj_test",
+            description="test",
+            remediation_action="fail_stuck_planning_goal",
+        )
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            success = await monitor._attempt_remediation(anomaly)
+
+        assert success
+        assert fake_goal.status == GoalStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Check 8: Failed Work Impact
+# ---------------------------------------------------------------------------
+
+class TestFailedWorkImpact:
+    @pytest.mark.asyncio
+    async def test_detects_issue_with_all_work_failed(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus, WorkStatus
+
+        fake_issue = FakeIssue(issue_id="issue_1", status=IssueStatus.IN_PROGRESS)
+        fake_work_1 = FakeWorkItem(
+            work_id="w1", status=WorkStatus.FAILED, issue_id="issue_1"
+        )
+        fake_work_2 = FakeWorkItem(
+            work_id="w2", status=WorkStatus.FAILED, issue_id="issue_1"
+        )
+
+        async def list_issues_by_status(status=None, **kwargs):
+            if status == IssueStatus.IN_PROGRESS:
+                return FakeListResult(items=[fake_issue])
+            return FakeListResult(items=[])
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(side_effect=list_issues_by_status)
+        mock_wm._work_items = {"w1": fake_work_1, "w2": fake_work_2}
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_failed_work_impact()
+
+        assert len(results) == 1
+        assert results[0].check_type == "failed_work_impact"
+        assert results[0].remediation_action == "fail_parent_issue"
+        assert "2/2" in results[0].description
+
+    @pytest.mark.asyncio
+    async def test_detects_mixed_completed_and_failed(self):
+        """Issue with some COMPLETED + some FAILED work should still flag."""
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus, WorkStatus
+
+        fake_issue = FakeIssue(issue_id="issue_1", status=IssueStatus.IN_PROGRESS)
+        fake_work_1 = FakeWorkItem(
+            work_id="w1", status=WorkStatus.COMPLETED, issue_id="issue_1"
+        )
+        fake_work_2 = FakeWorkItem(
+            work_id="w2", status=WorkStatus.FAILED, issue_id="issue_1"
+        )
+
+        async def list_issues_by_status(status=None, **kwargs):
+            if status == IssueStatus.IN_PROGRESS:
+                return FakeListResult(items=[fake_issue])
+            return FakeListResult(items=[])
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(side_effect=list_issues_by_status)
+        mock_wm._work_items = {"w1": fake_work_1, "w2": fake_work_2}
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_failed_work_impact()
+
+        assert len(results) == 1
+        assert "1/2" in results[0].description
+
+    @pytest.mark.asyncio
+    async def test_no_flag_when_work_still_active(self):
+        """Don't flag if some work is still IN_PROGRESS."""
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus, WorkStatus
+
+        fake_issue = FakeIssue(issue_id="issue_1", status=IssueStatus.IN_PROGRESS)
+        fake_work_1 = FakeWorkItem(
+            work_id="w1", status=WorkStatus.FAILED, issue_id="issue_1"
+        )
+        fake_work_2 = FakeWorkItem(
+            work_id="w2", status=WorkStatus.IN_PROGRESS, issue_id="issue_1"
+        )
+
+        async def list_issues_by_status(status=None, **kwargs):
+            if status == IssueStatus.IN_PROGRESS:
+                return FakeListResult(items=[fake_issue])
+            return FakeListResult(items=[])
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(side_effect=list_issues_by_status)
+        mock_wm._work_items = {"w1": fake_work_1, "w2": fake_work_2}
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_failed_work_impact()
+
+        assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Check 9: Stuck Planning Goals
+# ---------------------------------------------------------------------------
+
+class TestStuckPlanningGoals:
+    @pytest.mark.asyncio
+    async def test_detects_goal_stuck_in_planning(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import GoalStatus
+
+        fake_goal = FakeGoal(goal_id="g1", status=GoalStatus.PLANNING)
+        # Created 20 minutes ago (> 15 min threshold)
+        fake_goal.created_at = (
+            datetime.now(timezone.utc) - timedelta(minutes=20)
+        )
+
+        mock_wm = AsyncMock()
+        mock_wm.list_goals = AsyncMock(
+            return_value=FakeListResult(items=[fake_goal])
+        )
+        mock_wm.get_goal_issues = AsyncMock(return_value=[])
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_stuck_planning_goals()
+
+        assert len(results) == 1
+        assert results[0].check_type == "stuck_planning_goal"
+        assert results[0].remediation_action == "fail_stuck_planning_goal"
+
+    @pytest.mark.asyncio
+    async def test_no_flag_within_grace_period(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import GoalStatus
+
+        fake_goal = FakeGoal(goal_id="g1", status=GoalStatus.PLANNING)
+        # Created 5 minutes ago (< 15 min threshold)
+        fake_goal.created_at = (
+            datetime.now(timezone.utc) - timedelta(minutes=5)
+        )
+
+        mock_wm = AsyncMock()
+        mock_wm.list_goals = AsyncMock(
+            return_value=FakeListResult(items=[fake_goal])
+        )
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_stuck_planning_goals()
+
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_flag_when_issues_exist(self):
+        """If decomposition produced issues, goal is transitioning — don't flag."""
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import GoalStatus, IssueStatus
+
+        fake_goal = FakeGoal(goal_id="g1", status=GoalStatus.PLANNING)
+        fake_goal.created_at = (
+            datetime.now(timezone.utc) - timedelta(minutes=20)
+        )
+
+        mock_wm = AsyncMock()
+        mock_wm.list_goals = AsyncMock(
+            return_value=FakeListResult(items=[fake_goal])
+        )
+        mock_wm.get_goal_issues = AsyncMock(return_value=[
+            FakeIssue(issue_id="i1", status=IssueStatus.READY)
+        ])
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_stuck_planning_goals()
+
+        assert len(results) == 0

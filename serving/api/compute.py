@@ -1345,6 +1345,25 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                         logger.warning(
                             f"Failed to finalize work {work.work_id} after merge: {fin_err}"
                         )
+
+                    # Post completion to project chat
+                    try:
+                        from services.conversation_service import get_conversation_service
+                        conv_service = get_conversation_service()
+                        await conv_service.add_message(
+                            project_id=work.project_id,
+                            user_id="system",
+                            display_name="System",
+                            type="assistant",
+                            content=f"**{work.title}** completed and merged successfully.",
+                            metadata={
+                                "work_id": work.work_id,
+                                "branch": branch_name,
+                                "event_type": "work_completed",
+                            },
+                        )
+                    except Exception as chat_err:
+                        logger.debug(f"Could not post completion to chat: {chat_err}")
             elif result.get("reason") == "conflict":
                 # Merge conflict — dispatch resolution to the branch's compute
                 conflict_branch = result.get("branch", branch_name)
