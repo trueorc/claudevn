@@ -822,30 +822,25 @@ class SystemIntegrityMonitor:
                                 },
                             ))
 
-                    # 4a: CONFLICT but actually mergeable
+                    # 4a: CONFLICT — dispatch rebase to compute
                     elif pr.status == PRStatus.CONFLICT:
-                        try:
-                            check = await pr_service.check_mergeable(
-                                project_id, pr.branch
-                            )
-                            if check.get("mergeable"):
-                                anomalies.append(AnomalyResult(
-                                    check_type="stuck_pr_conflict",
-                                    entity_type="pr",
-                                    entity_id=f"{project_id}/{pr.branch}",
-                                    project_id=project_id,
-                                    description=(
-                                        f"PR {pr.branch} is marked CONFLICT "
-                                        f"but branch is actually mergeable"
-                                    ),
-                                    remediation_action="requeue_merge",
-                                    context={
-                                        "project": project_id,
-                                        "branch": pr.branch,
-                                    },
-                                ))
-                        except Exception:
-                            continue
+                        anomalies.append(AnomalyResult(
+                            check_type="stuck_pr_conflict",
+                            entity_type="pr",
+                            entity_id=f"{project_id}/{pr.branch}",
+                            project_id=project_id,
+                            description=(
+                                f"PR {pr.branch} has conflicts — "
+                                f"dispatching rebase"
+                            ),
+                            remediation_action="dispatch_conflict_resolution",
+                            context={
+                                "project": project_id,
+                                "branch": pr.branch,
+                                "compute_id": getattr(pr, 'compute_id', None),
+                                "task_id": getattr(pr, 'task_id', None),
+                            },
+                        ))
 
                     # 4b: APPROVED for >5 minutes but not merged
                     elif pr.status == PRStatus.APPROVED:
