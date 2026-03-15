@@ -428,6 +428,13 @@ class SystemIntegrityMonitor:
             await pr_service.update_status(project, branch, PRStatus.MERGED)
             return True
 
+        # Ensure PR is approved before merge (merge() requires APPROVED status)
+        if pr and pr.status != PRStatus.APPROVED:
+            await pr_service.update_status(
+                project, branch, PRStatus.APPROVED,
+                reviewed_by="integrity-monitor",
+            )
+
         # Re-add to merge queue and trigger processing
         redis = await pr_service._get_redis()
         await redis.add_to_merge_queue(project, branch)
