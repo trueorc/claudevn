@@ -225,6 +225,9 @@ class ActivityEventType(str, Enum):
     BRANCH_CREATED = "branch_created"
     BRANCH_MERGED = "branch_merged"
     COMPUTE_ASSIGNED = "compute_assigned"
+    PR_MERGED = "pr_merged"
+    PR_CONFLICT = "pr_conflict"
+    PR_REBASING = "pr_rebasing"
 
 
 class ActivityEvent(BaseModel):

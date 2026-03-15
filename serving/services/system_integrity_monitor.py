@@ -36,8 +36,8 @@ COOLDOWNS = {
     "merged_not_finalized": 120,
     "stuck_issue": 180,
     "stuck_goal": 300,
-    "stuck_pr_conflict": 180,
-    "stuck_pr_approved": 120,
+    "stuck_pr_conflict": 600,   # Safety net — merge flow handles primary conflict resolution
+    "stuck_pr_approved": 600,   # Safety net — merge flow handles primary approval/merge
     "stale_high_progress": 300,
     "pipeline_stall": 120,
     "orphaned_work": 120,
@@ -694,7 +694,12 @@ class SystemIntegrityMonitor:
         return anomalies
 
     async def _check_stuck_prs(self) -> List[AnomalyResult]:
-        """Check 4: PRs stuck in CONFLICT (resolved) or APPROVED (not merging)."""
+        """Check 4: PRs stuck in CONFLICT, APPROVED, or PENDING with conflicts (safety net).
+
+        Primary conflict resolution is handled inline by the merge flow in
+        _auto_create_and_merge_pr. This check catches edge cases where the
+        primary flow fails (compute disconnected, no idle computes, etc.).
+        """
         anomalies: List[AnomalyResult] = []
         try:
             from api.git import get_pr_service

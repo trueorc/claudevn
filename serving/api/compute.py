@@ -970,6 +970,33 @@ def _resolve_git_project_name(project_id: str) -> str:
     return project_id
 
 
+async def _emit_merge_activity(
+    project_id: str, branch: str, event: str
+) -> None:
+    """Fire-and-forget activity event for merge lifecycle."""
+    try:
+        from services.project_service import get_project_service
+        from models.project import ActivityEventType
+
+        svc = get_project_service()
+        type_map = {
+            "merged": (ActivityEventType.PR_MERGED, f"Merged `{branch}` into main"),
+            "conflict": (ActivityEventType.PR_CONFLICT, f"Conflict on `{branch}` — needs rebase"),
+            "rebasing": (ActivityEventType.PR_REBASING, f"Dispatched rebase for `{branch}`"),
+        }
+        evt_type, description = type_map.get(
+            event, (ActivityEventType.BRANCH_MERGED, f"Merge event: {branch}")
+        )
+        await svc.record_activity_event(
+            project_id=project_id,
+            event_type=evt_type,
+            description=description,
+            metadata={"branch": branch, "merge_event": event},
+        )
+    except Exception as e:
+        logger.debug(f"Failed to emit merge activity event: {e}")
+
+
 async def _dispatch_conflict_resolution_work(
     work, branch_name: str, compute_id: str, pr
 ) -> None:
@@ -1347,31 +1374,74 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         # Trigger merge queue processing
         results = await pr_service.process_merge_queue(git_project_name)
         for result in results:
-            if result.get("success"):
-                merged_branch = result.get("branch", branch_name)
-                logger.info(f"Auto-merged branch {merged_branch}")
+            result_branch = result.get("branch", "")
 
-                # Finalize work: IMPLEMENTED → COMPLETED + DONE + cascade
-                if merged_branch == branch_name:
-                    try:
-                        work_map = get_work_map_service()
+            if result.get("success"):
+                logger.info(f"Auto-merged branch {result_branch}")
+                await _emit_merge_activity(work.project_id, result_branch, "merged")
+
+                # Finalize the work item for this merged branch
+                try:
+                    work_map = get_work_map_service()
+                    if result_branch == branch_name:
                         await work_map.finalize_work(work.work_id)
-                    except Exception as fin_err:
-                        logger.warning(
-                            f"Failed to finalize work {work.work_id} after merge: {fin_err}"
+                    else:
+                        # Another branch merged in the same queue run —
+                        # look up its work item by PR task_id
+                        merged_pr = await pr_service.get_pr(
+                            git_project_name, result_branch
                         )
+                        if merged_pr and merged_pr.task_id:
+                            await work_map.finalize_work(merged_pr.task_id)
+                except Exception as fin_err:
+                    logger.warning(
+                        f"Failed to finalize work for {result_branch}: {fin_err}"
+                    )
 
             elif result.get("reason") == "conflict":
-                # Merge conflict — dispatch resolution to the branch's compute
-                conflict_branch = result.get("branch", branch_name)
-                conflict_pr = await pr_service.get_pr(git_project_name, conflict_branch)
-                if conflict_pr:
+                # Merge conflict — look up the CORRECT work item for this branch
+                conflict_pr = await pr_service.get_pr(
+                    git_project_name, result_branch
+                )
+                if not conflict_pr:
+                    continue
+
+                # Find the work item that owns this branch
+                conflict_work = None
+                if conflict_pr.task_id:
+                    try:
+                        work_map = get_work_map_service()
+                        conflict_work = await work_map.get_work(
+                            conflict_pr.task_id
+                        )
+                    except Exception:
+                        pass
+                if not conflict_work and result_branch == branch_name:
+                    conflict_work = work
+
+                if conflict_work:
                     dispatch_compute = conflict_pr.compute_id or compute_id
+                    await _emit_merge_activity(
+                        work.project_id, result_branch, "conflict"
+                    )
                     await _dispatch_conflict_resolution_work(
-                        work, conflict_branch, dispatch_compute, conflict_pr
+                        conflict_work, result_branch,
+                        dispatch_compute, conflict_pr
+                    )
+                    await _emit_merge_activity(
+                        work.project_id, result_branch, "rebasing"
+                    )
+                else:
+                    logger.warning(
+                        f"Cannot dispatch conflict resolution for "
+                        f"{result_branch}: no work item found "
+                        f"(task_id={conflict_pr.task_id})"
                     )
             else:
-                logger.warning(f"Auto-merge failed for {result.get('branch', branch_name)}: {result.get('error')}")
+                logger.warning(
+                    f"Auto-merge failed for {result_branch}: "
+                    f"{result.get('error')}"
+                )
 
         # Check if OUR branch was successfully merged
         our_merged = any(
