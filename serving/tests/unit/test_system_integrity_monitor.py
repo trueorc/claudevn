@@ -530,6 +530,7 @@ class TestStats:
         assert "orphaned_work" in stats["by_check_type"]
         assert "failed_work_impact" in stats["by_check_type"]
         assert "stuck_planning_goal" in stats["by_check_type"]
+        assert "failed_issue_merged_pr" in stats["by_check_type"]
 
 
 # ---------------------------------------------------------------------------
@@ -813,3 +814,130 @@ class TestStuckPlanningGoals:
             results = await monitor._check_stuck_planning_goals()
 
         assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Check 10: Failed Issue with Merged PR
+# ---------------------------------------------------------------------------
+
+class TestFailedIssueMergedPR:
+    @pytest.mark.asyncio
+    async def test_detects_failed_issue_with_merged_pr(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus, WorkStatus
+        from git.pr_service import PRStatus
+
+        fake_issue = FakeIssue(
+            issue_id="issue_1", status=IssueStatus.FAILED, project_id="proj_a"
+        )
+        fake_work = FakeWorkItem(
+            work_id="w1", status=WorkStatus.FAILED,
+            branch_name="f/issue_1/compute-001", project_id="proj_a",
+            issue_id="issue_1",
+        )
+        fake_pr = FakePR(branch="f/issue_1/compute-001", status=PRStatus.MERGED)
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(
+            return_value=FakeListResult(items=[fake_issue])
+        )
+        mock_wm._work_items = {"w1": fake_work}
+
+        mock_pr_svc = AsyncMock()
+        mock_pr_svc.get_pr = AsyncMock(return_value=fake_pr)
+
+        with patch(WM_PATCH, return_value=mock_wm), \
+             patch(PR_PATCH, return_value=mock_pr_svc):
+            results = await monitor._check_failed_issue_merged_pr()
+
+        assert len(results) == 1
+        assert results[0].check_type == "failed_issue_merged_pr"
+        assert results[0].remediation_action == "recover_failed_issue"
+
+    @pytest.mark.asyncio
+    async def test_no_flag_when_pr_not_merged(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus, WorkStatus
+        from git.pr_service import PRStatus
+
+        fake_issue = FakeIssue(
+            issue_id="issue_1", status=IssueStatus.FAILED, project_id="proj_a"
+        )
+        fake_work = FakeWorkItem(
+            work_id="w1", status=WorkStatus.FAILED,
+            branch_name="f/issue_1/compute-001", project_id="proj_a",
+            issue_id="issue_1",
+        )
+        fake_pr = FakePR(branch="f/issue_1/compute-001", status=PRStatus.PENDING)
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(
+            return_value=FakeListResult(items=[fake_issue])
+        )
+        mock_wm._work_items = {"w1": fake_work}
+
+        mock_pr_svc = AsyncMock()
+        mock_pr_svc.get_pr = AsyncMock(return_value=fake_pr)
+
+        with patch(WM_PATCH, return_value=mock_wm), \
+             patch(PR_PATCH, return_value=mock_pr_svc):
+            results = await monitor._check_failed_issue_merged_pr()
+
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_flag_when_no_work_items(self):
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus
+
+        fake_issue = FakeIssue(
+            issue_id="issue_1", status=IssueStatus.FAILED, project_id="proj_a"
+        )
+
+        mock_wm = AsyncMock()
+        mock_wm.list_issues = AsyncMock(
+            return_value=FakeListResult(items=[fake_issue])
+        )
+        mock_wm._work_items = {}
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            results = await monitor._check_failed_issue_merged_pr()
+
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_recover_remediation(self):
+        """Test the full recovery: FAILED → IN_PROGRESS → IMPLEMENTED → DONE."""
+        monitor = SystemIntegrityMonitor()
+
+        from models.work_map import IssueStatus
+
+        mock_wm = AsyncMock()
+        mock_issue_svc = AsyncMock()
+        mock_wm._issue_service = mock_issue_svc
+
+        # First call (IN_PROGRESS) succeeds, finalize_issue succeeds
+        mock_issue_svc.update_issue_status = AsyncMock(return_value=True)
+        mock_issue_svc.finalize_issue = AsyncMock(return_value=True)
+
+        anomaly = AnomalyResult(
+            check_type="failed_issue_merged_pr",
+            entity_type="issue",
+            entity_id="issue_1",
+            project_id="proj_a",
+            description="test",
+            remediation_action="recover_failed_issue",
+            context={"branch": "f/issue_1/c1"},
+        )
+
+        with patch(WM_PATCH, return_value=mock_wm):
+            success = await monitor._attempt_remediation(anomaly)
+
+        assert success
+        # Should have called update_issue_status(IN_PROGRESS) then finalize_issue
+        mock_issue_svc.update_issue_status.assert_awaited()
+        first_call = mock_issue_svc.update_issue_status.call_args_list[0]
+        assert first_call.args[1] == IssueStatus.IN_PROGRESS

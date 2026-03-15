@@ -15,6 +15,7 @@ Checks (run every sweep cycle):
   7. Orphaned work assigned to disconnected computes
   8. Failed work items whose parent issue is still IN_PROGRESS
   9. Goals stuck in PLANNING (decomposition may have failed)
+  10. Failed issues whose work PR is actually merged (recover to DONE)
 """
 
 import asyncio
@@ -42,6 +43,7 @@ COOLDOWNS = {
     "orphaned_work": 120,
     "failed_work_impact": 180,
     "stuck_planning_goal": 300,
+    "failed_issue_merged_pr": 120,
 }
 
 # How many consecutive detections before escalating notification to ERROR
@@ -169,6 +171,7 @@ class SystemIntegrityMonitor:
             self._check_orphaned_work,
             self._check_failed_work_impact,
             self._check_stuck_planning_goals,
+            self._check_failed_issue_merged_pr,
         ):
             try:
                 results = await check_fn()
@@ -351,6 +354,10 @@ class SystemIntegrityMonitor:
                 return await self._remediate_fail_stuck_planning_goal(
                     anomaly.entity_id
                 )
+            elif action == "recover_failed_issue":
+                return await self._remediate_recover_failed_issue(
+                    anomaly.entity_id, ctx
+                )
             else:
                 logger.warning(f"[Integrity] Unknown remediation: {action}")
                 return False
@@ -456,8 +463,47 @@ class SystemIntegrityMonitor:
         if not goal:
             return False
         goal.status = GoalStatus.FAILED
-        await wm._save_to_redis(goal)
+        await wm._goal_service._save_goal_to_redis(goal)
         return True
+
+    async def _remediate_recover_failed_issue(
+        self, issue_id: str, ctx: Dict[str, Any]
+    ) -> bool:
+        """Recover a FAILED issue whose work is actually merged.
+
+        Transitions FAILED → IN_PROGRESS → IMPLEMENTED → DONE (with cascade).
+        Each step follows the valid transition table.
+        """
+        from services.work_map_service import get_work_map_service
+        from models.work_map import IssueStatus
+
+        wm = get_work_map_service()
+
+        # FAILED → IN_PROGRESS (valid transition)
+        result = await wm._issue_service.update_issue_status(
+            issue_id, IssueStatus.IN_PROGRESS,
+            reason="integrity_monitor: PR is merged, recovering from FAILED"
+        )
+        if not result:
+            return False
+
+        # Finalize: IN_PROGRESS → IMPLEMENTED → DONE + cascade
+        result = await wm._issue_service.finalize_issue(
+            issue_id, trigger_cascade=True
+        )
+        # finalize_issue expects IMPLEMENTED, but we're at IN_PROGRESS.
+        # So transition to IMPLEMENTED first, then finalize.
+        if not result:
+            result = await wm._issue_service.update_issue_status(
+                issue_id, IssueStatus.IMPLEMENTED,
+                reason="integrity_monitor: work merged, advancing to IMPLEMENTED"
+            )
+            if result:
+                result = await wm._issue_service.finalize_issue(
+                    issue_id, trigger_cascade=True
+                )
+
+        return result is not None
 
     # =========================================================================
     # Anomaly Checks
@@ -865,6 +911,72 @@ class SystemIntegrityMonitor:
                             ),
                             remediation_action="fail_parent_issue",
                         ))
+        except RuntimeError:
+            pass
+        return anomalies
+
+    async def _check_failed_issue_merged_pr(self) -> List[AnomalyResult]:
+        """Check 10: FAILED issues whose work branch is actually merged.
+
+        This catches the scenario where work completed and merged but the
+        work item timed out or failed for unrelated reasons, leaving the
+        issue stuck at FAILED while the code is on main. The fix recovers
+        the issue to DONE and triggers the dependency cascade to unblock
+        downstream work.
+        """
+        anomalies: List[AnomalyResult] = []
+        try:
+            from services.work_map_service import get_work_map_service
+            from api.git import get_pr_service
+            from git.pr_service import PRStatus
+            from models.work_map import IssueStatus
+
+            wm = get_work_map_service()
+            pr_service = get_pr_service()
+
+            result = await wm.list_issues(status=IssueStatus.FAILED, limit=100)
+            for issue in result.items:
+                # Find all work items for this issue
+                issue_work = [
+                    w for w in wm._work_items.values()
+                    if w.issue_id == issue.issue_id
+                ]
+                if not issue_work:
+                    continue
+
+                # Check if ANY work item's branch has a merged PR
+                has_merged_pr = False
+                merged_branch = None
+                for work in issue_work:
+                    if not work.branch_name or not work.project_id:
+                        continue
+                    try:
+                        git_project = self._resolve_git_project_name(
+                            work.project_id
+                        )
+                        pr = await pr_service.get_pr(
+                            git_project, work.branch_name
+                        )
+                        if pr and pr.status == PRStatus.MERGED:
+                            has_merged_pr = True
+                            merged_branch = work.branch_name
+                            break
+                    except Exception:
+                        continue
+
+                if has_merged_pr:
+                    anomalies.append(AnomalyResult(
+                        check_type="failed_issue_merged_pr",
+                        entity_type="issue",
+                        entity_id=issue.issue_id,
+                        project_id=getattr(issue, 'project_id', None),
+                        description=(
+                            f"Issue {issue.issue_id} is FAILED but branch "
+                            f"{merged_branch} is merged — recovering to DONE"
+                        ),
+                        remediation_action="recover_failed_issue",
+                        context={"branch": merged_branch},
+                    ))
         except RuntimeError:
             pass
         return anomalies
