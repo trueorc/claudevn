@@ -418,9 +418,19 @@ class SystemIntegrityMonitor:
         from git.pr_service import PRStatus
 
         pr_service = get_pr_service()
-        await pr_service.update_status(project, branch, PRStatus.PENDING)
+
+        # Check if already merged (stale APPROVED status from race condition)
+        pr = await pr_service.get_pr(project, branch)
+        if pr and getattr(pr, 'merged_at', None):
+            # PR was already merged — fix the status instead of re-merging
+            await pr_service.update_status(project, branch, PRStatus.MERGED)
+            return True
+
+        # Re-add to merge queue and trigger processing
+        redis = await pr_service._get_redis()
+        await redis.add_to_merge_queue(project, branch)
         results = await pr_service.process_merge_queue(project)
-        return len(results) > 0
+        return any(r.get("success") for r in results)
 
     async def _remediate_process_merge_queue(self, project: Optional[str]) -> bool:
         if not project:
@@ -428,8 +438,8 @@ class SystemIntegrityMonitor:
         from api.git import get_pr_service
 
         pr_service = get_pr_service()
-        await pr_service.process_merge_queue(project)
-        return True
+        results = await pr_service.process_merge_queue(project)
+        return any(r.get("success") for r in results)
 
     async def _remediate_trigger_dispatch(self) -> bool:
         from services.work_dispatcher import get_work_dispatcher
@@ -712,8 +722,11 @@ class SystemIntegrityMonitor:
                                         f"PR {pr.branch} has been APPROVED for "
                                         f"{int(age)}s but not merged"
                                     ),
-                                    remediation_action="process_merge_queue",
-                                    context={"project": project_id},
+                                    remediation_action="requeue_merge",
+                                    context={
+                                        "project": project_id,
+                                        "branch": pr.branch,
+                                    },
                                 ))
         except RuntimeError:
             pass
