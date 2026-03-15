@@ -31,8 +31,8 @@ from services.work_orchestrator import (
     start_work_orchestration, stop_work_orchestration, get_work_orchestrator
 )
 from services.work_dispatcher import start_work_dispatcher, stop_work_dispatcher
-from services.reconciliation_manager import (
-    start_reconciliation_manager, stop_reconciliation_manager
+from services.system_integrity_monitor import (
+    start_system_integrity_monitor, stop_system_integrity_monitor
 )
 from api import compute
 from api import compute_approval
@@ -975,22 +975,24 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to start work dispatcher: {e}. Falling back to polling-only dispatch.")
 
     # =========================================================================
-    # OPTIONAL: Reconciliation Manager
-    # Periodic safety net (45s) that catches stuck items, orphaned tasks,
-    # and consistency issues missed by the event-driven dispatch path.
+    # OPTIONAL: System Integrity Monitor
+    # Active agent (60s sweep) that detects cross-cutting state machine
+    # inconsistencies (merged but un-finalized work, stuck issues/goals,
+    # orphaned work, pipeline stalls) and attempts remediation.
+    # Replaces the former ReconciliationManager with broader coverage.
     # =========================================================================
     try:
-        reconcile_enabled = os.getenv('RECONCILIATION_ENABLED', 'true').lower() == 'true'
-        reconcile_interval = int(os.getenv('RECONCILIATION_INTERVAL_SECONDS', '45'))
-        if reconcile_enabled:
-            await start_reconciliation_manager(check_interval=reconcile_interval)
+        integrity_enabled = os.getenv('INTEGRITY_MONITOR_ENABLED', 'true').lower() == 'true'
+        integrity_interval = int(os.getenv('INTEGRITY_MONITOR_INTERVAL_SECONDS', '60'))
+        if integrity_enabled:
+            await start_system_integrity_monitor(check_interval=integrity_interval)
             logger.info(
-                f"Reconciliation manager started (interval={reconcile_interval}s)"
+                f"System integrity monitor started (interval={integrity_interval}s)"
             )
         else:
-            logger.info("Reconciliation manager disabled via RECONCILIATION_ENABLED=false")
+            logger.info("System integrity monitor disabled via INTEGRITY_MONITOR_ENABLED=false")
     except Exception as e:
-        logger.warning(f"Failed to start reconciliation manager: {e}")
+        logger.warning(f"Failed to start system integrity monitor: {e}")
 
     # =========================================================================
     # OPTIONAL: Work Orchestrator
@@ -1080,12 +1082,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Auto-drain lifecycle service cleanup: {e}")
 
-    # Stop reconciliation manager
+    # Stop system integrity monitor
     try:
-        await stop_reconciliation_manager()
-        logger.info("Reconciliation manager stopped")
+        await stop_system_integrity_monitor()
+        logger.info("System integrity monitor stopped")
     except Exception as e:
-        logger.debug(f"Reconciliation manager cleanup: {e}")
+        logger.debug(f"System integrity monitor cleanup: {e}")
 
     # Stop work dispatcher
     try:

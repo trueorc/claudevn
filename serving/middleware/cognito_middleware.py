@@ -34,7 +34,8 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/auth/token",            # Claude token management (internal)
     "/api/v1/auth/cognito-config",   # Frontend Cognito config (needed before auth)
     "/api/v1/auth/status",           # Auth status check
-    "/api/v1/marketplace/register",  # Marketplace registration
+    "/api/v1/marketplaces/register",  # Marketplace registration
+    "/api/v1/marketplaces/marketplace-",  # Marketplace heartbeat/status (service-to-service)
     "/api/v1/users/login",           # User login (local auth mode)
     "/api/v1/users/register",        # User registration (local auth mode)
     "/api/v1/releases",              # Release notes (public, non-sensitive)

@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from models.compute import (
     ComputeInstance,
@@ -229,6 +230,66 @@ class TestRegistryAuthStatus:
 
         retrieved = await registry.get_instance("test-001")
         assert retrieved.auth_status == ComputeAuthStatus.AUTHORIZED
+
+    @pytest.mark.asyncio
+    async def test_register_syncs_auth_status_from_existing_token(self, registry):
+        """Registration should sync auth_status when an active token exists."""
+        from api.compute import register_instance
+        from models.compute import RegistrationRequest, InstanceCapabilities
+
+        request = RegistrationRequest(
+            instance_id="node-001",
+            name="Node 001",
+            endpoint="http://compute:8000",
+            capabilities=InstanceCapabilities(agents=["agent-a"]),
+        )
+
+        mock_instance = _make_instance(instance_id="node-001")
+        registry.add_instance = AsyncMock(return_value=mock_instance)
+        registry.update_auth_status = AsyncMock(return_value=mock_instance)
+
+        mock_auth_svc = MagicMock()
+        mock_auth_svc.get_token_info.return_value = {
+            "component_id": "node-001",
+            "status": "active",
+            "expires_at": "2027-03-04T03:56:23.900627+00:00",
+            "component_type": "compute",
+        }
+
+        with patch("services.claude_auth_service.get_claude_auth_service", return_value=mock_auth_svc), \
+             patch("services.observability_event_bus.get_event_bus", return_value=None):
+            await register_instance(request, registry=registry)
+
+        registry.update_auth_status.assert_called_once()
+        call_args = registry.update_auth_status.call_args
+        assert call_args[0][0] == "node-001"
+        assert call_args[0][1] == ComputeAuthStatus.AUTHORIZED
+
+    @pytest.mark.asyncio
+    async def test_register_stays_unauthorized_without_token(self, registry):
+        """Registration should not set AUTHORIZED when no token exists."""
+        from api.compute import register_instance
+        from models.compute import RegistrationRequest, InstanceCapabilities
+
+        request = RegistrationRequest(
+            instance_id="node-002",
+            name="Node 002",
+            endpoint="http://compute:8000",
+            capabilities=InstanceCapabilities(agents=["agent-a"]),
+        )
+
+        mock_instance = _make_instance(instance_id="node-002")
+        registry.add_instance = AsyncMock(return_value=mock_instance)
+        registry.update_auth_status = AsyncMock()
+
+        mock_auth_svc = MagicMock()
+        mock_auth_svc.get_token_info.return_value = None
+
+        with patch("services.claude_auth_service.get_claude_auth_service", return_value=mock_auth_svc), \
+             patch("services.observability_event_bus.get_event_bus", return_value=None):
+            await register_instance(request, registry=registry)
+
+        registry.update_auth_status.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_stats_include_auth_breakdown(self, registry):

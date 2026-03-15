@@ -213,6 +213,37 @@ async def _set_processing_status(
 
     await redis.setex(key, PROCESSING_STATUS_TTL_SECONDS, json.dumps(data))
 
+    # Push stage change to WebSocket subscribers in real-time
+    try:
+        from services.observability_event_bus import get_event_bus
+        from models.observability import GoalProcessingStageEvent
+        import uuid as _uuid
+
+        event_bus = get_event_bus()
+        if event_bus:
+            previous_stage = existing_data.get("stage") if existing else None
+            # Look up project_id from goal for frontend filtering
+            project_id = None
+            try:
+                goal_key = f"claudevn:workmap:goal:{goal_id}"
+                goal_data = await redis.hget(goal_key, "project_id")
+                if goal_data:
+                    project_id = goal_data
+            except Exception:
+                pass
+
+            event = GoalProcessingStageEvent(
+                event_id=f"gps_{_uuid.uuid4().hex[:12]}",
+                goal_id=goal_id,
+                project_id=project_id,
+                stage=stage.value,
+                previous_stage=previous_stage,
+                error=error,
+            )
+            await event_bus.emit_event(event)
+    except Exception as e:
+        logger.debug(f"Could not emit processing stage event: {e}")
+
 
 async def _get_processing_status(goal_id: str) -> Optional[ProcessingStatusResponse]:
     """Retrieve processing status for a goal from Redis."""

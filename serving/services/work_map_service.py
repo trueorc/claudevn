@@ -1145,6 +1145,22 @@ class WorkMapService:
                 f"Finalized work {work_id} and issue {work.issue_id} after merge"
             )
 
+        # Emit success notification (mirrors fail_work_and_update_issue pattern)
+        try:
+            from services.notification_service import get_notification_service
+            from models.notification import NotificationLevel, NotificationCategory
+            svc = get_notification_service()
+            svc.emit(
+                title=f"Work completed: {work.title}",
+                message=f"Work {work_id} merged and finalized successfully",
+                level=NotificationLevel.SUCCESS,
+                category=NotificationCategory.WORK,
+                project_id=work.project_id,
+                entity_id=work_id,
+            )
+        except Exception:
+            pass
+
         return work
 
     async def cascade_dependents(self, work_id: str) -> List[str]:

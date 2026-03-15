@@ -154,7 +154,7 @@ describe('useGoals', () => {
     // We need to advance through each polling interval to trigger the timeout check
     let elapsed = 0
     let interval = POLL_CONFIG.INITIAL_INTERVAL_MS
-    while (elapsed < POLL_CONFIG.TIMEOUT_MS + POLL_CONFIG.MAX_INTERVAL_MS) {
+    while (elapsed < POLL_CONFIG.STAGE_TIMEOUT_MS + POLL_CONFIG.MAX_INTERVAL_MS) {
       await act(async () => {
         vi.advanceTimersByTime(interval)
       })
@@ -270,7 +270,7 @@ describe('useGoals', () => {
     // Advance to timeout
     let elapsed = 0
     let interval = POLL_CONFIG.INITIAL_INTERVAL_MS
-    while (elapsed < POLL_CONFIG.TIMEOUT_MS + POLL_CONFIG.MAX_INTERVAL_MS) {
+    while (elapsed < POLL_CONFIG.STAGE_TIMEOUT_MS + POLL_CONFIG.MAX_INTERVAL_MS) {
       await act(async () => {
         vi.advanceTimersByTime(interval)
       })
@@ -400,10 +400,11 @@ describe('useGoals', () => {
 
   it('exports POLL_CONFIG for external use', () => {
     expect(POLL_CONFIG.INITIAL_INTERVAL_MS).toBe(2000)
-    expect(POLL_CONFIG.MAX_INTERVAL_MS).toBe(30000)
-    expect(POLL_CONFIG.BACKOFF_MULTIPLIER).toBe(1.5)
-    expect(POLL_CONFIG.TIMEOUT_MS).toBe(300000)
-    expect(POLL_CONFIG.STALL_THRESHOLD_MS).toBe(120000)
+    expect(POLL_CONFIG.MAX_INTERVAL_MS).toBe(5000)
+    expect(POLL_CONFIG.BACKOFF_MULTIPLIER).toBe(1.3)
+    expect(POLL_CONFIG.STAGE_TIMEOUT_MS).toBe(300000)
+    expect(POLL_CONFIG.STALL_THRESHOLD_MS).toBe(240000)
     expect(POLL_CONFIG.MAX_CONSECUTIVE_ERRORS).toBe(5)
+    expect(POLL_CONFIG.RESET_INTERVAL_MS).toBe(2000)
   })
 })

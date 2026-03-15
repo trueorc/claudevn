@@ -339,7 +339,16 @@ export function ConversationProvider({ children }) {
         (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
       )
     }
-    return storedMessages
+    // No live messages — show stored messages plus any remote messages
+    // that arrived via WebSocket (e.g. system status updates, integrity
+    // monitor notifications) since page load.
+    if (remoteMessages.length === 0) return storedMessages
+    const storedIds = new Set(storedMessages.map(m => m.id))
+    const newRemote = remoteMessages.filter(m => !storedIds.has(m.id))
+    if (newRemote.length === 0) return storedMessages
+    return [...storedMessages, ...newRemote].sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    )
   })()
 
   const value = {

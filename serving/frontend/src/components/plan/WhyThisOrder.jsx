@@ -43,9 +43,9 @@ function formatTimeAgo(isoString) {
   return `${diffDays}d ago`
 }
 
-function WhyThisOrder({ buckets = [], traces = [], traceCount = 0, onTraceChainClick }) {
+function WhyThisOrder({ buckets = [], traces = [], traceCount = 0, activityEvents = [], onTraceChainClick }) {
   const [orderingExpanded, setOrderingExpanded] = useState(true)
-  const [otherExpanded, setOtherExpanded] = useState(false)
+  const [otherExpanded, setOtherExpanded] = useState(true)
   const hasBuckets = buckets.length > 0
 
   // Split traces into ordering-relevant and other
@@ -63,9 +63,9 @@ function WhyThisOrder({ buckets = [], traces = [], traceCount = 0, onTraceChainC
   }, [traces])
 
   const hasOrderingTraces = orderingTraces.length > 0
-  const hasOtherTraces = otherTraces.length > 0
+  const hasActivity = activityEvents.length > 0 || otherTraces.length > 0
 
-  if (!hasBuckets && !hasOrderingTraces && !hasOtherTraces) return null
+  if (!hasBuckets && !hasOrderingTraces && !hasActivity) return null
 
   const sortedBuckets = hasBuckets
     ? buckets.slice().sort((a, b) => a.rank - b.rank)
@@ -141,20 +141,23 @@ function WhyThisOrder({ buckets = [], traces = [], traceCount = 0, onTraceChainC
         </>
       )}
 
-      {hasOtherTraces && (
+      {hasActivity && (
         <>
           <button
             className="plan-why-header plan-why-header--secondary"
             onClick={() => setOtherExpanded(!otherExpanded)}
           >
             {otherExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-            <span className="plan-why-title">Other Activity</span>
+            <span className="plan-why-title">Activity Log</span>
             <span className="plan-why-count">
-              {otherTraces.length}
+              {activityEvents.length + otherTraces.length}
             </span>
           </button>
           {otherExpanded && (
             <div className="plan-why-timeline">
+              {activityEvents.map(evt => (
+                <ActivityCard key={evt.event_id} event={evt} />
+              ))}
               {otherTraces.map(trace => (
                 <TraceCard key={trace.trace_id} trace={trace} />
               ))}
@@ -162,6 +165,36 @@ function WhyThisOrder({ buckets = [], traces = [], traceCount = 0, onTraceChainC
           )}
         </>
       )}
+    </div>
+  )
+}
+
+const activityTypeIcons = {
+  work_started: Move,
+  work_completed: CheckCircle,
+  work_failed: AlertTriangle,
+  work_finalized: CheckCircle,
+  pr_created: GitBranch,
+  pr_merged: GitBranch,
+  pr_conflict: AlertTriangle,
+  pr_rebasing: Shuffle,
+  pr_quality_failed: AlertTriangle,
+}
+
+function ActivityCard({ event }) {
+  const Icon = activityTypeIcons[event.event_type] || Move
+  // Parse **bold** markers in description
+  const parts = (event.description || '').split(/\*\*(.*?)\*\*/g)
+
+  return (
+    <div className="plan-trace-card">
+      <div className="plan-trace-time">{formatTimeAgo(event.timestamp)}</div>
+      <div className="plan-trace-content">
+        <div className="plan-trace-type">
+          <Icon size={14} />
+          <span>{parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}</span>
+        </div>
+      </div>
     </div>
   )
 }

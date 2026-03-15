@@ -615,36 +615,64 @@ async def receive_compute_event(
     if event.event.value != "claude_code_rejected":
         await _handle_work_status_update(event)
 
-    # Reset SSE connection to idle so compute can pick up new work.
-    # This MUST be here (not inside _handle_work_status_update) because
-    # characterization/decomposition tasks (char-*, decomp-*) are not work
-    # items — _handle_work_status_update returns early when get_work() is
-    # None, skipping the reset if it lived there.
+    # Reset SSE connection status after task completion.
+    #
+    # For WORK ITEMS that completed successfully with a branch: set to "merging"
+    # so the compute stays reserved for conflict resolution. It will be reset
+    # to "idle" after finalize_work (merge succeeded) or if merge permanently
+    # fails. The dispatcher skips non-idle computes, preventing double-assignment.
+    #
+    # For everything else (failures, char/decomp tasks, rejections): reset to
+    # "idle" immediately so the compute can pick up new work.
     if event.event.value in ("claude_code_completed", "claude_code_failed", "claude_code_rejected"):
+        is_work_success = (
+            event.event.value == "claude_code_completed"
+            and event.exit_code == 0
+            and not event.task_id.startswith("conflict-")
+            and not event.task_id.startswith("char-")
+            and not event.task_id.startswith("decomp-")
+        )
+        # Check if this work item has a branch (needs merge pipeline)
+        has_branch = False
+        if is_work_success:
+            try:
+                from services.work_map_service import get_work_map_service
+                w = await get_work_map_service().get_work(event.task_id)
+                has_branch = bool(w and (event.branch_name or w.branch_name) and w.project_id)
+            except Exception:
+                pass
+
         try:
             sse_manager = get_sse_connection_manager()
             connection = sse_manager.get_connection(event.compute_id)
             if connection:
-                connection.status = "idle"
-                connection.current_task_id = None
-                logger.info(f"Reset SSE connection {event.compute_id} to idle")
+                if is_work_success and has_branch:
+                    # Hold compute for merge pipeline — don't assign new work
+                    connection.status = "merging"
+                    logger.info(
+                        f"SSE connection {event.compute_id} set to 'merging' "
+                        f"(holding for PR pipeline)"
+                    )
+                else:
+                    connection.status = "idle"
+                    connection.current_task_id = None
+                    logger.info(f"Reset SSE connection {event.compute_id} to idle")
         except Exception as e:
             logger.warning(
-                f"Failed to reset SSE connection for {event.compute_id}: {e}"
+                f"Failed to update SSE connection for {event.compute_id}: {e}"
             )
 
-        # Fire the WorkDispatcher — compute is now idle, may have work waiting
-        # (characterization tasks, decomposition tasks, or execution work items).
-        # This replaces the 2-second polling loop with an immediate push signal.
-        try:
-            from services.work_dispatcher import get_work_dispatcher
-            get_work_dispatcher().trigger(
-                reason=f"compute_idle:{event.compute_id}"
-            )
-        except RuntimeError:
-            pass  # Dispatcher not initialized (e.g., test environment)
-        except Exception as e:
-            logger.debug(f"Could not fire dispatcher on compute idle: {e}")
+        # Fire the WorkDispatcher only when compute is actually idle
+        if not (is_work_success and has_branch):
+            try:
+                from services.work_dispatcher import get_work_dispatcher
+                get_work_dispatcher().trigger(
+                    reason=f"compute_idle:{event.compute_id}"
+                )
+            except RuntimeError:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not fire dispatcher on compute idle: {e}")
 
     # On rejection, attempt to re-dispatch the task to another compute
     if event.event.value == "claude_code_rejected":
@@ -697,6 +725,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
                 work.work_id, WorkStatus.IN_PROGRESS, event.compute_id
             )
             logger.info(f"Work {work.work_id} started (ASSIGNED -> IN_PROGRESS)")
+            if work.project_id:
+                await _emit_activity(
+                    work.project_id, "work_started",
+                    f"**{work.title}** started on {event.compute_id}",
+                    work_id=work.work_id, compute_id=event.compute_id,
+                )
         return
 
     # Determine if this is a success or failure event
@@ -769,6 +803,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
                     f"Work {work.work_id} completed (task {event.task_id}), "
                     "cascade deferred until after PR merge"
                 )
+                if work.project_id:
+                    await _emit_activity(
+                        work.project_id, "work_completed",
+                        f"**{work.title}** code complete — entering merge pipeline",
+                        work_id=work.work_id, compute_id=event.compute_id,
+                    )
         else:
             error = event.error or f"Exit code {event.exit_code}"
             await work_map.fail_work_and_update_issue(
@@ -779,6 +819,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
             logger.info(
                 f"Work {work.work_id} failed (task {event.task_id}): {error}"
             )
+            if work.project_id:
+                await _emit_activity(
+                    work.project_id, "work_failed",
+                    f"**{work.title}** failed: {error}",
+                    work_id=work.work_id, compute_id=event.compute_id,
+                )
 
     # Post-completion side effects run regardless of who set the terminal state,
     # since MCP progress doesn't handle PR creation or tracking (#829)
@@ -808,16 +854,26 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         # finalize_work() inside _auto_create_and_merge_pr handles
         # IMPLEMENTED → COMPLETED + DONE transitions and dependency cascade
         branch_name = event.branch_name or work.branch_name
-        merge_ok = False
+        pr_result = "pending"
         if branch_name and work.project_id:
-            merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+            pr_result = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-        if not merge_ok and branch_name and work.project_id:
-            # Merge or quality gates failed — revert work/issue so they don't appear done
+        if pr_result == "revert" and not already_terminal:
+            # Code needs changes (quality gates failed, review rejected) — revert
+            # so the work can be re-dispatched with corrective instructions.
             logger.warning(
-                f"Reverting work {work.work_id} to IN_PROGRESS — PR merge did not succeed"
+                f"Reverting work {work.work_id} to IN_PROGRESS — code needs changes"
             )
             await work_map.revert_completed_work(work.work_id)
+            await _release_compute_after_merge(event.compute_id)
+        elif pr_result == "pending" and not already_terminal and branch_name and work.project_id:
+            # PR pipeline pending — compute stays in "merging" status.
+            # Conflict resolution will dispatch back to this compute, or the
+            # integrity monitor safety net will catch it.
+            logger.info(
+                f"PR pipeline pending for work {work.work_id} — compute "
+                f"{event.compute_id} held in merging state"
+            )
 
 
 async def _handle_rejection_redispatch(event: ComputeEventRequest) -> None:
@@ -958,6 +1014,46 @@ def _resolve_git_project_name(project_id: str) -> str:
 
     logger.warning(f"No repo found for project {project_id} in {repos_path}")
     return project_id
+
+
+async def _release_compute_after_merge(compute_id: str) -> None:
+    """Release a compute from 'merging' status back to idle after merge completes."""
+    try:
+        sse_manager = get_sse_connection_manager()
+        connection = sse_manager.get_connection(compute_id)
+        if connection and connection.status == "merging":
+            connection.status = "idle"
+            connection.current_task_id = None
+            logger.info(f"Released compute {compute_id} from merging to idle")
+
+            from services.work_dispatcher import get_work_dispatcher
+            get_work_dispatcher().trigger(reason=f"compute_idle:{compute_id}")
+    except Exception as e:
+        logger.debug(f"Could not release compute {compute_id}: {e}")
+
+
+async def _emit_activity(
+    project_id: str, event_type: str, description: str,
+    work_id: str = None, compute_id: str = None,
+    metadata: dict = None
+) -> None:
+    """Fire-and-forget activity event for plan page observability."""
+    try:
+        from services.project_service import get_project_service
+        from models.project import ActivityEventType
+
+        svc = get_project_service()
+        evt_type = ActivityEventType(event_type)
+        await svc.record_activity_event(
+            project_id=project_id,
+            event_type=evt_type,
+            description=description,
+            work_id=work_id,
+            compute_id=compute_id,
+            metadata=metadata or {},
+        )
+    except Exception as e:
+        logger.debug(f"Failed to emit activity event: {e}")
 
 
 async def _dispatch_conflict_resolution_work(
@@ -1124,20 +1220,25 @@ async def _handle_conflict_resolution_completed(event, work_map) -> None:
     # Re-trigger the PR merge pipeline with the original work item
     # finalize_work() inside _auto_create_and_merge_pr handles cascade
     branch_name = event.branch_name or work.branch_name
-    merge_ok = False
+    pr_result = "pending"
     if branch_name and work.project_id:
-        merge_ok = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
+        pr_result = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-    if not merge_ok and branch_name and work.project_id:
-        # Merge or quality gates failed after conflict resolution — revert
+    if pr_result == "revert" and branch_name and work.project_id:
+        # Quality gates / review rejected after conflict resolution — revert
         logger.warning(
             f"Reverting work {original_work_id} to IN_PROGRESS — "
-            f"PR merge did not succeed after conflict resolution"
+            f"code needs changes after conflict resolution"
         )
         await work_map.revert_completed_work(original_work_id)
+    elif pr_result == "pending":
+        logger.info(
+            f"PR pipeline pending for {original_work_id} after conflict resolution — "
+            f"integrity monitor will retry"
+        )
 
 
-async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> bool:
+async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> str:
     """Auto-create a PR and trigger merge queue processing after work completion.
 
     Handles both fresh PRs and post-conflict-resolution re-entry (where
@@ -1149,9 +1250,12 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         compute_id: Compute instance that completed the work
 
     Returns:
-        True if the PR was merged successfully, False otherwise.
+        "merged"  — PR was merged successfully
+        "pending" — PR pipeline issue, code is fine, keep IMPLEMENTED
+        "revert"  — Code needs changes (quality gates failed, review rejected)
     """
     from git.pr_service import PRService, PRStatus
+    from services.work_map_service import get_work_map_service
 
     try:
         pr_service = PRService()
@@ -1169,17 +1273,32 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 title=work.title,
             )
             logger.info(f"Auto-created PR for branch {branch_name} (work {work.work_id})")
+            await _emit_activity(
+                work.project_id, "pr_created",
+                f"PR created for **{work.title}** (`{branch_name}`)",
+                work_id=work.work_id, compute_id=compute_id,
+            )
         except ValueError:
             # PR already exists — likely post-conflict-resolution re-entry.
-            # Check if the existing PR was in CONFLICT status and conflicts
-            # are now resolved after the compute rebased and pushed.
+            # Check if the existing PR had conflicts and they're now resolved.
             existing_pr = await pr_service.get_pr(git_project_name, branch_name)
-            if existing_pr and existing_pr.status == PRStatus.CONFLICT:
+            if not existing_pr:
+                return "pending"
+
+            # PRs that had conflicts may be in CONFLICT or PENDING status
+            # (PENDING when the integrity monitor or a stale update reset it).
+            had_conflicts = (
+                existing_pr.status == PRStatus.CONFLICT
+                or (existing_pr.status == PRStatus.PENDING
+                    and getattr(existing_pr, 'conflicting_files', None))
+            )
+
+            if had_conflicts:
                 # Verify conflicts are resolved by running dry-run merge
                 dry_run = await pr_service.dry_run_merge(git_project_name, branch_name)
                 if dry_run.get("can_merge"):
                     logger.info(
-                        f"Conflicts resolved for {branch_name}, re-approving PR"
+                        f"Conflicts resolved for {branch_name}, proceeding to merge"
                     )
                     pr = existing_pr
                     conflict_resolved = True
@@ -1191,14 +1310,14 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                     await _dispatch_conflict_resolution_work(
                         work, branch_name, compute_id, existing_pr
                     )
-                    return False
+                    return "pending"
             else:
                 # PR exists in a non-conflict state — nothing to do
                 logger.info(
                     f"PR already exists for {branch_name} "
-                    f"(status: {existing_pr.status.value if existing_pr else 'unknown'})"
+                    f"(status: {existing_pr.status.value})"
                 )
-                return False
+                return "pending"
 
         # If the PR has conflicts on creation (not post-resolution), dispatch resolution.
         if not conflict_resolved and pr.status == PRStatus.CONFLICT:
@@ -1206,7 +1325,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 f"PR has conflicts on creation, dispatching conflict resolution for {branch_name}"
             )
             await _dispatch_conflict_resolution_work(work, branch_name, compute_id, pr)
-            return False
+            return "pending"
 
         # Run quality gates before auto-approve
         from services.quality_gate_service import get_quality_gate_service
@@ -1242,30 +1361,88 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 },
             )
             # Post quality gate failure to project chat so users see it
+            failed_gates = [g.gate for g in validation.gates if g.status.value != "passed"]
+            failure_msg = (
+                f"Quality gates failed for **{work.title}** "
+                f"(branch `{branch_name}`): {', '.join(failed_gates)}. "
+                "Work will be re-dispatched."
+            )
             try:
                 from services.conversation_service import get_conversation_service
                 conv_service = get_conversation_service()
-                failed_gates = [g.gate for g in validation.gates if g.status.value != "passed"]
                 await conv_service.add_message(
                     project_id=work.project_id,
                     user_id="system",
                     display_name="System",
                     type="error",
-                    content=f"Quality gates failed for **{work.title}** (branch `{branch_name}`): {', '.join(failed_gates)}. Work reverted to in-progress.",
+                    content=failure_msg,
                     metadata={"work_id": work.work_id, "branch": branch_name, "event_type": "quality_gate_failed"},
                 )
             except Exception as e:
                 logger.warning(f"Failed to post quality gate failure to chat: {e}")
-            return False
+            # Emit notification for the notification feed
+            try:
+                from services.notification_service import get_notification_service
+                from models.notification import NotificationLevel, NotificationCategory
+                notification_service = get_notification_service()
+                if notification_service:
+                    notification_service.emit(
+                        title=f"Quality gates failed: {work.title}",
+                        message=failure_msg,
+                        level=NotificationLevel.ERROR,
+                        category=NotificationCategory.WORK,
+                        project_id=work.project_id,
+                        entity_id=work.work_id,
+                    )
+            except Exception as e:
+                logger.debug(f"Could not emit quality gate notification: {e}")
+            await _emit_activity(
+                work.project_id, "pr_quality_failed",
+                f"Quality gates failed for **{work.title}** — will re-dispatch",
+                work_id=work.work_id, compute_id=compute_id,
+            )
+            return "revert"
 
         logger.info(f"Quality gates passed for {branch_name}")
+
+        # Lead compute review gate — dispatch review to a separate compute
+        # instance before auto-approving. If review is unavailable or times
+        # out, auto-approve to avoid blocking the pipeline.
+        reviewed_by = "auto-approved"
+        try:
+            from services.lead_compute_service import get_lead_compute_service
+            lead_service = get_lead_compute_service()
+            if lead_service.enabled:
+                review_result = await lead_service.review_pr(
+                    project=git_project_name,
+                    branch=branch_name,
+                    compute_id=compute_id,
+                    work_title=work.title,
+                    work_description=work.description or "",
+                    project_id=work.project_id,
+                )
+                reviewed_by = f"lead:{review_result.reviewer_id}"
+
+                if not review_result.approved:
+                    logger.warning(
+                        f"Lead review rejected {branch_name}: {review_result.summary}"
+                    )
+                    await pr_service.update_status(
+                        project=git_project_name,
+                        branch=branch_name,
+                        status=PRStatus.REJECTED,
+                        reviewed_by=reviewed_by,
+                    )
+                    return "revert"
+        except Exception as e:
+            logger.debug(f"Lead review skipped for {branch_name}: {e}")
 
         # Auto-approve (work completed successfully, no conflicts, gates passed)
         await pr_service.update_status(
             project=git_project_name,
             branch=branch_name,
             status=PRStatus.APPROVED,
-            reviewed_by="auto-approved",
+            reviewed_by=reviewed_by,
         )
 
         # Add to merge queue (needed for post-resolution re-entry where the
@@ -1276,41 +1453,98 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
         # Trigger merge queue processing
         results = await pr_service.process_merge_queue(git_project_name)
         for result in results:
-            if result.get("success"):
-                merged_branch = result.get("branch", branch_name)
-                logger.info(f"Auto-merged branch {merged_branch}")
+            result_branch = result.get("branch", "")
 
-                # Finalize work: IMPLEMENTED → COMPLETED + DONE + cascade
-                if merged_branch == branch_name:
+            if result.get("success"):
+                logger.info(f"Auto-merged branch {result_branch}")
+                await _emit_activity(work.project_id, "pr_merged", f"Merged `{result_branch}` into main")
+
+                # Finalize the work item for this merged branch and release its compute
+                try:
+                    work_map = get_work_map_service()
+                    if result_branch == branch_name:
+                        await work_map.finalize_work(work.work_id)
+                        await _release_compute_after_merge(compute_id)
+                        await _emit_activity(
+                            work.project_id, "work_finalized",
+                            f"**{work.title}** merged and finalized",
+                            work_id=work.work_id, compute_id=compute_id,
+                        )
+                    else:
+                        # Another branch merged in the same queue run —
+                        # look up its work item by PR task_id
+                        merged_pr = await pr_service.get_pr(
+                            git_project_name, result_branch
+                        )
+                        if merged_pr and merged_pr.task_id:
+                            await work_map.finalize_work(merged_pr.task_id)
+                            await _emit_activity(
+                                work.project_id, "work_finalized",
+                                f"Work `{merged_pr.task_id}` merged and finalized",
+                                work_id=merged_pr.task_id,
+                                compute_id=merged_pr.compute_id,
+                            )
+                        if merged_pr and merged_pr.compute_id:
+                            await _release_compute_after_merge(merged_pr.compute_id)
+                except Exception as fin_err:
+                    logger.warning(
+                        f"Failed to finalize work for {result_branch}: {fin_err}"
+                    )
+
+            elif result.get("reason") == "conflict":
+                # Merge conflict — look up the CORRECT work item for this branch
+                conflict_pr = await pr_service.get_pr(
+                    git_project_name, result_branch
+                )
+                if not conflict_pr:
+                    continue
+
+                # Find the work item that owns this branch
+                conflict_work = None
+                if conflict_pr.task_id:
                     try:
                         work_map = get_work_map_service()
-                        await work_map.finalize_work(work.work_id)
-                    except Exception as fin_err:
-                        logger.warning(
-                            f"Failed to finalize work {work.work_id} after merge: {fin_err}"
+                        conflict_work = await work_map.get_work(
+                            conflict_pr.task_id
                         )
-            elif result.get("reason") == "conflict":
-                # Merge conflict — dispatch resolution to the branch's compute
-                conflict_branch = result.get("branch", branch_name)
-                conflict_pr = await pr_service.get_pr(git_project_name, conflict_branch)
-                if conflict_pr:
+                    except Exception:
+                        pass
+                if not conflict_work and result_branch == branch_name:
+                    conflict_work = work
+
+                if conflict_work:
                     dispatch_compute = conflict_pr.compute_id or compute_id
+                    await _emit_activity(
+                        work.project_id, "pr_conflict",
+                        f"Conflict on `{result_branch}` — dispatching rebase to {dispatch_compute}",
+                        work_id=conflict_work.work_id, compute_id=dispatch_compute,
+                    )
                     await _dispatch_conflict_resolution_work(
-                        work, conflict_branch, dispatch_compute, conflict_pr
+                        conflict_work, result_branch,
+                        dispatch_compute, conflict_pr
+                    )
+                else:
+                    logger.warning(
+                        f"Cannot dispatch conflict resolution for "
+                        f"{result_branch}: no work item found "
+                        f"(task_id={conflict_pr.task_id})"
                     )
             else:
-                logger.warning(f"Auto-merge failed for {result.get('branch', branch_name)}: {result.get('error')}")
+                logger.warning(
+                    f"Auto-merge failed for {result_branch}: "
+                    f"{result.get('error')}"
+                )
 
         # Check if OUR branch was successfully merged
         our_merged = any(
             r.get("success") and r.get("branch", "") == branch_name
             for r in results
         )
-        return our_merged
+        return "merged" if our_merged else "pending"
 
     except Exception as e:
         logger.warning(f"Auto PR/merge failed for {branch_name}: {e}")
-        return False
+        return "pending"
 
 
 # =============================================================================
@@ -2126,6 +2360,28 @@ async def register_instance(
                 metadata=request.metadata,
             )
             await registry.update_heartbeat(request.instance_id)
+
+            # Re-sync auth_status on reconnect (token may have been
+            # added/refreshed while compute was disconnected)
+            from services.claude_auth_service import get_claude_auth_service
+            from models.compute import ComputeAuthStatus
+
+            auth_svc = get_claude_auth_service()
+            if auth_svc:
+                token_info = auth_svc.get_token_info(request.instance_id)
+                if token_info and token_info.get("status") == "active":
+                    expires_at_str = token_info.get("expires_at")
+                    expires_at = (
+                        datetime.fromisoformat(expires_at_str)
+                        if expires_at_str
+                        else None
+                    )
+                    await registry.update_auth_status(
+                        request.instance_id,
+                        ComputeAuthStatus.AUTHORIZED,
+                        auth_expires_at=expires_at,
+                    )
+
             logger.info(
                 f"Compute {request.instance_id} re-registered — "
                 f"preserved {existing.status.value} status"
@@ -2157,6 +2413,32 @@ async def register_instance(
         )
 
         registered = await registry.add_instance(instance)
+
+        # Sync auth_status from existing tokens (fixes startup ordering:
+        # _sync_registry_auth_status runs before compute nodes register,
+        # so newly registered nodes default to UNAUTHORIZED even when
+        # active tokens exist in Redis)
+        from services.claude_auth_service import get_claude_auth_service
+        from models.compute import ComputeAuthStatus
+
+        auth_svc = get_claude_auth_service()
+        if auth_svc:
+            token_info = auth_svc.get_token_info(request.instance_id)
+            if token_info and token_info.get("status") == "active":
+                expires_at_str = token_info.get("expires_at")
+                expires_at = (
+                    datetime.fromisoformat(expires_at_str)
+                    if expires_at_str
+                    else None
+                )
+                await registry.update_auth_status(
+                    request.instance_id,
+                    ComputeAuthStatus.AUTHORIZED,
+                    auth_expires_at=expires_at,
+                )
+                logger.info(
+                    f"Synced auth_status to AUTHORIZED for newly registered {request.instance_id}"
+                )
 
         logger.info(
             f"Registered compute instance {request.instance_id} "

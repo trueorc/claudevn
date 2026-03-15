@@ -229,6 +229,15 @@ class WorkDispatcher:
             logger.debug("SSE manager not initialized yet, skipping dispatch cycle")
             return
 
+        # Respect system-wide pause — no new work of any kind
+        try:
+            from services.work_orchestrator import get_work_orchestrator
+            orchestrator = get_work_orchestrator()
+            if orchestrator and orchestrator.is_paused():
+                return
+        except Exception:
+            pass
+
         # Assign decomposition tasks (highest priority)
         if self._decomp_queue:
             await self._assign_decomp_tasks(sse_manager)

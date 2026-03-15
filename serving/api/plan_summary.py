@@ -67,6 +67,9 @@ class PlanSummaryResponse(BaseModel):
     recent_traces: List[dict] = Field(default_factory=list)  # last 10 traces
     trace_count: int = 0
 
+    # Activity events (merge lifecycle, work status changes)
+    activity_events: List[dict] = Field(default_factory=list)
+
 
 def _serialize_issue(issue) -> dict:
     """Serialize an issue for the plan summary response."""
@@ -204,5 +207,22 @@ async def get_plan_summary(
         logger.warning(f"Decision trace service unavailable: {e}")
     except Exception as e:
         logger.warning(f"Error fetching decision traces: {e}")
+
+    # Fetch recent activity events
+    try:
+        from services.project_service import get_project_service
+        project_service = get_project_service()
+        events = await project_service.get_recent_activity(project_id, limit=20)
+        response.activity_events = [
+            {
+                "event_id": e.event_id,
+                "event_type": e.event_type.value if hasattr(e.event_type, 'value') else e.event_type,
+                "description": e.description,
+                "timestamp": e.timestamp.isoformat() if hasattr(e.timestamp, 'isoformat') else str(e.timestamp),
+            }
+            for e in events
+        ]
+    except Exception as e:
+        logger.debug(f"Activity events unavailable: {e}")
 
     return response

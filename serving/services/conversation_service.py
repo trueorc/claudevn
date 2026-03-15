@@ -111,8 +111,10 @@ class ConversationService:
 
         await self._broadcast_message(msg)
 
-        # Notify AI agent (fire-and-forget, never blocks message delivery)
-        if self._message_listener:
+        # Notify AI agent (fire-and-forget, never blocks message delivery).
+        # Only for user messages — system/status messages should not trigger
+        # AI review as they create chat clutter.
+        if self._message_listener and type == "user":
             try:
                 logger.info(f"Notifying AI agent for {project_id} (type={type}, user={user_id})")
                 asyncio.create_task(
@@ -120,8 +122,6 @@ class ConversationService:
                 )
             except Exception as e:
                 logger.warning(f"Message listener notification failed: {e}")
-        else:
-            logger.debug(f"No message listener registered, skipping AI agent notification")
 
         return msg
 

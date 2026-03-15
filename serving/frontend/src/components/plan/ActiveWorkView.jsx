@@ -121,7 +121,7 @@ function ActiveWorkView({ data, loading, onItemClick, onItemTracesClick, itemBuc
         )}
         {done_items.length > 0 && (
           <WorkColumn
-            title="Merged"
+            title="Done"
             icon={CheckCircle2}
             iconClass="done"
             items={done_items}

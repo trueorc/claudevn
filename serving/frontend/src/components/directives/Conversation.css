@@ -601,30 +601,12 @@
   background: rgba(34, 197, 94, 0.03);
 }
 
-.conv-complete-issues {
-  margin-top: 4px;
+.conv-issues-summary {
+  margin: 8px 0 0;
   padding-top: 8px;
   border-top: 1px solid var(--border);
-}
-
-.conv-issues-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.conv-issue-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
   font-size: 13px;
-  color: var(--text);
-  border-bottom: 1px solid var(--border);
-}
-
-.conv-issue-item:last-child {
-  border-bottom: none;
+  color: var(--text-secondary);
 }
 
 .conv-reasoning {

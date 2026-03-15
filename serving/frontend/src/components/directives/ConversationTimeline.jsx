@@ -168,7 +168,7 @@ function GoalProcessingMessage({ msg, onRetry }) {
             <span className="conv-msg-label">Processing Timed Out</span>
           </div>
           <p className="conv-timeout-text">
-            Processing has not completed after 5 minutes. The operation may still be running on the server.
+            The current stage has not progressed for 5 minutes. The operation may still be running on the server.
           </p>
           {onRetry && (
             <div className="conv-timeout-actions">
@@ -220,7 +220,7 @@ function GoalProcessingMessage({ msg, onRetry }) {
 
 function GoalCompleteMessage({ msg }) {
   const result = msg.result
-  const issues = result?.issues_created || result?.issues || []
+  const issues = result?.issues_created || result?.created_issues || result?.issues || []
 
   return (
     <GoalCompletionCard
@@ -470,14 +470,16 @@ function StatusGroup({ msgs }) {
 // Group consecutive compact messages, interleave with full-card messages
 // ---------------------------------------------------------------------------
 
+const MAX_STATUS_PER_GROUP = 20
+
 function buildRenderGroups(messages) {
   const groups = []
   let compactBuf = []
 
   const flushCompact = () => {
-    if (compactBuf.length > 0) {
-      groups.push({ kind: 'compact', msgs: compactBuf })
-      compactBuf = []
+    // Split into chunks of MAX_STATUS_PER_GROUP
+    while (compactBuf.length > 0) {
+      groups.push({ kind: 'compact', msgs: compactBuf.splice(0, MAX_STATUS_PER_GROUP) })
     }
   }
 
