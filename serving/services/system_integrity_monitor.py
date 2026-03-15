@@ -181,6 +181,15 @@ class SystemIntegrityMonitor:
 
         self._stats["anomalies_detected"] += len(all_anomalies)
 
+        # Remediation actions that dispatch work to computes or change merge
+        # state. If one of these succeeds, stop the sweep and let state settle.
+        DISPATCH_ACTIONS = {
+            "dispatch_conflict_resolution",
+            "requeue_merge",
+            "finalize_work",
+            "recover_failed_issue",
+        }
+
         for anomaly in all_anomalies:
             tracker_key = f"{anomaly.check_type}:{anomaly.entity_id}"
 
@@ -208,6 +217,17 @@ class SystemIntegrityMonitor:
                     )
                     # Clean tracker on success — anomaly resolved
                     self._attempt_tracker.pop(tracker_key, None)
+
+                    # Short-circuit: if this remediation dispatches work or
+                    # changes merge state, stop and let things settle before
+                    # processing more anomalies in this sweep.
+                    if anomaly.remediation_action in DISPATCH_ACTIONS:
+                        logger.info(
+                            f"[Integrity] Short-circuiting sweep — "
+                            f"'{anomaly.remediation_action}' dispatched, "
+                            f"letting state settle"
+                        )
+                        break
                 else:
                     self._stats["anomalies_failed"] += 1
                     if check_stats:
