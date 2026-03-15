@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { FolderOpen, List, Layers, Network } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { FolderOpen, List, Layers, Network, Pause, Play } from 'lucide-react'
 import SummaryBar from '../components/plan/SummaryBar'
 import ProfileSwitcher from '../components/plan/ProfileSwitcher'
 import ActiveWorkView from '../components/plan/ActiveWorkView'
@@ -15,6 +15,7 @@ import usePlanSummary from '../hooks/usePlanSummary'
 import useBucketTree from '../hooks/useBucketTree'
 import useCharacterizationStatuses from '../hooks/useCharacterizationStatuses'
 import { useProjectContext } from '../contexts/ProjectContext'
+import { getOrchestratorStatus, pauseOrchestrator, resumeOrchestrator } from '../api/orchestrator'
 import './ExecutionPlanPage.css'
 
 function ExecutionPlanPage() {
@@ -23,6 +24,38 @@ function ExecutionPlanPage() {
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [tracesItem, setTracesItem] = useState(null)
   const [viewMode, setViewMode] = useState('list')
+  const [paused, setPaused] = useState(false)
+  const [pauseLoading, setPauseLoading] = useState(false)
+
+  // Fetch pause state on mount and periodically
+  useEffect(() => {
+    let cancelled = false
+    const fetchStatus = () => {
+      getOrchestratorStatus()
+        .then(status => { if (!cancelled) setPaused(!!status?.paused) })
+        .catch(() => {})
+    }
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 15000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
+
+  const togglePause = useCallback(async () => {
+    setPauseLoading(true)
+    try {
+      if (paused) {
+        await resumeOrchestrator()
+        setPaused(false)
+      } else {
+        await pauseOrchestrator()
+        setPaused(true)
+      }
+    } catch (err) {
+      console.warn('Failed to toggle pause:', err)
+    } finally {
+      setPauseLoading(false)
+    }
+  }, [paused])
 
   const {
     data,
@@ -83,6 +116,15 @@ function ExecutionPlanPage() {
               activePresetColor={data?.active_preset_color}
               onPresetChange={refresh}
             />
+            <button
+              className={`plan-pause-btn ${paused ? 'plan-pause-btn--paused' : ''}`}
+              onClick={togglePause}
+              disabled={pauseLoading}
+              title={paused ? 'Resume work dispatch' : 'Pause work dispatch'}
+            >
+              {paused ? <Play size={14} /> : <Pause size={14} />}
+              <span>{paused ? 'Resume' : 'Pause'}</span>
+            </button>
             <div className="plan-view-toggle">
               <button
                 className={`plan-view-btn ${viewMode === 'list' ? 'plan-view-btn--active' : ''}`}
@@ -122,6 +164,16 @@ function ExecutionPlanPage() {
       </InlineHint>
 
       <SummaryBar data={data} loading={loading} />
+
+      {paused && (
+        <div className="plan-paused-banner">
+          <Pause size={14} />
+          <span>Work dispatch is paused. In-flight work will complete, but no new work will be assigned.</span>
+          <button className="plan-paused-resume" onClick={togglePause} disabled={pauseLoading}>
+            Resume
+          </button>
+        </div>
+      )}
 
       <CharacterizationBanner statusMap={charStatusMap} loading={charLoading} />
 
