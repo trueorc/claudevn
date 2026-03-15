@@ -615,36 +615,64 @@ async def receive_compute_event(
     if event.event.value != "claude_code_rejected":
         await _handle_work_status_update(event)
 
-    # Reset SSE connection to idle so compute can pick up new work.
-    # This MUST be here (not inside _handle_work_status_update) because
-    # characterization/decomposition tasks (char-*, decomp-*) are not work
-    # items — _handle_work_status_update returns early when get_work() is
-    # None, skipping the reset if it lived there.
+    # Reset SSE connection status after task completion.
+    #
+    # For WORK ITEMS that completed successfully with a branch: set to "merging"
+    # so the compute stays reserved for conflict resolution. It will be reset
+    # to "idle" after finalize_work (merge succeeded) or if merge permanently
+    # fails. The dispatcher skips non-idle computes, preventing double-assignment.
+    #
+    # For everything else (failures, char/decomp tasks, rejections): reset to
+    # "idle" immediately so the compute can pick up new work.
     if event.event.value in ("claude_code_completed", "claude_code_failed", "claude_code_rejected"):
+        is_work_success = (
+            event.event.value == "claude_code_completed"
+            and event.exit_code == 0
+            and not event.task_id.startswith("conflict-")
+            and not event.task_id.startswith("char-")
+            and not event.task_id.startswith("decomp-")
+        )
+        # Check if this work item has a branch (needs merge pipeline)
+        has_branch = False
+        if is_work_success:
+            try:
+                from services.work_map_service import get_work_map_service
+                w = await get_work_map_service().get_work(event.task_id)
+                has_branch = bool(w and (event.branch_name or w.branch_name) and w.project_id)
+            except Exception:
+                pass
+
         try:
             sse_manager = get_sse_connection_manager()
             connection = sse_manager.get_connection(event.compute_id)
             if connection:
-                connection.status = "idle"
-                connection.current_task_id = None
-                logger.info(f"Reset SSE connection {event.compute_id} to idle")
+                if is_work_success and has_branch:
+                    # Hold compute for merge pipeline — don't assign new work
+                    connection.status = "merging"
+                    logger.info(
+                        f"SSE connection {event.compute_id} set to 'merging' "
+                        f"(holding for PR pipeline)"
+                    )
+                else:
+                    connection.status = "idle"
+                    connection.current_task_id = None
+                    logger.info(f"Reset SSE connection {event.compute_id} to idle")
         except Exception as e:
             logger.warning(
-                f"Failed to reset SSE connection for {event.compute_id}: {e}"
+                f"Failed to update SSE connection for {event.compute_id}: {e}"
             )
 
-        # Fire the WorkDispatcher — compute is now idle, may have work waiting
-        # (characterization tasks, decomposition tasks, or execution work items).
-        # This replaces the 2-second polling loop with an immediate push signal.
-        try:
-            from services.work_dispatcher import get_work_dispatcher
-            get_work_dispatcher().trigger(
-                reason=f"compute_idle:{event.compute_id}"
-            )
-        except RuntimeError:
-            pass  # Dispatcher not initialized (e.g., test environment)
-        except Exception as e:
-            logger.debug(f"Could not fire dispatcher on compute idle: {e}")
+        # Fire the WorkDispatcher only when compute is actually idle
+        if not (is_work_success and has_branch):
+            try:
+                from services.work_dispatcher import get_work_dispatcher
+                get_work_dispatcher().trigger(
+                    reason=f"compute_idle:{event.compute_id}"
+                )
+            except RuntimeError:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not fire dispatcher on compute idle: {e}")
 
     # On rejection, attempt to re-dispatch the task to another compute
     if event.event.value == "claude_code_rejected":
@@ -819,14 +847,14 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
                 f"Reverting work {work.work_id} to IN_PROGRESS — code needs changes"
             )
             await work_map.revert_completed_work(work.work_id)
+            await _release_compute_after_merge(event.compute_id)
         elif pr_result == "pending" and not already_terminal and branch_name and work.project_id:
-            # PR pipeline issue but code is done (IMPLEMENTED). Do NOT revert —
-            # that would burn retry budget re-doing already-complete work.
-            # The integrity monitor's stuck_pr / merged_not_finalized checks
-            # will handle the PR-level retry.
-            logger.warning(
-                f"PR pipeline pending for work {work.work_id} — keeping IMPLEMENTED "
-                f"(branch {branch_name} has code, PR will be retried)"
+            # PR pipeline pending — compute stays in "merging" status.
+            # Conflict resolution will dispatch back to this compute, or the
+            # integrity monitor safety net will catch it.
+            logger.info(
+                f"PR pipeline pending for work {work.work_id} — compute "
+                f"{event.compute_id} held in merging state"
             )
 
 
@@ -968,6 +996,22 @@ def _resolve_git_project_name(project_id: str) -> str:
 
     logger.warning(f"No repo found for project {project_id} in {repos_path}")
     return project_id
+
+
+async def _release_compute_after_merge(compute_id: str) -> None:
+    """Release a compute from 'merging' status back to idle after merge completes."""
+    try:
+        sse_manager = get_sse_connection_manager()
+        connection = sse_manager.get_connection(compute_id)
+        if connection and connection.status == "merging":
+            connection.status = "idle"
+            connection.current_task_id = None
+            logger.info(f"Released compute {compute_id} from merging to idle")
+
+            from services.work_dispatcher import get_work_dispatcher
+            get_work_dispatcher().trigger(reason=f"compute_idle:{compute_id}")
+    except Exception as e:
+        logger.debug(f"Could not release compute {compute_id}: {e}")
 
 
 async def _emit_merge_activity(
@@ -1390,11 +1434,12 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 logger.info(f"Auto-merged branch {result_branch}")
                 await _emit_merge_activity(work.project_id, result_branch, "merged")
 
-                # Finalize the work item for this merged branch
+                # Finalize the work item for this merged branch and release its compute
                 try:
                     work_map = get_work_map_service()
                     if result_branch == branch_name:
                         await work_map.finalize_work(work.work_id)
+                        await _release_compute_after_merge(compute_id)
                     else:
                         # Another branch merged in the same queue run —
                         # look up its work item by PR task_id
@@ -1403,6 +1448,8 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                         )
                         if merged_pr and merged_pr.task_id:
                             await work_map.finalize_work(merged_pr.task_id)
+                        if merged_pr and merged_pr.compute_id:
+                            await _release_compute_after_merge(merged_pr.compute_id)
                 except Exception as fin_err:
                     logger.warning(
                         f"Failed to finalize work for {result_branch}: {fin_err}"
