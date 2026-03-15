@@ -619,6 +619,33 @@ class SystemIntegrityMonitor:
                                 remediation_action="finalize_work",
                                 context={"branch": work.branch_name},
                             ))
+                        # 1b: IMPLEMENTED work with PENDING PR, no conflicts,
+                        # older than 5 min — fell through the merge pipeline
+                        elif (pr and pr.status == PRStatus.PENDING
+                              and status == WorkStatus.IMPLEMENTED
+                              and not getattr(pr, 'conflicting_files', None)):
+                            created = getattr(pr, 'created_at', None)
+                            if created:
+                                if isinstance(created, str):
+                                    created = datetime.fromisoformat(created)
+                                age = (datetime.now(timezone.utc) - created).total_seconds()
+                                if age > 300:
+                                    anomalies.append(AnomalyResult(
+                                        check_type="merged_not_finalized",
+                                        entity_type="work",
+                                        entity_id=work.work_id,
+                                        project_id=work.project_id,
+                                        description=(
+                                            f"Work {work.work_id} IMPLEMENTED but "
+                                            f"PR {work.branch_name} stuck in pending "
+                                            f"for {int(age)}s — re-queuing merge"
+                                        ),
+                                        remediation_action="requeue_merge",
+                                        context={
+                                            "project": git_project,
+                                            "branch": work.branch_name,
+                                        },
+                                    ))
                     except Exception:
                         continue
         except RuntimeError:

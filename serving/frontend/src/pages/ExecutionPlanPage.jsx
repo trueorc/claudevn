@@ -203,6 +203,7 @@ function ExecutionPlanPage() {
         buckets={bucketList}
         traces={data?.recent_traces || []}
         traceCount={data?.trace_count || 0}
+        activityEvents={data?.activity_events || []}
       />
 
       {tracesItem && (

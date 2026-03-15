@@ -651,6 +651,34 @@ class ProjectService:
         )
         return event
 
+    async def get_recent_activity(
+        self,
+        project_id: str,
+        limit: int = 20,
+    ) -> List[ActivityEvent]:
+        """Get recent activity events for a project."""
+        # Try in-memory first
+        events = self._activity_events.get(project_id, [])
+        if events:
+            return list(reversed(events[-limit:]))
+
+        # Fall back to Redis
+        if self._redis:
+            try:
+                key = f"project:{project_id}:events"
+                raw_events = await self._redis._redis.lrange(key, 0, limit - 1)
+                result = []
+                for raw in raw_events:
+                    try:
+                        result.append(ActivityEvent.model_validate_json(raw))
+                    except Exception:
+                        continue
+                return result
+            except Exception as e:
+                logger.warning(f"Failed to read activity events from Redis: {e}")
+
+        return []
+
     async def update_project_activity(
         self,
         project_id: str
