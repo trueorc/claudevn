@@ -1216,15 +1216,25 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
             logger.info(f"Auto-created PR for branch {branch_name} (work {work.work_id})")
         except ValueError:
             # PR already exists — likely post-conflict-resolution re-entry.
-            # Check if the existing PR was in CONFLICT status and conflicts
-            # are now resolved after the compute rebased and pushed.
+            # Check if the existing PR had conflicts and they're now resolved.
             existing_pr = await pr_service.get_pr(git_project_name, branch_name)
-            if existing_pr and existing_pr.status == PRStatus.CONFLICT:
+            if not existing_pr:
+                return "pending"
+
+            # PRs that had conflicts may be in CONFLICT or PENDING status
+            # (PENDING when the integrity monitor or a stale update reset it).
+            had_conflicts = (
+                existing_pr.status == PRStatus.CONFLICT
+                or (existing_pr.status == PRStatus.PENDING
+                    and getattr(existing_pr, 'conflicting_files', None))
+            )
+
+            if had_conflicts:
                 # Verify conflicts are resolved by running dry-run merge
                 dry_run = await pr_service.dry_run_merge(git_project_name, branch_name)
                 if dry_run.get("can_merge"):
                     logger.info(
-                        f"Conflicts resolved for {branch_name}, re-approving PR"
+                        f"Conflicts resolved for {branch_name}, proceeding to merge"
                     )
                     pr = existing_pr
                     conflict_resolved = True
@@ -1241,7 +1251,7 @@ async def _auto_create_and_merge_pr(work, branch_name: str, compute_id: str) -> 
                 # PR exists in a non-conflict state — nothing to do
                 logger.info(
                     f"PR already exists for {branch_name} "
-                    f"(status: {existing_pr.status.value if existing_pr else 'unknown'})"
+                    f"(status: {existing_pr.status.value})"
                 )
                 return "pending"
 
