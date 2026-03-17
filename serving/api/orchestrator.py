@@ -57,7 +57,7 @@ async def pause_orchestrator():
             detail="Work orchestrator is not running"
         )
 
-    orchestrator.pause()
+    await orchestrator.pause()
 
     return {
         "status": "paused",
@@ -88,7 +88,7 @@ async def resume_orchestrator():
             detail="Work orchestrator is not running"
         )
 
-    orchestrator.resume()
+    await orchestrator.resume()
 
     return {
         "status": "running",

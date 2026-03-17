@@ -164,6 +164,9 @@ class WorkOrchestrator:
             logger.warning("Work orchestrator already running")
             return
 
+        # Restore persisted pause state before entering loop
+        await self._load_pause_state()
+
         self._running = True
         self._task = asyncio.create_task(self._orchestration_loop())
 
@@ -205,15 +208,47 @@ class WorkOrchestrator:
 
         logger.info("Work orchestrator stopped")
 
-    def pause(self) -> None:
-        """Pause orchestration (stops spawning new work)."""
+    async def pause(self) -> None:
+        """Pause orchestration (stops spawning new work).
+
+        Persists pause state to Redis so it survives restarts.
+        """
         self._paused = True
+        await self._persist_pause_state(True)
         logger.info("Work orchestrator paused")
 
-    def resume(self) -> None:
-        """Resume orchestration."""
+    async def resume(self) -> None:
+        """Resume orchestration.
+
+        Persists resume state to Redis so it survives restarts.
+        """
         self._paused = False
+        await self._persist_pause_state(False)
         logger.info("Work orchestrator resumed")
+
+    async def _persist_pause_state(self, paused: bool) -> None:
+        """Persist pause state to Redis."""
+        try:
+            from git.redis_client import get_redis
+            r = await get_redis()
+            await r.set("claudevn:orchestrator:paused", "1" if paused else "0")
+        except Exception as e:
+            logger.warning(f"Failed to persist pause state to Redis: {e}")
+
+    async def _load_pause_state(self) -> None:
+        """Load pause state from Redis on startup.
+
+        Falls back to running (unpaused) if Redis is unavailable.
+        """
+        try:
+            from git.redis_client import get_redis
+            r = await get_redis()
+            value = await r.get("claudevn:orchestrator:paused")
+            if value == "1":
+                self._paused = True
+                logger.info("Restored paused state from Redis — orchestrator is paused")
+        except Exception as e:
+            logger.warning(f"Failed to load pause state from Redis, defaulting to running: {e}")
 
     def is_running(self) -> bool:
         """Check if orchestrator is running."""

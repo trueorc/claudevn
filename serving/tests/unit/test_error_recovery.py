@@ -713,7 +713,9 @@ class TestOrchestratorErrorRecovery:
         """Paused orchestrator does not process work."""
         orchestrator = WorkOrchestrator(poll_interval=1)
 
-        orchestrator.pause()
+        mock_redis = AsyncMock()
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=mock_redis):
+            await orchestrator.pause()
         assert orchestrator.is_paused()
 
         result = await orchestrator.trigger_immediate()
