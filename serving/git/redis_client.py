@@ -338,6 +338,19 @@ class RedisClient:
         key = self._key(f"merge_queue:{project}")
         return await self._redis.lrange(key, 0, -1)
 
+    async def remove_from_merge_queue(self, project: str, branch: str) -> int:
+        """Remove a branch from the merge queue.
+
+        Args:
+            project: Project/repo name
+            branch: Branch name to remove
+
+        Returns:
+            Number of elements removed
+        """
+        key = self._key(f"merge_queue:{project}")
+        return await self._redis.lrem(key, 0, branch)
+
     # ==========================================================================
     # Generic Set Operations
     # ==========================================================================

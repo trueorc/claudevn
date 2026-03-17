@@ -9,7 +9,7 @@ Checks (run every sweep cycle):
   1. Merged branches with un-finalized work items
   2. Issues stuck after all work items completed
   3. Goals not finalized when all issues are done
-  4. PRs stuck in CONFLICT (resolved) or APPROVED (not merging)
+  4. PRs stuck in CONFLICT (resolved), APPROVED (not merging), or VALIDATION_FAILED
   5. Stale high-progress work on disconnected computes
   6. Pipeline stalls (READY issues or PENDING work with idle computes)
   7. Orphaned work assigned to disconnected computes
@@ -38,6 +38,7 @@ COOLDOWNS = {
     "stuck_goal": 300,
     "stuck_pr_conflict": 600,   # Safety net — merge flow handles primary conflict resolution
     "stuck_pr_approved": 600,   # Safety net — merge flow handles primary approval/merge
+    "stuck_pr_validation_failed": 180,  # Revert work whose PR failed quality gates (#285)
     "stale_high_progress": 300,
     "pipeline_stall": 120,
     "orphaned_work": 120,
@@ -186,6 +187,7 @@ class SystemIntegrityMonitor:
         DISPATCH_ACTIONS = {
             "dispatch_conflict_resolution",
             "requeue_merge",
+            "revert_validation_failed",
             "finalize_work",
             "recover_failed_issue",
         }
@@ -418,6 +420,8 @@ class SystemIntegrityMonitor:
                 return await self._remediate_recover_failed_issue(
                     anomaly.entity_id, ctx
                 )
+            elif action == "revert_validation_failed":
+                return await self._remediate_revert_validation_failed(ctx)
             elif action == "dispatch_conflict_resolution":
                 return await self._remediate_dispatch_conflict_resolution(ctx)
             else:
@@ -495,6 +499,60 @@ class SystemIntegrityMonitor:
         await redis.add_to_merge_queue(project, branch)
         results = await pr_service.process_merge_queue(project)
         return any(r.get("success") for r in results)
+
+    async def _remediate_revert_validation_failed(
+        self, ctx: Dict[str, Any]
+    ) -> bool:
+        """Revert work whose PR failed quality gates so it can be re-dispatched (#285).
+
+        This is a safety net for the case where the primary revert in
+        _handle_work_status_update was skipped (e.g. already_terminal race).
+        """
+        task_id = ctx.get("task_id")
+        if not task_id:
+            return False
+        from services.work_map_service import get_work_map_service
+
+        wm = get_work_map_service()
+        work = wm._work_items.get(task_id)
+        if not work:
+            return False
+
+        # Only revert if still in implemented state (not already reverted/failed)
+        from models.work_map import WorkStatus
+        if work.status not in (WorkStatus.IMPLEMENTED, WorkStatus.COMPLETED):
+            # Already reverted or failed — clean up the PR from queues
+            await self._cleanup_failed_pr_from_queues(ctx)
+            return True
+
+        reverted = await wm.revert_completed_work(task_id)
+        if reverted:
+            logger.info(
+                f"[Integrity] Reverted validation-failed work {task_id} — "
+                f"will be re-dispatched"
+            )
+            # Remove the failed PR from queues so it doesn't block others
+            await self._cleanup_failed_pr_from_queues(ctx)
+        return reverted
+
+    async def _cleanup_failed_pr_from_queues(
+        self, ctx: Dict[str, Any]
+    ) -> None:
+        """Remove a failed PR branch from both merge queue and PR queue."""
+        project = ctx.get("project")
+        branch = ctx.get("branch")
+        if not project or not branch:
+            return
+        try:
+            from api.git import get_pr_service
+            pr_service = get_pr_service()
+            redis = await pr_service._get_redis()
+            await redis.remove_from_merge_queue(project, branch)
+            await redis.remove_from_pr_queue(project, branch)
+        except Exception as e:
+            logger.warning(
+                f"[Integrity] Could not clean up failed PR from queues: {e}"
+            )
 
     async def _remediate_process_merge_queue(self, project: Optional[str]) -> bool:
         if not project:
@@ -783,11 +841,12 @@ class SystemIntegrityMonitor:
         return anomalies
 
     async def _check_stuck_prs(self) -> List[AnomalyResult]:
-        """Check 4: PRs stuck in CONFLICT, APPROVED, or PENDING with conflicts (safety net).
+        """Check 4: PRs stuck in CONFLICT, APPROVED, VALIDATION_FAILED, or PENDING with conflicts.
 
-        Primary conflict resolution is handled inline by the merge flow in
-        _auto_create_and_merge_pr. This check catches edge cases where the
-        primary flow fails (compute disconnected, no idle computes, etc.).
+        Primary conflict resolution and quality gate handling are handled inline
+        by the merge flow in _auto_create_and_merge_pr. This check catches edge
+        cases where the primary flow fails (already_terminal race, compute
+        disconnected, no idle computes, etc.).
         """
         anomalies: List[AnomalyResult] = []
         try:
@@ -854,6 +913,26 @@ class SystemIntegrityMonitor:
                                 f"dispatching rebase"
                             ),
                             remediation_action="dispatch_conflict_resolution",
+                            context={
+                                "project": project_id,
+                                "branch": pr.branch,
+                                "compute_id": getattr(pr, 'compute_id', None),
+                                "task_id": getattr(pr, 'task_id', None),
+                            },
+                        ))
+
+                    # 4d: VALIDATION_FAILED — work needs revert for re-dispatch (#285)
+                    elif pr.status == PRStatus.VALIDATION_FAILED:
+                        anomalies.append(AnomalyResult(
+                            check_type="stuck_pr_validation_failed",
+                            entity_type="pr",
+                            entity_id=f"{project_id}/{pr.branch}",
+                            project_id=project_id,
+                            description=(
+                                f"PR {pr.branch} failed quality gates — "
+                                f"reverting work for re-dispatch"
+                            ),
+                            remediation_action="revert_validation_failed",
                             context={
                                 "project": project_id,
                                 "branch": pr.branch,

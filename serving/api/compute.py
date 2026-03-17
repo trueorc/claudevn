@@ -858,9 +858,12 @@ async def _handle_work_status_update(event: ComputeEventRequest) -> None:
         if branch_name and work.project_id:
             pr_result = await _auto_create_and_merge_pr(work, branch_name, event.compute_id)
 
-        if pr_result == "revert" and not already_terminal:
+        if pr_result == "revert":
             # Code needs changes (quality gates failed, review rejected) — revert
             # so the work can be re-dispatched with corrective instructions.
+            # Always revert regardless of already_terminal: MCP report_progress may
+            # have set IMPLEMENTED before claude_code_completed arrives, but quality
+            # gate failure means the code is wrong and must be reverted. (#285)
             logger.warning(
                 f"Reverting work {work.work_id} to IN_PROGRESS — code needs changes"
             )
