@@ -418,9 +418,12 @@ function TimingPanel({ aggregates, totalWorkItems, workItems, showNotification, 
               {phaseRows.map((phase) => {
                 const pct = maxPhaseMs > 0 ? (phase.avg_ms / maxPhaseMs) * 100 : 0
                 const color = PHASE_COLORS[phase.phase] || 'var(--text-muted)'
-                const label = PHASE_SHORT_NAMES[phase.phase] || phase.phase
+                const label = phase.tool_name || PHASE_SHORT_NAMES[phase.phase] || phase.phase
+                const key = phase.tool_name
+                  ? `${phase.phase}:${phase.tool_name}`
+                  : phase.phase
                 return (
-                  <div key={phase.phase} className="rp-timing-bar-row">
+                  <div key={key} className="rp-timing-bar-row">
                     <span className="rp-timing-bar-label">{label}</span>
                     <div className="rp-timing-bar-track">
                       <div
