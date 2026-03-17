@@ -57,22 +57,73 @@ class TestWorkOrchestrator:
         assert stats["paused"] is False
         assert stats["active_spawns"] == 0
 
-    def test_pause_resume(self, orchestrator):
-        """Test pause and resume."""
+    @pytest.mark.asyncio
+    async def test_pause_resume(self, orchestrator):
+        """Test pause and resume persists state to Redis."""
         assert not orchestrator.is_paused()
 
-        orchestrator.pause()
+        mock_redis = AsyncMock()
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=mock_redis):
+            await orchestrator.pause()
+            assert orchestrator.is_paused()
+            mock_redis.set.assert_called_with("claudevn:orchestrator:paused", "1")
+
+            await orchestrator.resume()
+            assert not orchestrator.is_paused()
+            mock_redis.set.assert_called_with("claudevn:orchestrator:paused", "0")
+
+    @pytest.mark.asyncio
+    async def test_pause_redis_failure_graceful(self, orchestrator):
+        """Test pause still works locally when Redis is unavailable."""
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, side_effect=Exception("Redis down")):
+            await orchestrator.pause()
         assert orchestrator.is_paused()
 
-        orchestrator.resume()
-        assert not orchestrator.is_paused()
+    @pytest.mark.asyncio
+    async def test_load_pause_state_from_redis(self):
+        """Test startup loads paused state from Redis."""
+        orch = WorkOrchestrator(poll_interval=1)
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value="1")
+
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=mock_redis):
+            await orch.start()
+
+        assert orch.is_paused()
+        mock_redis.get.assert_called_with("claudevn:orchestrator:paused")
+        await orch.stop()
+
+    @pytest.mark.asyncio
+    async def test_load_pause_state_not_paused(self):
+        """Test startup with Redis returning not-paused."""
+        orch = WorkOrchestrator(poll_interval=1)
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value="0")
+
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=mock_redis):
+            await orch.start()
+
+        assert not orch.is_paused()
+        await orch.stop()
+
+    @pytest.mark.asyncio
+    async def test_load_pause_state_redis_unavailable(self):
+        """Test startup defaults to running when Redis is unavailable."""
+        orch = WorkOrchestrator(poll_interval=1)
+
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, side_effect=Exception("Redis down")):
+            await orch.start()
+
+        assert not orch.is_paused()
+        await orch.stop()
 
     @pytest.mark.asyncio
     async def test_start_stop(self, orchestrator):
         """Test start and stop."""
         assert not orchestrator.is_running()
 
-        await orchestrator.start()
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=AsyncMock(get=AsyncMock(return_value=None))):
+            await orchestrator.start()
         assert orchestrator.is_running()
 
         await orchestrator.stop()
@@ -81,8 +132,9 @@ class TestWorkOrchestrator:
     @pytest.mark.asyncio
     async def test_start_twice_warns(self, orchestrator, caplog):
         """Test starting twice logs warning."""
-        await orchestrator.start()
-        await orchestrator.start()  # Should warn
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=AsyncMock(get=AsyncMock(return_value=None))):
+            await orchestrator.start()
+            await orchestrator.start()  # Should warn
 
         await orchestrator.stop()
         assert "already running" in caplog.text.lower()
@@ -211,7 +263,9 @@ class TestOrchestratorTrigger:
     @pytest.mark.asyncio
     async def test_trigger_when_paused(self, orchestrator):
         """Test trigger when paused returns paused status."""
-        orchestrator.pause()
+        mock_redis = AsyncMock()
+        with patch("git.redis_client.get_redis", new_callable=AsyncMock, return_value=mock_redis):
+            await orchestrator.pause()
         result = await orchestrator.trigger_immediate()
 
         assert result["status"] == "paused"
