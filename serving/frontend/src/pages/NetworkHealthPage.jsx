@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Activity, Clock, List, Map, Server, Store } from 'lucide-react'
 import HealthPanel, { HealthStatusBar, HealthBreakdown } from '../components/health/HealthPanel'
+import ComputeEnvironments from '../components/network/ComputeEnvironments'
 import ComputeList from '../components/network/ComputeList'
 import MarketplaceList from '../components/network/MarketplaceList'
 import NetworkMap from '../components/network/NetworkMap'
@@ -162,7 +163,10 @@ function NetworkHealthPage() {
         </div>
       </section>
 
-      {/* Network Section - With List/Map toggle */}
+      {/* Compute Environments — v2.0 planning-derived environments */}
+      <ComputeEnvironments />
+
+      {/* Compute Instances — active Claude Code instances */}
       <section className="network-section-unified">
         <header className="section-header">
           <h2 className="section-title">

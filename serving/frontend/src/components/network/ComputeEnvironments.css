@@ -1,0 +1,211 @@
+.ce-section {
+  margin-bottom: var(--space-xl);
+}
+
+.ce-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.ce-section-header svg {
+  color: var(--text-muted);
+}
+
+.ce-section-header h2 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.ce-section-stats {
+  display: flex;
+  gap: var(--space-md);
+  margin-left: auto;
+}
+
+.ce-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.ce-stat--active { color: var(--primary); }
+.ce-stat--ready { color: var(--status-online); }
+.ce-stat--building { color: var(--status-degraded); }
+
+.ce-empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.ce-empty-state {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--text-muted);
+}
+
+.ce-empty-state svg {
+  margin-bottom: var(--space-sm);
+  opacity: 0.5;
+}
+
+.ce-empty-state p {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.ce-empty-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.ce-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* Environment card */
+.ce-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ce-env--active { border-left: 3px solid var(--primary); }
+.ce-env--ready { border-left: 3px solid var(--status-online); }
+.ce-env--building { border-left: 3px solid var(--status-degraded); }
+.ce-env--failed { border-left: 3px solid var(--status-offline); }
+
+.ce-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.ce-card-header:hover { background: var(--bg-hover); }
+
+.ce-card-header svg:first-child { color: var(--text-muted); }
+
+.ce-card-id {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.ce-card-project {
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.ce-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.ce-env--active .ce-card-status { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ce-env--ready .ce-card-status { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.ce-env--building .ce-card-status { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+.ce-env--failed .ce-card-status { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }
+
+.ce-card-tag {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* Card body */
+.ce-card-body {
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ce-card-meta {
+  display: flex;
+  gap: var(--space-lg);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.ce-card-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ce-card-reqs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ce-req-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ce-req-tag {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+.ce-card-dockerfile summary {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ce-card-dockerfile pre {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  margin-top: var(--space-xs);
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+.ce-card-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+}
+
+.ce-card-container-id {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
