@@ -1,0 +1,208 @@
+.cp-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.cp-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.cp-header-icon { color: var(--text-muted); }
+.cp-header-icon--active { color: var(--status-degraded); }
+
+.cp-panel-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.cp-panel-badge {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  margin-left: auto;
+}
+
+.cp-panel-badge--high {
+  color: var(--status-offline);
+  background: color-mix(in srgb, var(--status-offline) 15%, transparent);
+}
+
+.cp-empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  padding: var(--space-sm) 0;
+}
+
+.cp-all-clear {
+  color: var(--status-online);
+}
+
+.cp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Insight cards */
+.cp-insight {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.cp-insight--high {
+  border-color: color-mix(in srgb, var(--status-offline) 30%, var(--border));
+}
+
+.cp-insight--medium {
+  border-color: color-mix(in srgb, var(--status-degraded) 25%, var(--border));
+}
+
+.cp-insight-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.cp-insight-header:hover {
+  background: var(--bg-hover);
+}
+
+.cp-insight--high .cp-insight-icon { color: var(--status-offline); }
+.cp-insight--medium .cp-insight-icon { color: var(--status-degraded); }
+.cp-insight--low .cp-insight-icon { color: var(--text-muted); }
+
+.cp-insight-type {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.cp-insight-type--contradiction {
+  color: var(--status-offline);
+  background: color-mix(in srgb, var(--status-offline) 10%, transparent);
+}
+
+.cp-insight-type--implicit_requirement {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.cp-insight-type--scope_drift {
+  color: var(--status-degraded);
+  background: color-mix(in srgb, var(--status-degraded) 10%, transparent);
+}
+
+.cp-insight-type--gap {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.cp-insight-type--unstated_dependency {
+  color: var(--status-degraded);
+  background: color-mix(in srgb, var(--status-degraded) 10%, transparent);
+}
+
+.cp-insight-title {
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Insight body */
+.cp-insight-body {
+  padding: 0 var(--space-sm) var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.cp-insight-description {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.cp-insight-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+}
+
+.cp-insight-sources-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cp-insight-source {
+  color: var(--text-secondary);
+}
+
+.cp-insight-excerpt {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.cp-insight-suggestion {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 15%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.cp-insight-suggestion svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.cp-insight-affected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+}
+
+.cp-insight-affected-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cp-insight-unit-tag {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}

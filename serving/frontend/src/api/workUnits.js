@@ -61,6 +61,12 @@ export async function approveUnit(unitId) {
   return request(`/verification/unit/${unitId}/approve`, { method: 'POST' })
 }
 
+// -- Coherence --
+
+export async function getCoherenceInsights(projectId) {
+  return request(`/decomposition/coherence/${projectId}`)
+}
+
 // -- Dispatch queue --
 
 export async function getDispatchQueue() {

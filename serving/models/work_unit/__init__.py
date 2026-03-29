@@ -19,6 +19,13 @@ from .verification import (
 from .context import ContextPackage
 from .independence import IndependenceAssertion
 from .work_unit import WorkUnit, WorkUnitStatus
+from .coherence import (
+    CoherenceInsight,
+    CoherenceAnalysis,
+    InsightType,
+    InsightSeverity,
+    InsightSource,
+)
 
 __all__ = [
     # Core
@@ -42,4 +49,10 @@ __all__ = [
     "ContextPackage",
     # Independence
     "IndependenceAssertion",
+    # Coherence
+    "CoherenceInsight",
+    "CoherenceAnalysis",
+    "InsightType",
+    "InsightSeverity",
+    "InsightSource",
 ]

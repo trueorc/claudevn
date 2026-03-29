@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen, CheckCircle2, XCircle, GitBranch, Scissors, Merge, RefreshCw } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
-import { getWorkUnits, approveDecomposition } from '../api/workUnits'
+import { getWorkUnits, approveDecomposition, getCoherenceInsights } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import useEventStream from '../hooks/useEventStream'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
 import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog'
 import DecompositionSummary from '../components/decomposition/DecompositionSummary'
+import CoherencePanel from '../components/decomposition/CoherencePanel'
 import DependencyGraph from '../components/decomposition/DependencyGraph'
 import WorkUnitList from '../components/decomposition/WorkUnitList'
 import EmptyState from '../components/common/EmptyState'
@@ -38,6 +39,10 @@ function GoalsPage() {
   const [workUnitsLoading, setWorkUnitsLoading] = useState(false)
   const [approving, setApproving] = useState(false)
 
+  // Coherence analysis across all goals
+  const [coherenceInsights, setCoherenceInsights] = useState([])
+  const [coherenceLoading, setCoherenceLoading] = useState(false)
+
   // Subscribe to decomposition events for real-time updates
   useEventStream({
     patterns: ['decomposition.*'],
@@ -46,8 +51,9 @@ function GoalsPage() {
       if (selectedGoal && event.goal_id === selectedGoal.goal_id) {
         loadWorkUnits(selectedGoal.goal_id)
       }
-      // Refresh goal list on any decomposition event
+      // Refresh goal list and coherence on any decomposition event
       loadGoals()
+      loadCoherence()
     }, [selectedGoal]), // eslint-disable-line react-hooks/exhaustive-deps
   })
 
@@ -96,7 +102,21 @@ function GoalsPage() {
     setWorkUnits([])
   }, [projectId])
 
+  const loadCoherence = useCallback(async () => {
+    if (!projectId) return
+    setCoherenceLoading(true)
+    try {
+      const data = await getCoherenceInsights(projectId)
+      setCoherenceInsights(data?.insights || [])
+    } catch {
+      setCoherenceInsights([])
+    } finally {
+      setCoherenceLoading(false)
+    }
+  }, [projectId])
+
   useEffect(() => { loadGoals() }, [loadGoals])
+  useEffect(() => { loadCoherence() }, [loadCoherence])
 
   useEffect(() => {
     if (selectedGoal) {
@@ -250,6 +270,9 @@ function GoalsPage() {
             />
           ) : (
             <div className="goals-page-workspace">
+              {/* Goal coherence — inconsistencies across all goals */}
+              <CoherencePanel insights={coherenceInsights} loading={coherenceLoading} />
+
               {/* Quality summary cards */}
               <DecompositionSummary units={workUnits} />
 
