@@ -184,14 +184,18 @@ class WorkUnitBuilder:
         expected_outputs: List[Dict[str, Any]],
     ) -> FormalSpec:
         """Construct a FormalSpec from decomposition data."""
-        contracts = [
-            InterfaceContract(
-                file=c["file"],
-                type=c.get("type", "exports"),
-                definition=c.get("definition", ""),
-            )
-            for c in interface_contracts
-        ]
+        contracts = []
+        # interface_contracts may be a dict (v2.0 LLM format: {produces, consumes})
+        # or a list (legacy format: [{file, type, definition}])
+        if isinstance(interface_contracts, list):
+            for c in interface_contracts:
+                if isinstance(c, dict) and "file" in c:
+                    contracts.append(InterfaceContract(
+                        file=c["file"],
+                        type=c.get("type", "exports"),
+                        definition=c.get("definition", ""),
+                    ))
+        # Dict format is handled by build() → interface_produces/consumes
 
         outputs = []
         for o in expected_outputs:
