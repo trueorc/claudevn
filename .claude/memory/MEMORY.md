@@ -15,3 +15,4 @@
 - [Multi-user retained](project_multi_user.md) — Multi-user atmosphere kept, future potential
 - [v2.0 UI vision](project_v2_ui_vision.md) — Dashboard L1/L3 focus, new verification page, chat-driven decomposition
 - [v2.0 compute model](project_compute_model.md) — Runtime-typed computes, builder+verifier phases within runtime, parallel across runtimes
+- [Plan page next phase](project_plan_page_next.md) — Chain viz, complexity scoring, recomposition, interface contracts, confidence
