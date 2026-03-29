@@ -248,16 +248,12 @@ function GoalsPage() {
   }, [selectedGoal, loadWorkUnits])
 
   const handleApproveEnvironment = useCallback(async () => {
-    // Use selected goal, or fall back to most recent goal with work units
     const goalId = selectedGoal?.goal_id || goals.find(g => g.status !== 'failed')?.goal_id
     if (!goalId) return
     setEnvApproving(true)
     try {
-      const result = await approveComputeEnvironment(goalId)
-      if (result?.instructions) {
-        // Show the user what to run
-        alert(`Environment approved!\n\n${result.instructions}`)
-      }
+      await approveComputeEnvironment(goalId)
+      // Reload to show approved status with copyable command
       await loadComputeEnv(goalId)
     } catch (err) {
       console.error('Failed to approve environment:', err)

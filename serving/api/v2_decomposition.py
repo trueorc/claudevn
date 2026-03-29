@@ -120,6 +120,7 @@ async def approve_environment(goal_id: str):
     desc = "_".join(runtimes[:3]) if runtimes else "default"
 
     # Write to mounted volume
+    safe_name = project_name.lower().replace(' ', '_')
     env_dir = await write_environment(
         project_name=project_name,
         project_id=project_id,
@@ -129,11 +130,19 @@ async def approve_environment(goal_id: str):
         description=desc,
     )
 
+    # Update environment status in Redis to "approved" with project_name
+    from services.decomposition.storage import store_environment_update
+    await store_environment_update(project_id, goal_id, {
+        "status": "approved",
+        "project_name": safe_name,
+        "run_command": f"./compute-envs/start.sh {safe_name}",
+    })
+
     return {
         "approved": True,
         "goal_id": goal_id,
-        "environment_dir": env_dir,
-        "instructions": f"Run: ./compute-envs/start.sh {project_name.lower().replace(' ', '_')}",
+        "project_name": safe_name,
+        "run_command": f"./compute-envs/start.sh {safe_name}",
     }
 
 

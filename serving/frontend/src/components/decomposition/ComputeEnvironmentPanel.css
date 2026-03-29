@@ -182,6 +182,57 @@
   color: var(--text-secondary);
 }
 
+/* Approved state */
+.cep-panel--approved {
+  border-color: color-mix(in srgb, var(--status-online) 30%, var(--border));
+}
+
+/* Run command */
+.cep-run-command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  margin-top: var(--space-sm);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--status-online) 20%, var(--border));
+  border-radius: var(--radius-md);
+}
+
+.cep-run-command svg:first-child {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cep-run-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  flex: 1;
+  user-select: all;
+}
+
+.cep-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.cep-copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--primary);
+}
+
 /* Actions */
 .cep-actions {
   margin-top: var(--space-md);

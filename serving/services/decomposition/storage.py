@@ -97,6 +97,19 @@ async def get_project_environment(project_id: str) -> Optional[dict]:
     return None
 
 
+async def store_environment_update(project_id: str, goal_id: str, updates: dict) -> None:
+    """Update fields on a stored environment spec (e.g., status on approval)."""
+    redis = await _get_redis()
+    env_key = _ENV_KEY.format(project_id=project_id, goal_id=goal_id)
+    data = await redis.get(env_key)
+    if not data:
+        return
+    env = json.loads(data)
+    env.update(updates)
+    await redis.set(env_key, json.dumps(env))
+    logger.info(f"Updated environment for {goal_id}: {list(updates.keys())}")
+
+
 async def get_project_goals(project_id: str) -> List[str]:
     """Get all goal IDs with v2.0 pipeline results for a project."""
     redis = await _get_redis()
