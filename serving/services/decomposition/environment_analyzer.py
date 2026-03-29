@@ -389,11 +389,9 @@ class EnvironmentAnalyzer:
 
         # System packages
         if base_image.startswith("ubuntu"):
-            pkg_list = ["git", "curl", "openssh-client", "ca-certificates"]
+            pkg_list = ["git", "curl", "openssh-client", "ca-certificates", "gnupg"]
             if "python" in runtimes:
                 pkg_list.extend(["python3", "python3-pip", "python3-venv"])
-            if "node" in runtimes:
-                pkg_list.extend(["nodejs", "npm"])
             if "go" in runtimes:
                 pkg_list.append("golang")
 
@@ -401,6 +399,18 @@ class EnvironmentAnalyzer:
             lines.append("    " + " \\\n    ".join(pkg_list) + " \\")
             lines.append("    && rm -rf /var/lib/apt/lists/*")
             lines.append("")
+
+            # Node.js 20 via nodesource (ubuntu's nodejs package is too old for Claude CLI)
+            if "node" in runtimes:
+                lines.extend([
+                    "# Node.js 20 (ubuntu default is too old for Claude CLI)",
+                    "RUN mkdir -p /etc/apt/keyrings \\",
+                    "    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \\",
+                    '    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \\',
+                    "    && apt-get update && apt-get install -y nodejs \\",
+                    "    && rm -rf /var/lib/apt/lists/*",
+                    "",
+                ])
 
         # Global tools only (not project devDependencies)
         global_cmds = [r.install_cmd for r in requirements if r.install_cmd]
