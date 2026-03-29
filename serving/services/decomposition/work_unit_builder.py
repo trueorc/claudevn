@@ -181,12 +181,15 @@ class WorkUnitBuilder:
                 constraints=o.get("constraints", []),
             ))
 
-        # Default: each target file is expected to be modified
+        # Default: infer output type from whether file exists
         if not outputs:
-            outputs = [
-                ExpectedOutput(type=OutputType.FILE_MODIFIED, path=f)
-                for f in target_files
-            ]
+            import os
+            for f in target_files:
+                exists = os.path.exists(os.path.join(self._codebase.file_tree[0].path, '..', f)) if self._codebase.file_tree else False
+                # Simple check: if file path doesn't match any known file, it's a creation
+                known_files = {fi.path for fi in self._codebase.file_tree}
+                output_type = OutputType.FILE_MODIFIED if f in known_files else OutputType.FILE_CREATED
+                outputs.append(ExpectedOutput(type=output_type, path=f))
 
         return FormalSpec(
             target_files=target_files,

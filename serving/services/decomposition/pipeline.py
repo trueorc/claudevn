@@ -188,6 +188,11 @@ class DecompositionPipeline:
                 goal_id=goal_id,
                 units_data=raw_units,
             )
+
+            # Resolve description-based depends_on to unit IDs
+            # (LLM returns dependency descriptions, not IDs)
+            self._resolve_dependencies(work_units, raw_units)
+
             result.work_units = work_units
             step3.complete(f"{len(work_units)} work units built")
             logger.info(f"Pipeline step 3 complete: {len(work_units)} work units for {goal_id}")
@@ -321,6 +326,60 @@ Rules:
         # Convert depends_on from descriptions to indices for builder
         # (builder uses IDs, but LLM returns description references)
         return units
+
+    def _resolve_dependencies(self, work_units: List[WorkUnit], raw_units: List[Dict[str, Any]]) -> None:
+        """Resolve description-based depends_on to actual work unit IDs.
+
+        The LLM returns depends_on as description strings (e.g., "Backend calculator logic").
+        This maps them to the unit IDs by matching descriptions.
+        """
+        # Build description → unit ID mapping
+        desc_to_id: Dict[str, str] = {}
+        for i, wu in enumerate(work_units):
+            desc_to_id[wu.description] = wu.id
+            # Also index by the raw unit description (may differ slightly)
+            if i < len(raw_units):
+                raw_desc = raw_units[i].get("description", "")
+                if raw_desc:
+                    desc_to_id[raw_desc] = wu.id
+
+        # Resolve dependencies
+        for i, wu in enumerate(work_units):
+            raw_deps = raw_units[i].get("depends_on", []) if i < len(raw_units) else []
+            resolved = []
+            for dep in raw_deps:
+                if dep in desc_to_id:
+                    resolved.append(desc_to_id[dep])
+                else:
+                    # Fuzzy match — find the closest description
+                    best_match = None
+                    best_score = 0
+                    dep_lower = dep.lower()
+                    for desc, uid in desc_to_id.items():
+                        # Simple substring match
+                        desc_lower = desc.lower()
+                        if dep_lower in desc_lower or desc_lower in dep_lower:
+                            score = len(set(dep_lower.split()) & set(desc_lower.split()))
+                            if score > best_score:
+                                best_score = score
+                                best_match = uid
+                    if best_match and best_score >= 2:
+                        resolved.append(best_match)
+                    else:
+                        logger.warning(f"Could not resolve dependency '{dep[:60]}...' for {wu.id}")
+
+            wu.independence.depends_on = resolved
+
+        # Recompute reverse dependencies
+        for wu in work_units:
+            wu.independence.depended_by = []
+        unit_map = {u.id: u for u in work_units}
+        for wu in work_units:
+            for dep_id in wu.independence.depends_on:
+                if dep_id in unit_map:
+                    dep_unit = unit_map[dep_id]
+                    if wu.id not in dep_unit.independence.depended_by:
+                        dep_unit.independence.depended_by.append(wu.id)
 
     async def _emit_update(self, project_id: str, goal_id: str, unit_ids: List[str], change_type: str):
         """Emit a decomposition update event."""
