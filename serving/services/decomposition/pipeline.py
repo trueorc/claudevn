@@ -85,11 +85,14 @@ class PipelineResult:
         self.error = ""
 
     def to_dict(self):
+        # Use model_dump_json → json.loads to handle datetime serialization
         return {
             "steps": [s.to_dict() for s in self.steps],
             "work_unit_count": len(self.work_units),
-            "work_units": [wu.model_dump() for wu in self.work_units],
-            "environment": self.environment.model_dump() if self.environment else None,
+            "work_units": [
+                json.loads(wu.model_dump_json()) for wu in self.work_units
+            ],
+            "environment": json.loads(self.environment.model_dump_json()) if self.environment else None,
             "validation_issues": self.validation_issues,
             "success": self.success,
             "error": self.error,
