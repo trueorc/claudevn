@@ -136,15 +136,27 @@ function GoalsPage() {
     }
   }, [])
 
+  // Load project-level compute environment on project change
+  useEffect(() => {
+    if (projectId) {
+      // Load the project-level environment spec
+      // When a goal is selected, this updates to that goal's spec
+      loadComputeEnv(projectId)
+    } else {
+      setComputeEnv(null)
+    }
+  }, [projectId, loadComputeEnv])
+
   useEffect(() => {
     if (selectedGoal) {
       loadWorkUnits(selectedGoal.goal_id)
       loadComputeEnv(selectedGoal.goal_id)
     } else {
       setWorkUnits([])
-      setComputeEnv(null)
+      // Revert to project-level env when deselecting a goal
+      if (projectId) loadComputeEnv(projectId)
     }
-  }, [selectedGoal, loadWorkUnits, loadComputeEnv])
+  }, [selectedGoal, projectId, loadWorkUnits, loadComputeEnv])
 
   // Handlers
   const handleSelectGoal = useCallback((goal) => {
@@ -294,7 +306,15 @@ function GoalsPage() {
             )}
           </div>
 
-          {/* Goal detail or empty state */}
+          {/* Project-level sections — always visible */}
+          <CoherencePanel insights={coherenceInsights} loading={coherenceLoading} />
+          <ComputeEnvironmentPanel
+            environment={computeEnv}
+            onApprove={handleApproveEnvironment}
+            approving={envApproving}
+          />
+
+          {/* Goal detail or selection prompt */}
           {!selectedGoal ? (
             <EmptyState
               icon={GitBranch}
@@ -311,21 +331,11 @@ function GoalsPage() {
             />
           ) : (
             <div className="goals-page-workspace">
-              {/* Goal coherence — inconsistencies across all goals */}
-              <CoherencePanel insights={coherenceInsights} loading={coherenceLoading} />
-
               {/* Quality summary cards */}
               <DecompositionSummary units={workUnits} />
 
               {/* Dependency graph */}
               <DependencyGraph units={workUnits} />
-
-              {/* Compute environment — first-class planning artifact */}
-              <ComputeEnvironmentPanel
-                environment={computeEnv}
-                onApprove={handleApproveEnvironment}
-                approving={envApproving}
-              />
 
               {/* Work unit detail cards */}
               <div className="goals-page-section">
