@@ -76,7 +76,7 @@ _TOOL_DETECTORS = {
     ],
     "node": [
         ("jest", "npm install -g jest"),
-        ("vitest", "npx vitest"),
+        ("vitest", "npm install -g vitest"),
         ("eslint", "npm install -g eslint"),
         ("typescript", "npm install -g typescript"),
         ("vite", "npm install -g vite"),
@@ -231,19 +231,50 @@ class EnvironmentAnalyzer:
         return None
 
     def _detect_tools(self, runtime: str) -> List[RuntimeRequirement]:
-        """Detect which tools are used for a runtime based on config files."""
+        """Detect which tools are used for a runtime based on config files.
+
+        Only emits install commands for tools that need global installation.
+        Tools in package.json devDependencies are installed by npm install
+        (the package install step), so they're listed as requirements for
+        visibility but without a separate install command.
+        """
         requirements = []
         detectors = _TOOL_DETECTORS.get(runtime, [])
 
         for tool_name, install_cmd in detectors:
             if self._tool_is_used(runtime, tool_name):
+                # Check if this tool is a project dependency (installed by npm install)
+                is_project_dep = self._is_project_dependency(runtime, tool_name)
                 requirements.append(RuntimeRequirement(
                     name=tool_name,
-                    reason=f"Detected in project configuration",
-                    install_cmd=install_cmd,
+                    reason="Project devDependency (installed by npm install)" if is_project_dep else "Detected in project configuration",
+                    install_cmd=None if is_project_dep else install_cmd,
                 ))
 
         return requirements
+
+    def _is_project_dependency(self, runtime: str, tool_name: str) -> bool:
+        """Check if a tool is already a project dependency (not needing global install)."""
+        if runtime == "node":
+            pkg_path = self._find_file("package.json")
+            if pkg_path:
+                try:
+                    data = json.loads(open(pkg_path).read())
+                    all_deps = {
+                        **data.get("dependencies", {}),
+                        **data.get("devDependencies", {}),
+                    }
+                    return tool_name in all_deps
+                except Exception:
+                    pass
+        if runtime == "python":
+            req_path = self._find_file("requirements.txt")
+            if req_path:
+                try:
+                    return tool_name in open(req_path).read()
+                except Exception:
+                    pass
+        return False
 
     def _find_file(self, filename: str) -> Optional[str]:
         """Find a file in the repo root or up to 2 levels deep."""
