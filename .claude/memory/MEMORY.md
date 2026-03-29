@@ -14,3 +14,4 @@
 - [Marketplace kept for now](project_v2_marketplace.md) — Retained during v2.0 migration, long-term TBD
 - [Multi-user retained](project_multi_user.md) — Multi-user atmosphere kept, future potential
 - [v2.0 UI vision](project_v2_ui_vision.md) — Dashboard L1/L3 focus, new verification page, chat-driven decomposition
+- [v2.0 compute model](project_compute_model.md) — Runtime-typed computes, builder+verifier phases within runtime, parallel across runtimes
