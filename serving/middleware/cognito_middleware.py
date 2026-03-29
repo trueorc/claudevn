@@ -39,6 +39,7 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/users/login",           # User login (local auth mode)
     "/api/v1/users/register",        # User registration (local auth mode)
     "/api/v1/releases",              # Release notes (public, non-sensitive)
+    "/api/v1/events/stream",         # SSE event stream (EventSource can't set auth headers)
 )
 
 # Non-API routes that are always public
