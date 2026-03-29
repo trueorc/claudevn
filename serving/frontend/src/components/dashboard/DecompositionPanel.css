@@ -1,0 +1,129 @@
+.dp-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.dp-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.dp-panel-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dp-panel-badge {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+}
+
+.dp-empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  padding: var(--space-md) 0;
+}
+
+.dp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.dp-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+  width: 100%;
+}
+
+.dp-item:hover {
+  background: var(--bg-hover);
+}
+
+.dp-item-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.dp-item-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.dp-item-title {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dp-item-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.dp-item-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-left: 22px;
+}
+
+.dp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.dp-status--draft { color: var(--text-muted); background: var(--bg-hover); }
+.dp-status--approved { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.dp-status--executing { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.dp-status--review { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+
+.dp-unit-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.dp-view-all {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-sm) 0 0;
+  margin-top: var(--space-xs);
+}
+
+.dp-view-all:hover {
+  color: var(--primary);
+}
