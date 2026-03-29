@@ -92,6 +92,30 @@
   color: var(--text);
 }
 
+/* Goal context indicator */
+.chat-rail-goal-context {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 15%, var(--border));
+  font-size: var(--font-size-xs);
+}
+
+.chat-rail-goal-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.chat-rail-goal-title {
+  color: var(--primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Header */
 .chat-rail-header {
   display: flex;

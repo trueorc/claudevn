@@ -93,6 +93,12 @@ export function ConversationProvider({ children }) {
   const conversation = useConversation(projectId)
   const { messages, clear: clearConversation, resumePolling } = conversation
 
+  // v2.0: Track the active goal so ChatRail can be context-aware
+  // When a user is on the decomposition page viewing a specific goal,
+  // the chat sidebar knows which goal they're working with.
+  const [activeGoalId, setActiveGoalId] = useState(null)
+  const [activeGoalTitle, setActiveGoalTitle] = useState(null)
+
   // Keep a stable ref to resumePolling for the WebSocket handler.
   const resumePollingRef = useRef(resumePolling)
   useEffect(() => { resumePollingRef.current = resumePolling }, [resumePolling])
@@ -357,6 +363,17 @@ export function ConversationProvider({ children }) {
     clear,
     projectId,
     sendTypingStatus,
+    // v2.0: Goal context for ChatRail awareness
+    activeGoalId,
+    activeGoalTitle,
+    setActiveGoal: useCallback((goalId, title) => {
+      setActiveGoalId(goalId)
+      setActiveGoalTitle(title || null)
+    }, []),
+    clearActiveGoal: useCallback(() => {
+      setActiveGoalId(null)
+      setActiveGoalTitle(null)
+    }, []),
   }
 
   return (

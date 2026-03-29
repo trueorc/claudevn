@@ -42,7 +42,7 @@ function RailProjectHeader() {
 
 function ChatRail() {
   const { activeProject } = useProjectContext()
-  const { messages, submitting, submit, sendTypingStatus } = useConversationContext()
+  const { messages, submitting, submit, sendTypingStatus, activeGoalId, activeGoalTitle } = useConversationContext()
   const [collapsed, setCollapsed] = useState(false)
   const [message, setMessage] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
@@ -139,6 +139,13 @@ function ChatRail() {
         <>
           <RailProjectHeader />
 
+          {activeGoalId && (
+            <div className="chat-rail-goal-context">
+              <span className="chat-rail-goal-label">Goal context:</span>
+              <span className="chat-rail-goal-title">{activeGoalTitle || activeGoalId}</span>
+            </div>
+          )}
+
           <div className="chat-rail-header">
             <button
               className="chat-rail-full-link"
@@ -218,7 +225,13 @@ function ChatRail() {
                 value={message}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder={activeProject ? 'Type a directive...' : 'Select a project'}
+                placeholder={
+                  !activeProject
+                    ? 'Select a project'
+                    : activeGoalId
+                      ? `Refine "${activeGoalTitle || 'goal'}..." `
+                      : 'Type a directive...'
+                }
                 disabled={!activeProject || submitting}
                 rows={1}
               />

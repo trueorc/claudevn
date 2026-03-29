@@ -1,5 +1,8 @@
 # Memory Index
 
+## User
+- [Matt Lyons](user_matt.md) — Project owner, matt@optionsquared.com
+
 ## Feedback
 - [Small composable Python files](feedback_file_structure.md) — Prefer small focused modules over large monolithic service files
 - [Queue-based over polling](feedback_queue_based.md) — All inter-service communication should be queue/event-driven, no polling

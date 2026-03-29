@@ -3,6 +3,7 @@ import { FolderOpen, CheckCircle2, XCircle, GitBranch, Scissors, Merge, RefreshC
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
 import { getWorkUnits, approveDecomposition, getCoherenceInsights } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
+import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
 import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog'
@@ -19,6 +20,7 @@ import './GoalsPage.css'
 function GoalsPage() {
   const { activeProject } = useProjectContext()
   const projectId = activeProject?.project_id || null
+  const { setActiveGoal, clearActiveGoal } = useConversationContext()
 
   // Goal list
   const [goals, setGoals] = useState([])
@@ -101,7 +103,8 @@ function GoalsPage() {
   useEffect(() => {
     setSelectedGoal(null)
     setWorkUnits([])
-  }, [projectId])
+    clearActiveGoal()
+  }, [projectId, clearActiveGoal])
 
   const loadCoherence = useCallback(async () => {
     if (!projectId) return
@@ -130,7 +133,12 @@ function GoalsPage() {
   // Handlers
   const handleSelectGoal = useCallback((goal) => {
     setSelectedGoal(goal)
-  }, [])
+    if (goal) {
+      setActiveGoal(goal.goal_id, goal.title || goal.description?.slice(0, 60))
+    } else {
+      clearActiveGoal()
+    }
+  }, [setActiveGoal, clearActiveGoal])
 
   const handleDeleteGoal = useCallback((goal) => {
     setGoalToDelete(goal)
