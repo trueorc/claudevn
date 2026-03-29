@@ -11,6 +11,7 @@ from .work_unit_builder import WorkUnitBuilder
 from .spec_validator import SpecValidator, SpecValidationResult, ValidationIssue
 from .context_assembler import ContextAssembler
 from .environment_analyzer import EnvironmentAnalyzer
+from .pipeline import DecompositionPipeline, PipelineResult, PipelineStep
 
 __all__ = [
     # Analysis
@@ -33,4 +34,8 @@ __all__ = [
     "ContextAssembler",
     # Environment
     "EnvironmentAnalyzer",
+    # Pipeline
+    "DecompositionPipeline",
+    "PipelineResult",
+    "PipelineStep",
 ]

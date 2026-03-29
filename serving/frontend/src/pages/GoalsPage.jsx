@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen, CheckCircle2, XCircle, GitBranch, Scissors, Merge, RefreshCw } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
-import { getWorkUnits, approveDecomposition, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
+import { getWorkUnits, getPipelineStatus, approveDecomposition, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
@@ -11,6 +11,7 @@ import DecompositionSummary from '../components/decomposition/DecompositionSumma
 import CoherencePanel from '../components/decomposition/CoherencePanel'
 import DependencyGraph from '../components/decomposition/DependencyGraph'
 import ComputeEnvironmentPanel from '../components/decomposition/ComputeEnvironmentPanel'
+import PipelineStatus from '../components/decomposition/PipelineStatus'
 import WorkUnitList from '../components/decomposition/WorkUnitList'
 import EmptyState from '../components/common/EmptyState'
 import Spinner from '../components/common/Spinner'
@@ -46,7 +47,8 @@ function GoalsPage() {
   const [coherenceInsights, setCoherenceInsights] = useState([])
   const [coherenceLoading, setCoherenceLoading] = useState(false)
 
-  // Compute environment for selected goal
+  // Pipeline status and compute environment for selected goal
+  const [pipelineData, setPipelineData] = useState(null)
   const [computeEnv, setComputeEnv] = useState(null)
   const [envApproving, setEnvApproving] = useState(false)
 
@@ -147,16 +149,26 @@ function GoalsPage() {
     }
   }, [projectId, loadComputeEnv])
 
+  const loadPipeline = useCallback(async (goalId) => {
+    try {
+      const data = await getPipelineStatus(goalId)
+      setPipelineData(data)
+    } catch {
+      setPipelineData(null)
+    }
+  }, [])
+
   useEffect(() => {
     if (selectedGoal) {
       loadWorkUnits(selectedGoal.goal_id)
       loadComputeEnv(selectedGoal.goal_id)
+      loadPipeline(selectedGoal.goal_id)
     } else {
       setWorkUnits([])
-      // Revert to project-level env when deselecting a goal
+      setPipelineData(null)
       if (projectId) loadComputeEnv(projectId)
     }
-  }, [selectedGoal, projectId, loadWorkUnits, loadComputeEnv])
+  }, [selectedGoal, projectId, loadWorkUnits, loadComputeEnv, loadPipeline])
 
   // Handlers
   const handleSelectGoal = useCallback((goal) => {
@@ -252,8 +264,9 @@ function GoalsPage() {
     if (selectedGoal) {
       loadWorkUnits(selectedGoal.goal_id)
       loadComputeEnv(selectedGoal.goal_id)
+      loadPipeline(selectedGoal.goal_id)
     }
-  }, [selectedGoal, loadWorkUnits, loadComputeEnv])
+  }, [selectedGoal, loadWorkUnits, loadComputeEnv, loadPipeline])
 
   // No project
   if (!projectId) {
@@ -313,6 +326,11 @@ function GoalsPage() {
             onApprove={handleApproveEnvironment}
             approving={envApproving}
           />
+
+          {/* Pipeline progress — shows when a goal has been processed */}
+          {selectedGoal && pipelineData && (
+            <PipelineStatus pipeline={pipelineData} />
+          )}
 
           {/* Goal detail or selection prompt */}
           {!selectedGoal ? (

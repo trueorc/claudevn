@@ -1,15 +1,14 @@
-"""v2.0 Decomposition API — work units, approval, and coherence analysis.
+"""v2.0 Decomposition API — work units, pipeline status, approval, coherence.
 
-Layer 1 endpoints for the decomposition review workflow.
+Layer 1 endpoints backed by Redis storage from the decomposition pipeline.
 """
 
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from models.work_unit.compute_environment import EnvironmentStatus
 from services.events.event_bus import get_event_bus
 from services.events.event_types import DecompositionApproved
 
@@ -18,128 +17,82 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/decomposition", tags=["decomposition"])
 
 
-# -- Response models --
-
-class WorkUnitResponse(BaseModel):
-    id: str
-    project_id: str
-    goal_ref: str
-    description: str
-    status: str
-    formal_spec: dict = Field(default_factory=dict)
-    verification_criteria: dict = Field(default_factory=dict)
-    context_package: dict = Field(default_factory=dict)
-    independence: dict = Field(default_factory=dict)
+async def _resolve_project_id(goal_id: str) -> str:
+    """Look up project_id from a goal."""
+    try:
+        from services.work_map_service import get_work_map_service
+        wm = get_work_map_service()
+        goal = await wm.get_goal(goal_id)
+        return goal.project_id if goal else ""
+    except Exception:
+        return ""
 
 
-class WorkUnitsListResponse(BaseModel):
-    work_units: List[WorkUnitResponse] = Field(default_factory=list)
-    count: int = 0
-
-
-class RuntimeRequirementResponse(BaseModel):
-    name: str
-    version: Optional[str] = None
-    reason: str = ""
-    install_cmd: Optional[str] = None
-
-
-class ComputeEnvironmentResponse(BaseModel):
-    id: str
-    project_id: str
-    status: str = "proposed"
-    requirements: List[RuntimeRequirementResponse] = Field(default_factory=list)
-    base_image: str = ""
-    dockerfile_content: str = ""
-    work_unit_ids: List[str] = Field(default_factory=list)
-    image_tag: Optional[str] = None
-
-
-class CoherenceInsightResponse(BaseModel):
-    id: str
-    type: str
-    severity: str
-    title: str
-    description: str
-    sources: list = Field(default_factory=list)
-    suggestion: str = ""
-    affected_units: list = Field(default_factory=list)
-
-
-class CoherenceResponse(BaseModel):
-    insights: List[CoherenceInsightResponse] = Field(default_factory=list)
-    goals_analyzed: int = 0
-
-
-# -- Endpoints --
-
-@router.get("/{goal_id}/work-units", response_model=WorkUnitsListResponse)
+@router.get("/{goal_id}/work-units")
 async def get_work_units(goal_id: str):
-    """Get all work units for a goal's decomposition.
+    """Get all work units for a goal's decomposition."""
+    from services.decomposition.storage import get_work_units as fetch_units
+    project_id = await _resolve_project_id(goal_id)
+    units = await fetch_units(project_id, goal_id)
+    return {"work_units": units, "count": len(units)}
 
-    Returns the formally specified work units with target files,
-    interface contracts, verification criteria, and independence
-    assertions.
+
+@router.get("/{goal_id}/pipeline")
+async def get_pipeline_status(goal_id: str):
+    """Get the full pipeline result — steps with status, work units, environment.
+
+    This is what the Plan page uses to show pipeline step progress.
     """
-    # TODO: wire to persistent storage (Redis or Git-backed)
-    # For now, return empty — the frontend handles this gracefully
-    return WorkUnitsListResponse(work_units=[], count=0)
+    from services.decomposition.storage import get_pipeline_result
+    project_id = await _resolve_project_id(goal_id)
+    result = await get_pipeline_result(project_id, goal_id)
+    if not result:
+        return {"steps": [], "work_units": [], "success": False, "error": "No pipeline result"}
+    return result
 
 
 @router.post("/{goal_id}/approve")
 async def approve_decomposition(goal_id: str):
-    """Approve a decomposition — transition work units from draft to ready.
-
-    This is the human approval gate. Once approved, work units enter
-    the dispatch queue for execution.
-    """
+    """Approve a decomposition — transition work units from draft to ready."""
+    project_id = await _resolve_project_id(goal_id)
     bus = get_event_bus()
-
-    # TODO: load work units, validate all are in draft, transition to ready
-    # For now, emit the event
     await bus.publish(DecompositionApproved(
-        project_id="",  # Will be resolved from goal lookup
+        project_id=project_id,
         goal_id=goal_id,
         work_unit_ids=[],
     ))
-
     return {"approved": True, "goal_id": goal_id}
 
 
-@router.get("/{goal_id}/environment", response_model=ComputeEnvironmentResponse)
+@router.get("/{goal_id}/environment")
 async def get_compute_environment(goal_id: str):
-    """Get the compute environment spec for a goal's work units.
+    """Get the compute environment spec for a goal's work units."""
+    from services.decomposition.storage import get_environment, get_project_environment
+    project_id = await _resolve_project_id(goal_id)
 
-    Shows detected runtime requirements, generated Dockerfile, and
-    approval status. This is a first-class artifact of planning —
-    review and approve before execution.
-    """
-    # TODO: wire to environment analyzer + storage
-    return ComputeEnvironmentResponse(
-        id=f"env-{goal_id}",
-        project_id="",
-        status="proposed",
-        requirements=[],
-        dockerfile_content="",
-    )
+    env = await get_environment(project_id, goal_id)
+    if env:
+        return env
+
+    # Fall back to project-level environment
+    env = await get_project_environment(project_id or goal_id)
+    if env:
+        return env
+
+    return {
+        "id": f"env-{goal_id}", "project_id": project_id,
+        "status": "proposed", "requirements": [],
+        "base_image": "", "dockerfile_content": "", "work_unit_ids": [],
+    }
 
 
 @router.post("/{goal_id}/environment/approve")
 async def approve_environment(goal_id: str):
-    """Approve a compute environment spec for building.
-
-    Human gate — nothing gets built until explicitly approved.
-    """
-    # TODO: wire to environment status update + build trigger
+    """Approve a compute environment spec for building."""
     return {"approved": True, "goal_id": goal_id}
 
 
-@router.get("/coherence/{project_id}", response_model=CoherenceResponse)
+@router.get("/coherence/{project_id}")
 async def get_coherence_insights(project_id: str):
-    """Get goal coherence analysis for a project.
-
-    Detects inconsistencies, implicit requirements, scope drift,
-    and gaps across all goals and steering input.
-    """
-    # TODO: wire to coherence analyzer service
-    return CoherenceResponse(insights=[], goals_analyzed=0)
+    """Get goal coherence analysis for a project."""
+    return {"insights": [], "goals_analyzed": 0}

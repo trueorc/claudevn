@@ -14,6 +14,10 @@ export async function getWorkUnits(goalId) {
   return request(`/decomposition/${goalId}/work-units`)
 }
 
+export async function getPipelineStatus(goalId) {
+  return request(`/decomposition/${goalId}/pipeline`)
+}
+
 export async function updateWorkUnit(unitId, updates) {
   return request(`/work-units/${unitId}`, {
     method: 'PATCH',

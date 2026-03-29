@@ -1,0 +1,131 @@
+.ps-container {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.ps-container--has-failure {
+  border-color: color-mix(in srgb, var(--status-offline) 30%, var(--border));
+}
+
+.ps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.ps-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.ps-progress {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ps-failed-badge {
+  font-weight: 600;
+  color: var(--status-offline);
+  background: color-mix(in srgb, var(--status-offline) 15%, transparent);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+}
+
+.ps-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ps-step {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ps-step-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.ps-step-header:hover {
+  background: var(--bg-hover);
+}
+
+.ps-step--completed .ps-step-icon { color: var(--status-online); }
+.ps-step--failed .ps-step-icon { color: var(--status-offline); }
+.ps-step--running .ps-step-icon { color: var(--primary); }
+.ps-step--pending .ps-step-icon { color: var(--text-muted); }
+
+.ps-step-icon--spin {
+  animation: ps-spin 1s linear infinite;
+}
+
+@keyframes ps-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ps-step-label {
+  color: var(--text);
+  flex: 1;
+}
+
+.ps-step-duration {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.ps-step-status {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.ps-step-status--completed { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.ps-step-status--failed { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }
+.ps-step-status--running { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ps-step-status--pending { color: var(--text-muted); background: var(--bg-hover); }
+
+.ps-step-detail {
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) 30px;
+}
+
+.ps-step-detail-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.ps-step-error-text {
+  font-size: var(--font-size-xs);
+  color: var(--status-offline);
+  margin: 0;
+}
+
+.ps-summary {
+  font-size: var(--font-size-xs);
+  color: var(--status-online);
+  font-weight: 500;
+  padding-top: var(--space-sm);
+  margin-top: var(--space-xs);
+  border-top: 1px solid var(--border-subtle);
+}

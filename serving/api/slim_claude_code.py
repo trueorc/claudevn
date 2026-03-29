@@ -495,178 +495,85 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
             except Exception as e:
                 logger.warning(f"Failed to load existing decomposition: {e}")
 
-        # Stage 1: DECOMPOSING
-        # Pipeline: Decompose → Characterize → Create Issues (per spec Section 5)
+        # =====================================================================
+        # v2.0 DECOMPOSITION PIPELINE
+        # Replaces v1.0 decompose → characterize → create issues flow.
+        # Runs: LLM decompose → codebase analysis → build work units →
+        #       validate → analyze environment
+        # Each step emits events for Plan page observability.
+        # =====================================================================
         await _set_processing_status(goal_id, ProcessingStage.DECOMPOSING)
 
-        decomposition = await decomposer.decompose_goal(
+        from services.decomposition.pipeline import DecompositionPipeline
+        from services.decomposition.storage import store_pipeline_result
+
+        pipeline = DecompositionPipeline(repo_path=".")
+        pipeline_result = await pipeline.run(
             goal_id=goal_id,
+            project_id=goal.project_id or "",
             goal_text=goal.description,
             project_context=project_context,
             existing_issues=[],
-            constraints=constraints,
             conversation_comments=conversation_comments,
-            existing_decomposition=existing_decomposition_context,
         )
 
-        # Store decomposition for later retrieval
-        await _store_decomposition(decomposition)
+        # Store pipeline result in Redis for Plan page
+        await store_pipeline_result(
+            project_id=goal.project_id or "",
+            goal_id=goal_id,
+            result_dict=pipeline_result.to_dict(),
+        )
 
-        # Stage 2: CHARACTERIZING
-        characterization_map: Dict[str, CharacterizationResult] = {}
-        if decomposition.issues:
-            await _set_processing_status(goal_id, ProcessingStage.CHARACTERIZING)
+        if not pipeline_result.success:
+            raise ValueError(f"Decomposition pipeline failed: {pipeline_result.error}")
 
-            try:
-                char_service = get_characterization_service()
+        logger.info(
+            f"v2.0 pipeline complete for {goal_id}: "
+            f"{len(pipeline_result.work_units)} work units, "
+            f"{len(pipeline_result.steps)} steps"
+        )
 
-                # Build characterization requests from decomposed issues using temp_ids
-                char_items = [
-                    CharacterizationRequest(
-                        item_id=issue.temp_id,
-                        project_id=goal.project_id or "",
-                        title=issue.title,
-                        description=issue.description,
-                        issue_type_hint=issue.issue_type,
-                        area_hint=issue.area,
-                    )
-                    for issue in decomposition.issues
-                ]
-
-                char_response = await char_service.characterize_items(
-                    project_id=goal.project_id or "",
-                    items=char_items,
-                    source_goal_id=goal_id,
-                )
-
-                # Build temp_id -> CharacterizationResult mapping
-                for result in char_response.results:
-                    characterization_map[result.item_id] = result
-
-                logger.info(
-                    f"Characterized {char_response.completed}/{char_response.total} "
-                    f"items for goal {goal_id}"
-                )
-
-            except RuntimeError as e:
-                # No compute available for characterization — non-fatal
-                logger.warning(
-                    f"Skipping characterization for goal {goal_id}: {e}. "
-                    "Issues will be created without characterization metadata."
-                )
-            except Exception as e:
-                logger.warning(f"Characterization failed for goal {goal_id}: {e}")
-
-        # Stage 3: CREATING_ISSUES (with characterization metadata)
+        # Also create v1.0 backlog issues from work units (compatibility)
         await _set_processing_status(goal_id, ProcessingStage.CREATING_ISSUES)
 
-        issue_data_list = decomposer.map_to_issue_models(
-            decomposed_issues=decomposition.issues,
-            goal_id=goal_id,
-            characterization_results=characterization_map,
-        )
-
-        # Use execution_phases for ordering if available, else use issue order
-        issue_order = []
-        for phase in decomposition.execution_phases:
-            for temp_id in phase:
-                issue_order.append(temp_id)
-
-        # Add any issues not in phases
-        for issue_data in issue_data_list:
-            if issue_data["temp_id"] not in issue_order:
-                issue_order.append(issue_data["temp_id"])
-
-        temp_to_real: Dict[str, str] = {}
         created_issues: List[Dict[str, Any]] = []
-        ready_count = 0
-        backlog_count = 0
+        issue_ids: List[str] = []
 
-        failed_issues: List[str] = []
-        for temp_id in issue_order:
-            issue_data = next(
-                (d for d in issue_data_list if d["temp_id"] == temp_id), None
-            )
-            if not issue_data:
-                continue
-
-            # Map temp_id dependencies to real IDs
-            real_depends_on = []
-            for blocked_by_temp in issue_data.get("blocked_by_temp_ids", []):
-                if blocked_by_temp in temp_to_real:
-                    real_depends_on.append(temp_to_real[blocked_by_temp])
-
+        for wu in pipeline_result.work_units:
             try:
                 issue_request = IssueCreateRequest(
-                    title=issue_data["title"],
-                    description=issue_data["description"],
-                    issue_type=issue_data["type"],
-                    area=issue_data["area"],
-                    priority=issue_data["priority"],
-                    required_skills=issue_data.get("required_skills", []),
-                    required_tools=issue_data.get("required_tools", []),
-                    depends_on=real_depends_on,
+                    title=wu.description[:120],
+                    description=wu.description,
+                    issue_type="feature",
+                    area="api",
+                    priority="P2",
+                    required_skills=[],
+                    required_tools=[],
+                    depends_on=[],
                     project_id=goal.project_id,
                     goal_id=goal_id,
-                    ontology_tags=issue_data.get("ontology_tags"),
                 )
-
                 issue = await work_map_service.create_issue(issue_request)
-                temp_to_real[temp_id] = issue.issue_id
-
+                issue_ids.append(issue.issue_id)
                 created_issues.append({
-                    "temp_id": temp_id,
+                    "work_unit_id": wu.id,
                     "issue_id": issue.issue_id,
                     "title": issue.title,
                     "status": issue.status.value,
                 })
-
-                if issue.status.value == "ready":
-                    ready_count += 1
-                else:
-                    backlog_count += 1
             except Exception as issue_err:
-                logger.error(
-                    f"Failed to create issue '{issue_data.get('title', temp_id)}' "
-                    f"(temp_id={temp_id}) for goal {goal_id}: {issue_err}"
-                )
-                failed_issues.append(temp_id)
+                logger.error(f"Failed to create issue for work unit {wu.id}: {issue_err}")
 
-        if failed_issues and not created_issues:
-            raise ValueError(
-                f"All {len(failed_issues)} issues failed to create for goal {goal_id}"
-            )
+        # Update goal with issue IDs
+        if issue_ids:
+            await work_map_service.update_goal_issues(goal_id, issue_ids)
 
-        # Update goal with issue IDs and decomposition reference
-        issue_ids = [item["issue_id"] for item in created_issues]
-        await work_map_service.update_goal_issues(goal_id, issue_ids)
-        await work_map_service.update_goal_decomposition_id(
-            goal_id, decomposition.decomposition_id
-        )
-
-        # Create initial bucket tree for execution plan display
-        try:
-            from services.bucket_tree_store import create_initial_bucket_tree, get_bucket_tree_store
-            await create_initial_bucket_tree(
-                project_id=goal.project_id or "",
-                decomposed_issues=decomposition.issues,
-                dependency_graph=decomposition.dependency_graph,
-                characterization_map=characterization_map,
-            )
-            # Remap temp IDs (e.g. "issue-1") to real persisted issue IDs
-            if temp_to_real:
-                bt_store = get_bucket_tree_store()
-                tree = await bt_store.load(goal.project_id or "")
-                if tree:
-                    tree.remap_item_ids(temp_to_real)
-                    await bt_store.save(tree)
-        except Exception as bt_err:
-            logger.warning(f"Failed to create initial bucket tree for goal {goal_id}: {bt_err}")
-
-        # Record initial decomposition pass
+        # Record decomposition pass
+        decomposition_id = f"v2-{goal_id}"
+        await work_map_service.update_goal_decomposition_id(goal_id, decomposition_id)
         await goal_service.record_decomposition_pass(
             goal_id=goal_id,
-            decomposition_id=decomposition.decomposition_id,
+            decomposition_id=decomposition_id,
             trigger=DecompositionTrigger.INITIAL,
             issue_ids_created=issue_ids,
         )
