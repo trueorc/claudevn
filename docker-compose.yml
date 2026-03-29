@@ -132,6 +132,7 @@ services:
     volumes:
       - serving_data:/app/data
       - serving_logs:/app/logs
+      - ./compute-envs:/app/compute-envs
     networks:
       - claudevn-network
     depends_on:

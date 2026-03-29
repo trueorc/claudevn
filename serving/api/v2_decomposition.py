@@ -88,8 +88,53 @@ async def get_compute_environment(goal_id: str):
 
 @router.post("/{goal_id}/environment/approve")
 async def approve_environment(goal_id: str):
-    """Approve a compute environment spec for building."""
-    return {"approved": True, "goal_id": goal_id}
+    """Approve a compute environment — writes Dockerfile + metadata to disk.
+
+    After approval, run ./compute-envs/start.sh <project_name> on the host
+    to build and start the compute container.
+    """
+    from services.decomposition.storage import get_environment
+    from services.decomposition.provisioner import write_environment
+
+    project_id = await _resolve_project_id(goal_id)
+
+    # Get the environment spec
+    env = await get_environment(project_id, goal_id)
+    if not env:
+        raise HTTPException(status_code=404, detail="No environment spec found for this goal")
+
+    # Get project name for the directory
+    try:
+        from services.work_map_service import get_work_map_service
+        wm = get_work_map_service()
+        goal = await wm.get_goal(goal_id)
+        from services.project_service import get_project_service
+        ps = get_project_service()
+        project = await ps.get_project(goal.project_id) if goal else None
+        project_name = project.name if project else project_id
+    except Exception:
+        project_name = project_id
+
+    # Determine a description from requirements
+    runtimes = [r["name"] for r in env.get("requirements", []) if r["name"] not in ("python-packages", "node-packages")]
+    desc = "_".join(runtimes[:3]) if runtimes else "default"
+
+    # Write to mounted volume
+    env_dir = await write_environment(
+        project_name=project_name,
+        project_id=project_id,
+        goal_id=goal_id,
+        dockerfile_content=env.get("dockerfile_content", ""),
+        requirements=env.get("requirements", []),
+        description=desc,
+    )
+
+    return {
+        "approved": True,
+        "goal_id": goal_id,
+        "environment_dir": env_dir,
+        "instructions": f"Run: ./compute-envs/start.sh {project_name.lower().replace(' ', '_')}",
+    }
 
 
 @router.get("/coherence/{project_id}")
