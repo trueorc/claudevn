@@ -48,7 +48,7 @@ from api import observability
 from api import cache
 from api import git
 from api import work_map
-from api import spawner
+# v2.0: removed — from api import spawner
 from api import projects
 from api import orchestrator
 from api import slim_claude_code
@@ -65,7 +65,7 @@ from api import auth
 from api import users
 from api import cognito_users
 from api import network_capacity
-from api import provisioner
+# v2.0: removed — from api import provisioner
 from api import timing
 from api import conversation
 from api import presence
@@ -102,7 +102,7 @@ from services.comment_rollup_service import (
     get_comment_rollup_service
 )
 # Compute Spawner for Claude Code instances
-from services.compute_spawner import ComputeSpawner, set_compute_spawner
+# v2.0: removed — from services.compute_spawner import ComputeSpawner, set_compute_spawner
 # SSE connection manager for compute event push
 from services.sse_connection_manager import (
     SSEConnectionManager,
@@ -741,23 +741,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Issue evaluation service initialization failed: {e}.")
 
     # =========================================================================
-    # REQUIRED: Compute Spawner
-    # Claude Code instance lifecycle management (spawn, monitor, terminate).
-    # Core to the compute orchestration workflow.
+    # v2.0: Removed — Compute Spawner
+    # v1.0 spawned Claude Code instances per-task. v2.0 uses planning-derived
+    # Docker environments with human-gated provisioning.
     # =========================================================================
-    _validate_serving_public_url()
-    try:
-        workspaces_path = os.getenv('WORKSPACES_PATH', f'{storage_path}/workspaces')
-        compute_spawner = ComputeSpawner(
-            serving_url=os.getenv('SERVING_PUBLIC_URL', 'http://localhost:8002'),
-            workspaces_path=workspaces_path
-        )
-        await compute_spawner.initialize()
-        set_compute_spawner(compute_spawner)
-        logger.info(f"Compute spawner initialized (workspaces: {workspaces_path})")
-    except Exception as e:
-        logger.error(f"Failed to initialize compute spawner: {e}")
-        raise
 
     # =========================================================================
     # OPTIONAL: SSE Connection Manager
@@ -961,32 +948,8 @@ async def lifespan(app: FastAPI):
                 f"{timeout_status})"
             )
 
-            # Register compute provisioners
-            try:
-                from services.compute_provisioner import get_provisioner_registry
-                from services.providers.manual_provisioner import ManualProvisioner
-                prov_registry = get_provisioner_registry()
-
-                # Docker provisioner (priority 10 — tried first when enabled)
-                if config.docker_provisioner.enabled:
-                    from services.providers.docker_provisioner import DockerProvisioner
-                    docker_prov = DockerProvisioner(config.docker_provisioner)
-                    prov_registry.register(docker_prov, priority=10, enabled=True)
-                    logger.info("Registered DockerProvisioner")
-
-                # Manual provisioner always registered as fallback
-                prov_registry.register(ManualProvisioner(), priority=999, enabled=True)
-                logger.info("Registered ManualProvisioner (fallback)")
-            except Exception as e:
-                logger.warning(f"Could not register provisioners: {e}")
-
-            # Start auto-drain lifecycle service for managed instances
-            try:
-                from services.compute_lifecycle_service import get_lifecycle_service
-                lifecycle_svc = get_lifecycle_service()
-                await lifecycle_svc.start()
-            except Exception as e:
-                logger.warning(f"Could not start auto-drain lifecycle service: {e}")
+            # v2.0: Removed — compute provisioners and lifecycle service.
+            # Compute environments are now planned and human-approved via Layer 1.
         else:
             logger.info("Work orchestrator disabled via ORCHESTRATOR_ENABLED=false")
     except Exception as e:
@@ -1003,13 +966,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Serving component...")
 
-    # Stop auto-drain lifecycle service
-    try:
-        from services.compute_lifecycle_service import get_lifecycle_service
-        await get_lifecycle_service().stop()
-        logger.info("Auto-drain lifecycle service stopped")
-    except Exception as e:
-        logger.debug(f"Auto-drain lifecycle service cleanup: {e}")
+    # v2.0: removed — auto-drain lifecycle service
 
     # Stop system integrity monitor
     try:
@@ -1032,14 +989,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Work orchestrator cleanup: {e}")
 
-    # Stop compute instances
-    try:
-        from services.compute_spawner import get_compute_spawner
-        spawner = get_compute_spawner()
-        await spawner.shutdown()
-        logger.info("Compute instances stopped")
-    except Exception as e:
-        logger.debug(f"Compute spawner cleanup: {e}")
+    # v2.0: removed — compute spawner shutdown
 
     # Stop Claude auth service
     try:
@@ -1180,7 +1130,7 @@ app.include_router(work_map.goals_router, prefix=api_prefix)
 app.include_router(work_map.issues_router, prefix=api_prefix)
 app.include_router(work_map.releases_router, prefix=api_prefix)
 app.include_router(work_map.workmap_router, prefix=api_prefix)
-app.include_router(spawner.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(spawner.router, prefix=api_prefix)
 app.include_router(projects.router, prefix=api_prefix)
 app.include_router(orchestrator.router, prefix=api_prefix)
 app.include_router(slim_claude_code.router, prefix=api_prefix)
@@ -1202,7 +1152,7 @@ app.include_router(auth.router, prefix=api_prefix)
 app.include_router(users.router, prefix=api_prefix)
 app.include_router(cognito_users.router, prefix=api_prefix)
 app.include_router(network_capacity.router, prefix=api_prefix)
-app.include_router(provisioner.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(provisioner.router, prefix=api_prefix)
 app.include_router(timing.router, prefix=api_prefix)
 app.include_router(conversation.router, prefix=api_prefix)
 app.include_router(presence.router, prefix=api_prefix)
@@ -1254,17 +1204,8 @@ async def health_check():
     except Exception:
         skill_stats = {"total_skills": 0, "total_tools": 0, "status": "unavailable"}
 
-    # Get spawner stats
-    from services.compute_spawner import get_compute_spawner
-    try:
-        spawner = get_compute_spawner()
-        spawner_result = await spawner.list_instances()
-        spawner_stats = {
-            "total_instances": spawner_result.total,
-            "by_state": spawner_result.by_state
-        }
-    except Exception:
-        spawner_stats = {"total_instances": 0, "by_state": {}}
+    # v2.0: spawner stats removed — compute environments are planning-derived
+    spawner_stats = {"status": "v2.0 — environment-based compute"}
 
     # Get work map stats
     from services.work_map_service import get_work_map_service
