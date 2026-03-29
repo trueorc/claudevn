@@ -25,7 +25,7 @@ from models.feedback import (
     FeedbackSeverity,
     FeedbackType,
 )
-from services.feedback_aggregation_service import get_feedback_aggregation_service
+# v2.0: removed — from services.feedback_aggregation_service import get_feedback_aggregation_service
 from services.work_map_service import get_work_map_service
 
 logger = logging.getLogger(__name__)
@@ -97,18 +97,10 @@ async def report_challenge(
             },
         )
 
-        # Process through feedback aggregation service
+        # v2.0: Feedback aggregation service removed. Challenges are acknowledged
+        # but no longer feed into planner profile adjustments.
         profile_updated = False
         pattern_detected = False
-        try:
-            feedback_service = get_feedback_aggregation_service()
-            trace_entry, pattern = await feedback_service.process_signal(signal)
-
-            profile_updated = trace_entry is not None
-            pattern_detected = pattern is not None
-        except RuntimeError:
-            # Feedback service not initialized — still acknowledge the challenge
-            logger.warning("Feedback aggregation service not available")
 
         # Record decision trace for challenge processing
         await _record_challenge_trace(

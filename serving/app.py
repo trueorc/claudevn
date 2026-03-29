@@ -39,10 +39,10 @@ from api import compute_approval
 from api import marketplaces
 from api import skills
 from api import agents
-from api import facilitated_sessions
+# v2.0: removed — from api import facilitated_sessions
 from api import tasks
 from api import pipelines
-from api import process_maps
+# v2.0: removed — from api import process_maps
 from api import logs
 from api import observability
 from api import cache
@@ -53,14 +53,14 @@ from api import projects
 from api import orchestrator
 from api import slim_claude_code
 from api import characterization
-from api import specialization
+# v2.0: removed — from api import specialization
 from api import conflicts
 from api import decision_traces
 from api import plan_summary
-from api import profile_presets
+# v2.0: removed — from api import profile_presets
 from api import notifications
 from api import unified_directives
-from api import feedback
+# v2.0: removed — from api import feedback
 from api import auth
 from api import users
 from api import cognito_users
@@ -528,66 +528,11 @@ async def lifespan(app: FastAPI):
         raise
 
     # =========================================================================
-    # OPTIONAL: Planner Profile Service
-    # Constructs and maintains planner operating profiles from goals,
-    # worker feedback, and resource conditions. Degrades gracefully
-    # if Redis unavailable.
+    # v2.0: Removed — Planner Profile, Bucket Tree, Bucket Reorganization,
+    # and Feedback Aggregation services. These were v1.0 coordination
+    # overhead replaced by the three-layer architecture (decomposition,
+    # dispatch, verification).
     # =========================================================================
-    try:
-        from services.planner_profile_service import (
-            PlannerProfileService,
-            set_planner_profile_service,
-        )
-        planner_profile_service = PlannerProfileService(redis_client=redis_client)
-        await planner_profile_service.initialize()
-        set_planner_profile_service(planner_profile_service)
-        logger.info("Planner profile service initialized")
-    except Exception as e:
-        logger.warning(f"Planner profile service initialization failed: {e}. Profile features degraded.")
-
-    # =========================================================================
-    # OPTIONAL: Bucket Tree Store + Reorganization Service
-    # Provides Redis-backed bucket tree persistence and dynamic
-    # reorganization when planner profiles shift.
-    # Degrades gracefully if unavailable.
-    # =========================================================================
-    try:
-        from services.bucket_tree_store import BucketTreeStore, set_bucket_tree_store
-        bucket_tree_store = BucketTreeStore(redis_client=redis_client)
-        set_bucket_tree_store(bucket_tree_store)
-        logger.info("Bucket tree store initialized")
-    except Exception as e:
-        logger.warning(f"Bucket tree store initialization failed: {e}. Bucket tree features degraded.")
-
-    try:
-        from services.bucket_reorganization_service import (
-            BucketReorganizationService,
-            set_bucket_reorganization_service,
-        )
-        reorg_service = BucketReorganizationService(redis_client=redis_client)
-        await reorg_service.initialize()
-        set_bucket_reorganization_service(reorg_service)
-        logger.info("Bucket reorganization service initialized")
-    except Exception as e:
-        logger.warning(f"Bucket reorganization service initialization failed: {e}. Reorganization degraded.")
-
-    # =========================================================================
-    # OPTIONAL: Feedback Aggregation Service
-    # Collects worker feedback signals (blockers, challenges, requirements),
-    # detects patterns, and triggers planner profile updates.
-    # Degrades gracefully if unavailable.
-    # =========================================================================
-    try:
-        from services.feedback_aggregation_service import (
-            FeedbackAggregationService,
-            set_feedback_aggregation_service,
-        )
-        feedback_service = FeedbackAggregationService(redis_client=redis_client)
-        await feedback_service.initialize()
-        set_feedback_aggregation_service(feedback_service)
-        logger.info("Feedback aggregation service initialized")
-    except Exception as e:
-        logger.warning(f"Feedback aggregation service initialization failed: {e}. Feedback loop degraded.")
 
     # =========================================================================
     # OPTIONAL: Characterization Service
@@ -698,19 +643,9 @@ async def lifespan(app: FastAPI):
         raise
 
     # =========================================================================
-    # OPTIONAL: Specialization Service
-    # Worker specialization boundary management for domain-aware assignment.
+    # v2.0: Removed — Specialization Service (v1.0 coordination overhead).
+    # Context is now injected per work unit, not matched by specialization.
     # =========================================================================
-    try:
-        from services.specialization_service import (
-            SpecializationService,
-            set_specialization_service,
-        )
-        spec_service = SpecializationService(redis_client=redis_client)
-        set_specialization_service(spec_service)
-        logger.info("Specialization service initialized")
-    except Exception as e:
-        logger.warning(f"Failed to initialize specialization service: {e}")
 
     # =========================================================================
     # OPTIONAL: Decision Trace Service
@@ -729,20 +664,9 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Decision trace service initialization failed: {e}. Traceability features degraded.")
 
     # =========================================================================
-    # OPTIONAL: Planner Focus Service
-    # Aggregates planner profile, goals, and issues into focus summaries
-    # and goal alignment views. Stateless — no persistence needed.
+    # v2.0: Removed — Planner Focus Service (v1.0 coordination overhead).
+    # Focus is now driven by decomposition quality, not planner profiles.
     # =========================================================================
-    try:
-        from services.planner_focus_service import (
-            PlannerFocusService,
-            set_planner_focus_service,
-        )
-        planner_focus_svc = PlannerFocusService()
-        set_planner_focus_service(planner_focus_svc)
-        logger.info("Planner focus service initialized")
-    except Exception as e:
-        logger.warning(f"Planner focus service initialization failed: {e}. Focus views degraded.")
 
     # =========================================================================
     # OPTIONAL: Notification Service
@@ -1239,10 +1163,10 @@ app.include_router(compute.router, prefix=api_prefix)
 app.include_router(marketplaces.router, prefix=api_prefix)
 app.include_router(skills.router, prefix=api_prefix)
 app.include_router(agents.router, prefix=api_prefix)
-app.include_router(facilitated_sessions.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(facilitated_sessions.router, prefix=api_prefix)
 app.include_router(tasks.router, prefix=api_prefix)
 app.include_router(pipelines.router, prefix=api_prefix)
-app.include_router(process_maps.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(process_maps.router, prefix=api_prefix)
 app.include_router(logs.router, prefix=api_prefix)
 app.include_router(cache.router, prefix=api_prefix)
 app.include_router(git.router, prefix=api_prefix)
@@ -1257,10 +1181,10 @@ app.include_router(orchestrator.router, prefix=api_prefix)
 app.include_router(slim_claude_code.router, prefix=api_prefix)
 app.include_router(characterization.router, prefix=api_prefix)
 app.include_router(conflicts.router, prefix=api_prefix)
-app.include_router(feedback.router, prefix=api_prefix)
-app.include_router(specialization.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(feedback.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(specialization.router, prefix=api_prefix)
 app.include_router(plan_summary.router, prefix=api_prefix)
-app.include_router(profile_presets.router, prefix=api_prefix)
+# v2.0: removed — app.include_router(profile_presets.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)

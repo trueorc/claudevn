@@ -40,7 +40,7 @@ from services.goal_intent_service import get_goal_intent_service
 from services.goal_evaluation_service import get_goal_evaluation_service
 from services.comment_rollup_service import get_comment_rollup_service
 from services.release_service import get_release_service
-from services.bucket_tree_store import get_bucket_tree_store
+# v2.0: removed — from services.bucket_tree_store import get_bucket_tree_store
 from middleware.user_context import get_current_user, get_current_user_id as get_context_user_id
 
 logger = logging.getLogger(__name__)
@@ -1921,107 +1921,17 @@ async def get_release_issues(
 async def get_bucket_tree(
     project_id: str = Query(..., description="Project ID"),
 ):
-    """Get the current bucket tree for a project.
-
-    Returns the priority bucket tree showing strategic work groupings.
-    Each bucket contains ranked work items with readiness states.
-    Returns null tree if no bucket tree exists for the project.
-
-    Args:
-        project_id: Project ID to get bucket tree for
-
-    Returns:
-        Response with project_id, tree (or None), and summary stats (or None)
-    """
-    try:
-        store = get_bucket_tree_store()
-    except RuntimeError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bucket tree store not initialized"
-        )
-
-    tree = await store.load(project_id)
-
-    if tree:
-        return {
-            "project_id": project_id,
-            "tree": tree,
-            "summary": {
-                "total_buckets": len(tree.buckets),
-                "total_items": tree.total_items,
-                "total_ready": tree.total_ready,
-                "version": tree.version,
-            }
-        }
-    else:
-        return {
-            "project_id": project_id,
-            "tree": None,
-            "summary": None
-        }
+    """v2.0: Bucket trees removed. Work ordering is now driven by dependency DAG."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Bucket trees removed in v2.0. Use /decomposition/{goal_id}/work-units for work ordering."
+    )
 
 
 @workmap_router.get("/bucket-tree/{bucket_id}")
-async def get_bucket_detail(
-    bucket_id: str,
-    project_id: str = Query(..., description="Project ID"),
-):
-    """Get detailed information about a specific bucket.
-
-    Returns the bucket definition, all items in the bucket, and
-    their readiness states. Useful for drilling down from the tree view.
-
-    Args:
-        bucket_id: Unique bucket identifier
-        project_id: Project ID the bucket belongs to
-
-    Returns:
-        Bucket details including definition and all items
-
-    Raises:
-        404: Bucket tree not found for project
-        404: Bucket not found in tree
-        503: Bucket tree store not initialized
-    """
-    try:
-        store = get_bucket_tree_store()
-    except RuntimeError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bucket tree store not initialized"
-        )
-
-    tree = await store.load(project_id)
-
-    if not tree:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No bucket tree found for project '{project_id}'"
-        )
-
-    bucket = tree.get_bucket(bucket_id)
-
-    if not bucket:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Bucket '{bucket_id}' not found in project '{project_id}'"
-        )
-
-    # Sort items for display
-    bucket.sort_items()
-
-    return {
-        "bucket_id": bucket.bucket_id,
-        "rank": bucket.rank,
-        "definition": bucket.definition,
-        "items": bucket.items,
-        "stats": {
-            "total_items": bucket.item_count,
-            "ready_items": len(bucket.ready_items),
-            "blocked_items": len(bucket.blocked_items),
-        }
-    }
+async def get_bucket_detail(bucket_id: str, project_id: str = Query(...)):
+    """v2.0: Bucket trees removed."""
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Bucket trees removed in v2.0.")
 
 
 @workmap_router.get("")

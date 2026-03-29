@@ -18,10 +18,8 @@ from pydantic import BaseModel, Field
 from models.decision_trace import DecisionTrace
 from models.planner_focus import PlannerFocusSummary
 from models.work_map import IssueStatus
-from services.bucket_tree_store import get_bucket_tree_store
+# v2.0: removed bucket_tree_store, planner_focus, planner_profile imports
 from services.decision_trace_service import get_decision_trace_service
-from services.planner_focus_service import get_planner_focus_service
-from services.planner_profile_service import get_planner_profile_service
 from services.work_map_service import get_work_map_service
 
 logger = logging.getLogger(__name__)
@@ -161,38 +159,9 @@ async def get_plan_summary(
     except Exception as e:
         logger.warning(f"Error fetching work map data: {e}")
 
-    # Fetch planner focus summary
-    try:
-        profile_service = get_planner_profile_service()
-        profile = await profile_service.get_profile(project_id)
-
-        goal_list = await work_map_service.list_goals(project_id=project_id)
-        active_goals = [
-            g for g in (goal_list.items if hasattr(goal_list, "items") else [])
-            if g.status not in ("done", "failed", "retired")
-            and not getattr(g, "archived", False)
-            and getattr(g, "deleted_at", None) is None
-        ]
-
-        focus_service = get_planner_focus_service()
-        focus_summary = await focus_service.get_focus_summary(
-            project_id=project_id,
-            profile=profile,
-            goals=active_goals,
-        )
-
-        response.focus_summary = focus_summary.optimization_target
-        response.primary_intent = focus_summary.primary_intent
-        response.active_preset = focus_summary.active_preset
-        response.active_preset_label = focus_summary.active_preset_label
-        response.active_preset_color = focus_summary.active_preset_color
-
-    except RuntimeError as e:
-        logger.warning(f"Planner focus service unavailable: {e}")
-        response.focus_summary = "Planner focus service unavailable."
-    except Exception as e:
-        logger.warning(f"Error fetching planner focus: {e}")
-        response.focus_summary = "Planner focus service unavailable."
+    # v2.0: Planner focus/profile services removed. Focus is now driven
+    # by decomposition quality, not planner profiles.
+    response.focus_summary = None
 
     # Fetch recent decision traces
     try:
