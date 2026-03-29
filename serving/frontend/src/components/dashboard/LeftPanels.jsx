@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Activity, ChevronRight, Cpu, Database, FlaskConical, Hammer, HardDrive, MemoryStick, Plus, Server, Shield, TrendingUp } from 'lucide-react'
 import NotificationDot from '../common/NotificationDot'
+import DecompositionPanel from './DecompositionPanel'
 import './LeftPanels.css'
 
 // ---------------------------------------------------------------------------
@@ -329,6 +330,7 @@ function LeftPanels({
   onSelectProject,
   onNewProject,
   planData,
+  goals,
   health,
   overallStatus,
   healthLoading,
@@ -343,6 +345,7 @@ function LeftPanels({
         onSelectProject={onSelectProject}
         onNewProject={onNewProject}
       />
+      <DecompositionPanel goals={goals || []} />
       <ExecutionPanel planData={planData} showNotification={notifications?.execution} onAcknowledge={onAcknowledge} />
       <NetworkPanel
         health={health}

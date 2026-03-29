@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { Package, Clock, Users } from 'lucide-react'
 import UserAvatar from '../common/UserAvatar'
 import NotificationDot from '../common/NotificationDot'
+import VerificationPanel from './VerificationPanel'
+import ExecutionStrip from './ExecutionStrip'
 import './RightPanels.css'
 
 function formatDuration(ms) {
@@ -504,9 +506,19 @@ function TeamPanel({ presenceUsers }) {
   )
 }
 
-function RightPanels({ stats, issues, aggregates, totalWorkItems, timingWorkItems, presenceUsers, notifications, onAcknowledge }) {
+function RightPanels({
+  stats, issues, aggregates, totalWorkItems, timingWorkItems,
+  presenceUsers, notifications, onAcknowledge,
+  verificationResults, activeExecutions, queuedExecutions, completedCount,
+}) {
   return (
     <div className="rp-column">
+      <VerificationPanel results={verificationResults || []} />
+      <ExecutionStrip
+        active={activeExecutions || []}
+        queued={queuedExecutions || []}
+        completed={completedCount || 0}
+      />
       <BacklogPanel stats={stats} issues={issues} showNotification={notifications?.backlog} onAcknowledge={onAcknowledge} />
       <TimingPanel aggregates={aggregates} totalWorkItems={totalWorkItems} workItems={timingWorkItems} showNotification={notifications?.timing} onAcknowledge={onAcknowledge} />
       <TeamPanel presenceUsers={presenceUsers} />

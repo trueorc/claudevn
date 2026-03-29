@@ -60,6 +60,30 @@
   background: var(--primary-hover, #4f46e5);
 }
 
+.conv-approve-btn {
+  background: var(--status-online, #22c55e);
+}
+
+.conv-approve-btn:hover {
+  background: color-mix(in srgb, var(--status-online, #22c55e) 85%, black);
+}
+
+.conv-approve-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.conv-tag-units {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
 .conv-layout {
   display: grid;
   grid-template-columns: 1fr 380px;

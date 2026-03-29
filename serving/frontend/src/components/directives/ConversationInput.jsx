@@ -16,7 +16,7 @@ const PLACEHOLDERS = {
   [INTENT_MODES.DIRECTIVE]: 'Focus on testing, deprioritize styling...',
 }
 
-function ConversationInput({ onSubmit, submitting, disabled, commentMode, suggestedText, onSuggestedTextConsumed }) {
+function ConversationInput({ onSubmit, submitting, disabled, commentMode, placeholder: customPlaceholder, suggestedText, onSuggestedTextConsumed }) {
   const conversationCtx = useContext(ConversationContext)
   const sendTypingStatus = conversationCtx?.sendTypingStatus
   const [text, setText] = useState('')
@@ -66,9 +66,10 @@ function ConversationInput({ onSubmit, submitting, disabled, commentMode, sugges
     }
   }, [handleSubmit])
 
-  const placeholder = commentMode
-    ? 'Add context, adjust priorities, or ask a question...'
-    : PLACEHOLDERS[mode] || PLACEHOLDERS[INTENT_MODES.CHAT]
+  const placeholder = customPlaceholder
+    || (commentMode
+      ? 'Add context, adjust priorities, or ask a question...'
+      : PLACEHOLDERS[mode] || PLACEHOLDERS[INTENT_MODES.CHAT])
 
   const showModeButtons = !commentMode
   const showOptionsToggle = !commentMode && mode !== INTENT_MODES.DIRECTIVE

@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, FolderOpen, MessageSquare } from 'lucide-react'
+import { Plus, FolderOpen, MessageSquare, CheckCircle2, GitBranch } from 'lucide-react'
 import { getGoals, getGoalComments, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress, createGoalComment, getIssue } from '../api/workmap'
+import { getWorkUnits, approveDecomposition } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext, INTENT_MODES } from '../contexts/ConversationContext'
 import useIssues from '../hooks/useIssues'
 import useDirectivePrompts from '../hooks/useDirectivePrompts'
+import useEventStream from '../hooks/useEventStream'
 import ConversationTimeline from '../components/directives/ConversationTimeline'
 import ConversationInput from '../components/directives/ConversationInput'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
 import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog'
 import GoalCompletionCard from '../components/directives/GoalCompletionCard'
+import WorkUnitList from '../components/decomposition/WorkUnitList'
 import EmptyState from '../components/common/EmptyState'
 import Spinner from '../components/common/Spinner'
 import InlineHint, { PageSubtitle } from '../components/common/InlineHint'
@@ -39,17 +42,21 @@ function GoalsPage() {
     return stored === 'true'
   })
 
+  // v2.0: Work units for selected goal
+  const [workUnits, setWorkUnits] = useState([])
+  const [workUnitsLoading, setWorkUnitsLoading] = useState(false)
+  const [approving, setApproving] = useState(false)
+
   // Context-aware prompt suggestions
   const [suggestedText, setSuggestedText] = useState('')
   const { stats: issueStats } = useIssues({ useWebSocket: !!projectId, pollInterval: projectId ? 30000 : 0 })
   const prompts = useDirectivePrompts(projectId ? issueStats : null)
 
-  // Clear suggested text when it has been consumed (input gets populated once)
   const handleSuggestedTextConsumed = useCallback(() => {
     setSuggestedText('')
   }, [])
 
-  // Shared conversation context (persists across page refreshes, shared with SidePanel)
+  // Shared conversation context
   const {
     messages,
     submitting,
@@ -62,6 +69,18 @@ function GoalsPage() {
     retryProcessing,
     clear: clearConversation,
   } = useConversationContext()
+
+  // Subscribe to decomposition events for real-time updates
+  useEventStream({
+    patterns: ['decomposition.*'],
+    enabled: !!projectId,
+    onEvent: useCallback((event) => {
+      // Refresh work units when decomposition changes
+      if (selectedGoal && event.goal_id === selectedGoal.goal_id) {
+        loadWorkUnits(selectedGoal.goal_id)
+      }
+    }, [selectedGoal]), // eslint-disable-line react-hooks/exhaustive-deps
+  })
 
   // Load goals list
   const loadGoals = useCallback(async () => {
@@ -104,10 +123,25 @@ function GoalsPage() {
     }
   }, [])
 
+  // v2.0: Load work units for a goal
+  const loadWorkUnits = useCallback(async (goalId) => {
+    setWorkUnitsLoading(true)
+    try {
+      const data = await getWorkUnits(goalId)
+      setWorkUnits(data?.work_units || data || [])
+    } catch {
+      // API not wired yet — expected during migration
+      setWorkUnits([])
+    } finally {
+      setWorkUnitsLoading(false)
+    }
+  }, [])
+
   // Clear on project change
   useEffect(() => {
     setSelectedGoal(null)
     setGoalComments([])
+    setWorkUnits([])
   }, [projectId])
 
   useEffect(() => { loadGoals() }, [loadGoals])
@@ -115,12 +149,14 @@ function GoalsPage() {
   useEffect(() => {
     if (selectedGoal) {
       loadComments(selectedGoal.goal_id)
+      loadWorkUnits(selectedGoal.goal_id)
     } else {
       setGoalComments([])
+      setWorkUnits([])
     }
-  }, [selectedGoal, loadComments])
+  }, [selectedGoal, loadComments, loadWorkUnits])
 
-  // Fetch issues for the selected goal's completion card
+  // Fetch issues for the selected goal's completion card (v1.0 compat)
   useEffect(() => {
     if (!selectedGoal?.issue_ids?.length) {
       setGoalIssues([])
@@ -141,9 +177,7 @@ function GoalsPage() {
     return () => { cancelled = true }
   }, [selectedGoal?.goal_id, selectedGoal?.issue_ids])
 
-  // When conversation creates a goal, refresh the sidebar list.
-  // Don't auto-select — the user should stay in the conversation view
-  // to see the processing progress (stage stepper / spinner).
+  // When conversation creates a goal, refresh the sidebar list
   useEffect(() => {
     if (lastCreatedGoal) {
       loadGoals()
@@ -161,6 +195,7 @@ function GoalsPage() {
     setSelectedGoal(null)
     setGoalComments([])
     setGoalIssues([])
+    setWorkUnits([])
     clearConversation()
   }, [clearConversation])
 
@@ -218,10 +253,23 @@ function GoalsPage() {
     })
   }, [])
 
+  // v2.0: Approve decomposition — transition work units from draft to ready
+  const handleApproveDecomposition = useCallback(async () => {
+    if (!selectedGoal) return
+    setApproving(true)
+    try {
+      await approveDecomposition(selectedGoal.goal_id)
+      await loadWorkUnits(selectedGoal.goal_id)
+    } catch (err) {
+      console.error('Failed to approve decomposition:', err)
+    } finally {
+      setApproving(false)
+    }
+  }, [selectedGoal, loadWorkUnits])
+
   // Handle input submission: comment on selected goal or create via conversation
   const handleSubmit = useCallback(async (text, mode, options) => {
     if (selectedGoal) {
-      // Add comment to the selected goal
       setAddingComment(true)
       try {
         const comment = await createGoalComment(selectedGoal.goal_id, {
@@ -240,7 +288,6 @@ function GoalsPage() {
       }
       return
     }
-    // No goal selected → use unified conversation submit
     await submit(text, mode, options)
   }, [selectedGoal, submit])
 
@@ -263,6 +310,10 @@ function GoalsPage() {
     )
   }
 
+  // Check if work units are all in draft (decomposition review mode)
+  const hasDraftUnits = workUnits.length > 0 && workUnits.some(u => u.status === 'draft')
+  const hasWorkUnits = workUnits.length > 0
+
   return (
     <div className="conv-page">
       <div className="conv-header">
@@ -276,6 +327,16 @@ function GoalsPage() {
           {selectedGoal && (
             <button className="conv-new-btn" onClick={handleBackToNew}>
               <Plus size={14} /> New
+            </button>
+          )}
+          {hasDraftUnits && (
+            <button
+              className="conv-new-btn conv-approve-btn"
+              onClick={handleApproveDecomposition}
+              disabled={approving}
+            >
+              <CheckCircle2 size={14} />
+              {approving ? 'Approving...' : 'Approve Decomposition'}
             </button>
           )}
         </div>
@@ -302,19 +363,34 @@ function GoalsPage() {
               {selectedGoal.priority && (
                 <span className="conv-tag conv-tag-priority">{selectedGoal.priority}</span>
               )}
+              {hasWorkUnits && (
+                <span className="conv-tag conv-tag-units">
+                  <GitBranch size={12} /> {workUnits.length} work units
+                </span>
+              )}
             </div>
           )}
 
           {/* Conversation content area */}
           <div className="conv-content">
             {selectedGoal ? (
-              // Selected goal: show completion card (if processed) + comments
-              commentsLoading && goalIssuesLoading ? (
+              commentsLoading && goalIssuesLoading && workUnitsLoading ? (
                 <div className="conv-loading"><Spinner size="md" /></div>
               ) : (
                 <div className="conv-timeline">
-                  {/* Completion card for goals that have been processed */}
-                  {selectedGoal.issue_ids?.length > 0 && goalIssues.length > 0 && (
+                  {/* v2.0: Work unit decomposition artifact */}
+                  {hasWorkUnits && (
+                    <WorkUnitList
+                      units={workUnits}
+                      onSelectUnit={(unit) => {
+                        // Could open a detail modal or navigate in the future
+                        console.log('Selected unit:', unit.id)
+                      }}
+                    />
+                  )}
+
+                  {/* v1.0 compat: Completion card for goals processed the old way */}
+                  {!hasWorkUnits && selectedGoal.issue_ids?.length > 0 && goalIssues.length > 0 && (
                     <GoalCompletionCard
                       issues={goalIssues}
                       reasoning={selectedGoal.decomposition_reasoning}
@@ -322,12 +398,15 @@ function GoalsPage() {
                       completedAt={selectedGoal.completed_at}
                     />
                   )}
-                  {goalComments.length === 0 && !selectedGoal.issue_ids?.length && (
+
+                  {goalComments.length === 0 && !selectedGoal.issue_ids?.length && !hasWorkUnits && (
                     <div className="conv-empty">
                       <MessageSquare size={32} className="conv-empty-icon" />
                       <p>No comments yet. Add context or adjust priorities below.</p>
                     </div>
                   )}
+
+                  {/* Comments / conversation history */}
                   {goalComments.map((comment) => (
                     <div key={comment.comment_id} className="conv-msg conv-msg-user">
                       <div className="conv-msg-bubble conv-bubble-user">
@@ -356,7 +435,7 @@ function GoalsPage() {
                     <h2>What would you like to do?</h2>
                     <p>
                       Describe new work, shift priorities, or ask about status.
-                      The system will interpret your intent and take action.
+                      The system will decompose your goal into independent work units with formal specifications.
                     </p>
                     {prompts.length > 0 && (
                       <div className="conv-prompt-chips">
@@ -372,8 +451,8 @@ function GoalsPage() {
                       </div>
                     )}
                     <InlineHint hintKey="directives-how-it-works">
-                      Directives are processed by the AI, which decomposes them into backlog issues and schedules execution.
-                      Previous directives are listed on the right — select one to add comments or review its outcome.
+                      Directives are decomposed into formally specified work units with target files, verification criteria,
+                      and independence assertions. Review the decomposition, refine via chat, then approve for execution.
                     </InlineHint>
                   </div>
                 )}
@@ -389,12 +468,19 @@ function GoalsPage() {
             )}
           </div>
 
-          {/* Unified input */}
+          {/* Unified input — chat for both new goals and decomposition refinement */}
           <ConversationInput
             onSubmit={handleSubmit}
             submitting={submitting || addingComment}
             disabled={!!pendingDirective && !selectedGoal}
             commentMode={!!selectedGoal}
+            placeholder={
+              selectedGoal && hasWorkUnits
+                ? 'Refine decomposition... (e.g., "split this unit", "these overlap on config.py")'
+                : selectedGoal
+                  ? 'Add context or adjust priorities...'
+                  : undefined
+            }
             suggestedText={suggestedText}
             onSuggestedTextConsumed={handleSuggestedTextConsumed}
           />
