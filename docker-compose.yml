@@ -1,46 +1,34 @@
-# ClaudeVN Platform - Full Local Stack
-# v1.0 Architecture: Serving + Marketplace + Redis + Compute Instances
+# ClaudeVN Platform - v2.0 Architecture
+# Serving + Marketplace + Redis (compute environments are planning-derived)
 #
 # Usage:
-#   docker compose up -d          # Start all services (bypass auth, no login)
+#   docker compose up -d          # Start all services
 #   docker compose down           # Stop services
 #   docker compose logs -f        # View logs
 #   docker compose build          # Rebuild after changes
-#   docker compose up -d --scale compute=3  # Scale compute instances
 #
 # Services:
-#   serving      → Coordination hub at http://localhost:8002
+#   serving      → Intelligence layer at http://localhost:8002
 #   marketplace  → Skill marketplace at http://localhost:8003
-#   redis        → Redis at localhost:6379 (PR queue, branch state, auth tokens)
-#   python-1     → Code Writer & Test Automator (Python specialist)
-#   python-2     → Debugger & Security Reviewer (Python specialist)
-#   node-1       → Full-stack developer (Node.js + Python)
+#   redis        → Redis at localhost:6379 (state, auth tokens)
+#
+# Compute:
+#   v2.0 computes are derived from Layer 1 planning. The system analyzes
+#   your goals, detects runtime requirements, generates a Dockerfile,
+#   and you approve before anything is provisioned. No pre-configured
+#   compute instances.
 #
 # Authentication:
 #   Default: AUTH_MODE=bypass (no login required, dev user assumed)
-#   Cognito: Create a .env file with AUTH_MODE=cognito + Cognito vars:
-#     AUTH_MODE=cognito
-#     COGNITO_USER_POOL_ID=us-east-1_XXXXXXXXX
-#     COGNITO_APP_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
-#     COGNITO_REGION=us-east-1
-#     COGNITO_ADMIN_ENABLED=true
+#   Cognito: Create a .env file with AUTH_MODE=cognito + Cognito vars
 #
-#   For remote/production deployments with Cognito, use docker-compose.serving.yml instead.
-#
-# Claude Credentials (serving-centric):
-#   The Serving container owns Claude OAuth credentials. Compute containers
-#   fetch credentials from Serving's /auth/credentials endpoint at startup
-#   and refresh them via SSE credentials_refresh events.
-#   External VCN nodes can still bring their own credentials (COMPUTE_AUTH_MODE=external).
-#
-# Reauth:
-#   docker exec -it claudevn-serving /app/scripts/claude-reauth.sh
-#   Or POST to http://localhost:8002/api/v1/auth/login from the UI.
-#
-# Note: Start Docker Desktop first!
+# Claude Credentials:
+#   Serving uses Claude Code CLI with OAuth. Authorize via the UI on
+#   first load — the token is stored in Redis and applied to the
+#   process environment for all CLI calls.
 
 services:
-  # Redis - Required for Git PR queue management
+  # Redis - State management, auth tokens, event coordination
   redis:
     image: redis:7-alpine
     container_name: claudevn-redis
@@ -73,9 +61,7 @@ services:
       - LOG_LEVEL=INFO
       - CORS_ORIGINS=*
       - API_VERSION=v1
-      # Authentication (disabled for local dev; enable in production)
       - MARKETPLACE_REQUIRE_AUTH=false
-      # Registration with Serving
       - SERVING_URL=http://serving:8002
       - REGISTER_ON_STARTUP=true
       - HEARTBEAT_INTERVAL=60
@@ -94,7 +80,7 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Serving Component - Central Orchestration Hub
+  # Serving - Intelligence Layer (Plan, Execute, Verify)
   serving:
     build:
       context: .
@@ -138,17 +124,11 @@ services:
       - COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID:-}
       - COGNITO_REGION=${COGNITO_REGION:-us-east-1}
       - COGNITO_ADMIN_ENABLED=${COGNITO_ADMIN_ENABLED:-false}
-      # Compute spawner
-      - WORKSPACES_PATH=/app/data/workspaces
+      # v2.0: Serving URL for internal references
       - SERVING_PUBLIC_URL=http://serving:8002
-      # Docker provisioner (uncomment to enable auto-provisioning)
-      # - DOCKER_PROVISIONER_ENABLED=true
-      # - DOCKER_PROVISIONER_NETWORK=claudevn_claudevn-network
     volumes:
       - serving_data:/app/data
       - serving_logs:/app/logs
-      # Docker socket for DockerProvisioner (uncomment to enable)
-      # - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - claudevn-network
     depends_on:
@@ -164,149 +144,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Compute Instance - Python Code Writer specialist
-  # No HTTP server, no ports. Connects outbound to Serving via SSE.
-  # Healthcheck uses heartbeat file updated on each SSE keepalive.
-  python-1:
-    build:
-      context: .
-      dockerfile: compute/images/python-testing/Dockerfile
-    container_name: claudevn-python-1
-    environment:
-      - COMPUTE_INSTANCE_ID=python-001
-      - COMPUTE_INSTANCE_NAME=Python-CodeWriter
-      - COMPUTE_STORAGE_PATH=/app/data/compute
-      - COMPUTE_LOG_FILE=/app/logs/compute.log
-      - LOG_LEVEL=INFO
-      - COMPUTE_REGISTER_ON_STARTUP=true
-      - SERVING_URL=http://serving:8002
-      - COMPUTE_HEARTBEAT_INTERVAL=30
-      # MCP configuration
-      - MCP_ENABLED=true
-      - CLAUDEVN_SERVING_URL=http://serving:8002
-      # Skill/capability tags for work assignment
-      - COMPUTE_SKILLS=code-writer,test-automator
-      - COMPUTE_CAPABILITIES=python
-      # Auth mode: serving (fetch from serving), local (mount), or external (own)
-      - COMPUTE_AUTH_MODE=serving
-      - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
-      # Max concurrent Claude Code instances per compute (default: 1)
-      - MAX_CLAUDE_INSTANCES=1
-    volumes:
-      - python1_data:/app/data
-      - python1_logs:/app/logs
-    networks:
-      - claudevn-network
-    depends_on:
-      serving:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # Compute Instance - Python Debugger specialist
-  python-2:
-    build:
-      context: .
-      dockerfile: compute/images/python-testing/Dockerfile
-    container_name: claudevn-python-2
-    environment:
-      - COMPUTE_INSTANCE_ID=python-002
-      - COMPUTE_INSTANCE_NAME=Python-Debugger
-      - COMPUTE_STORAGE_PATH=/app/data/compute
-      - COMPUTE_LOG_FILE=/app/logs/compute.log
-      - LOG_LEVEL=INFO
-      - COMPUTE_REGISTER_ON_STARTUP=true
-      - SERVING_URL=http://serving:8002
-      - COMPUTE_HEARTBEAT_INTERVAL=30
-      # MCP configuration
-      - MCP_ENABLED=true
-      - CLAUDEVN_SERVING_URL=http://serving:8002
-      # Skill/capability tags for work assignment
-      - COMPUTE_SKILLS=debugger,security-reviewer
-      - COMPUTE_CAPABILITIES=python,debugging,security
-      # Auth mode: serving (fetch from serving), local (mount), or external (own)
-      - COMPUTE_AUTH_MODE=serving
-      - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
-    volumes:
-      - python2_data:/app/data
-      - python2_logs:/app/logs
-    networks:
-      - claudevn-network
-    depends_on:
-      serving:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # Compute Instance - Node.js + Python full-stack specialist
-  node-1:
-    build:
-      context: .
-      dockerfile: compute/images/fullstack/Dockerfile
-    container_name: claudevn-node-1
-    environment:
-      - COMPUTE_INSTANCE_ID=node-001
-      - COMPUTE_INSTANCE_NAME=Node-Fullstack
-      - COMPUTE_STORAGE_PATH=/app/data/compute
-      - COMPUTE_LOG_FILE=/app/logs/compute.log
-      - LOG_LEVEL=INFO
-      - COMPUTE_REGISTER_ON_STARTUP=true
-      - SERVING_URL=http://serving:8002
-      - COMPUTE_HEARTBEAT_INTERVAL=30
-      # MCP configuration
-      - MCP_ENABLED=true
-      - CLAUDEVN_SERVING_URL=http://serving:8002
-      # Skill/capability tags for work assignment
-      - COMPUTE_SKILLS=code-writer
-      - COMPUTE_CAPABILITIES=javascript,typescript,react,nextjs
-      # Auth mode: serving (fetch from serving), local (mount), or external (own)
-      - COMPUTE_AUTH_MODE=serving
-      - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
-      # Max concurrent Claude Code instances per compute (default: 1)
-      - MAX_CLAUDE_INSTANCES=1
-    volumes:
-      - node1_data:/app/data
-      - node1_logs:/app/logs
-    networks:
-      - claudevn-network
-    depends_on:
-      serving:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # Compute Instance 3 - Documentation specialist
-  # Disabled: doc-writer skill not yet implemented. Uncomment to enable.
-  # compute-3:
-  #   build:
-  #     context: .
-  #     dockerfile: compute/Dockerfile
-  #   container_name: claudevn-compute-3
-  #   environment:
-  #     - COMPUTE_INSTANCE_ID=compute-003
-  #     - COMPUTE_INSTANCE_NAME=Compute-DocWriter
-  #     - COMPUTE_STORAGE_PATH=/app/data/compute
-  #     - COMPUTE_LOG_FILE=/app/logs/compute.log
-  #     - LOG_LEVEL=INFO
-  #     - COMPUTE_REGISTER_ON_STARTUP=true
-  #     - SERVING_URL=http://serving:8002
-  #     - COMPUTE_HEARTBEAT_INTERVAL=30
-  #     # MCP configuration
-  #     - MCP_ENABLED=true
-  #     - CLAUDEVN_SERVING_URL=http://serving:8002
-  #     # Skill/capability tags for work assignment
-  #     - COMPUTE_SKILLS=doc-writer
-  #     - COMPUTE_CAPABILITIES=documentation,markdown
-  #     # Auth mode: serving (fetch from serving), local (mount), or external (own)
-  #     - COMPUTE_AUTH_MODE=serving
-  #     - CLAUDEVN_SERVING_AUTH_URL=http://serving:8002/api/v1/auth
-  #   volumes:
-  #     - compute3_data:/app/data
-  #     - compute3_logs:/app/logs
-  #   networks:
-  #     - claudevn-network
-  #   depends_on:
-  #     serving:
-  #       condition: service_healthy
-  #   restart: unless-stopped
-
 # Named volumes for data persistence
 volumes:
   redis_data:
@@ -317,34 +154,8 @@ volumes:
     driver: local
   marketplace_skills:
     driver: local
-  python1_data:
-    driver: local
-  python1_logs:
-    driver: local
-  python2_data:
-    driver: local
-  python2_logs:
-    driver: local
-  node1_data:
-    driver: local
-  node1_logs:
-    driver: local
-  # compute3_data:  # TEMPORARILY DISABLED
-  #   driver: local
-  # compute3_logs:  # TEMPORARILY DISABLED
-  #   driver: local
 
 # Network for inter-service communication
 networks:
   claudevn-network:
     driver: bridge
-
-# =============================================================================
-# Remote Deployments
-# =============================================================================
-# For remote/production deployments:
-#   - Serving hub (Cognito):  docker-compose.serving.yml + .env.serving
-#   - Remote compute:         docker-compose.compute.yml + .env.compute
-#
-# See .env.serving.example and .env.compute.example for configuration templates.
-# =============================================================================

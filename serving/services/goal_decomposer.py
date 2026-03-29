@@ -89,9 +89,9 @@ class GoalDecomposerService:
     ) -> GoalDecompositionResult:
         """Decompose a goal into structured issues.
 
-        This method spawns a compute instance with the goal-decomposer skill
-        to perform the actual decomposition. The compute instance uses Claude
-        Code with OAuth credentials to call the Anthropic API.
+        v2.0: Uses serving's ClaudeClient directly (claude -p CLI) instead
+        of delegating to a compute instance. All Layer 1 intelligence runs
+        on serving — no separate compute needed for planning.
 
         Args:
             goal_id: ID of the goal to decompose
@@ -102,24 +102,18 @@ class GoalDecomposerService:
             conversation_comments: All goal comments for full context
             existing_decomposition: Previous decomposition results if any
             supplemental_context: Context for supplemental decomposition
-                (trigger, gap_description, triggered_by, pass_number)
 
         Returns:
             GoalDecompositionResult with structured issues and dependencies
-
-        Raises:
-            NoComputeAvailableError: If no compute instances can be spawned
-            DecompositionTimeoutError: If decomposition times out
         """
         if not self._initialized:
             await self.initialize()
 
-        # Generate decomposition ID
         decomposition_id = f"decomp-{uuid.uuid4().hex[:12]}"
 
-        logger.info(f"Decomposing goal {goal_id} via compute delegation")
+        logger.info(f"Decomposing goal {goal_id} via serving ClaudeClient")
 
-        # Build the task context for the compute instance
+        # Build the prompt
         task_context = self._build_task_context(
             goal_id=goal_id,
             goal_text=goal_text,
@@ -132,22 +126,62 @@ class GoalDecomposerService:
             supplemental_context=supplemental_context,
         )
 
-        # Infer runtime requirements from the goal text for compute routing
-        from services.runtime_inference import infer_runtime_tools
-        inferred_tools = infer_runtime_tools(goal_text, goal_text)
+        # Get skill instructions for system prompt
+        skill_instructions = await self._get_decomposer_skill_instructions()
 
-        # Enqueue decomposition task to WorkDispatcher (event-driven, no polling)
-        await self._spawn_decomposition_compute(
-            decomposition_id=decomposition_id,
-            task_context=task_context,
-            goal_id=goal_id,
-            required_tools=inferred_tools,
+        # Call Claude directly via serving's ClaudeClient
+        from services.claude_client import get_claude_client
+        from models.goal_decomposer import DECOMPOSITION_SCHEMA
+        import json
+
+        client = get_claude_client()
+
+        system_prompt = (
+            f"{skill_instructions}\n\n"
+            "You must respond with valid JSON matching this schema:\n"
+            f"{json.dumps(DECOMPOSITION_SCHEMA, indent=2)}\n\n"
+            "Do not include any text before or after the JSON. "
+            "Do not wrap the JSON in markdown code blocks."
         )
 
-        # Wait for result from compute instance via asyncio.Event (no polling)
-        result = await self._wait_for_result(
-            decomposition_id=decomposition_id,
+        response = await client.complete(
+            prompt=task_context,
+            system=system_prompt,
+        )
+
+        # Parse the response into GoalDecompositionResult
+        try:
+            data = json.loads(response.content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from response if wrapped in text
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response.content)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                logger.error(f"Failed to parse decomposition response: {response.content[:500]}")
+                raise DecompositionTimeoutError(
+                    f"Decomposition {decomposition_id} returned unparseable response"
+                )
+
+        issues = [
+            DecomposedIssue(**issue_data)
+            for issue_data in data.get("issues", [])
+        ]
+
+        # Build dependency graph
+        dep_graph = {}
+        for issue in issues:
+            if issue.blocked_by:
+                dep_graph[issue.temp_id] = issue.blocked_by
+
+        result = GoalDecompositionResult(
             goal_id=goal_id,
+            decomposition_id=decomposition_id,
+            issues=issues,
+            dependency_graph=dep_graph,
+            confidence=data.get("confidence", 0.0),
+            reasoning=data.get("reasoning", ""),
         )
 
         # Validate decomposition structure before proceeding
