@@ -583,6 +583,7 @@ class ProjectDeleteResponse(BaseModel):
     work_item_count: int = Field(default=0, description="Number of work items cascade-deleted")
     comment_count: int = Field(default=0, description="Number of comments cascade-deleted")
     repo_count: int = Field(default=0, description="Number of internal Git repos deleted")
+    compute_env_note: str = Field(default="", description="Note about compute containers that may need manual cleanup")
 
 
 class IssueDeleteResponse(BaseModel):

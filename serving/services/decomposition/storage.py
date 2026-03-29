@@ -110,6 +110,27 @@ async def store_environment_update(project_id: str, goal_id: str, updates: dict)
     logger.info(f"Updated environment for {goal_id}: {list(updates.keys())}")
 
 
+async def cleanup_project(project_id: str) -> dict:
+    """Delete all v2.0 data for a project (pipeline, work units, environments)."""
+    redis = await _get_redis()
+    goals_key = _PROJECT_GOALS_KEY.format(project_id=project_id)
+    goal_ids = await redis.smembers(goals_key)
+
+    deleted = 0
+    for gid_raw in goal_ids:
+        gid = gid_raw.decode() if isinstance(gid_raw, bytes) else gid_raw
+        for pattern in [_WU_KEY, _PIPELINE_KEY, _ENV_KEY]:
+            key = pattern.format(project_id=project_id, goal_id=gid)
+            result = await redis.delete(key)
+            deleted += result
+
+    await redis.delete(goals_key)
+    deleted += 1
+
+    logger.info(f"Cleaned up {deleted} v2.0 keys for project {project_id}")
+    return {"keys_deleted": deleted, "goals_cleaned": len(goal_ids)}
+
+
 async def get_project_goals(project_id: str) -> List[str]:
     """Get all goal IDs with v2.0 pipeline results for a project."""
     redis = await _get_redis()

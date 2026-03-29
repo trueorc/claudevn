@@ -193,6 +193,40 @@ async def delete_project(
         work_item_count = counts["work_item_count"]
         comment_count = counts["comment_count"]
 
+    # v2.0: Clean up pipeline data, work units, and environment specs from Redis
+    v2_cleanup_note = ""
+    try:
+        from services.decomposition.storage import cleanup_project
+        v2_counts = await cleanup_project(project_id)
+        logger.info(f"v2.0 cleanup for {project_id}: {v2_counts}")
+    except Exception as e:
+        logger.warning(f"v2.0 cleanup failed for {project_id}: {e}")
+
+    # v2.0: Clean up compute environment files on disk
+    compute_env_note = ""
+    try:
+        import os, shutil
+        project_name = service._projects.get(project_id, {})
+        if hasattr(project_name, 'name'):
+            project_name = project_name.name
+        else:
+            project_name = project_id
+
+        safe_name = project_name.lower().replace(' ', '_')
+        env_path = os.path.join(os.getenv("COMPUTE_ENVS_PATH", "/app/compute-envs"), safe_name)
+        if os.path.exists(env_path):
+            shutil.rmtree(env_path)
+            logger.info(f"Removed compute environment: {env_path}")
+
+        # Check for running compute containers (can't remove from serving)
+        compute_env_note = (
+            f"If a compute container was running for this project "
+            f"(e.g., {safe_name}-compute_*), it must be stopped manually: "
+            f"docker rm -f $(docker ps -q --filter name={safe_name}-compute)"
+        )
+    except Exception as e:
+        logger.warning(f"Compute env cleanup failed for {project_id}: {e}")
+
     result = await service.delete_project(project_id)
 
     return ProjectDeleteResponse(
@@ -203,6 +237,7 @@ async def delete_project(
         work_item_count=work_item_count,
         comment_count=comment_count,
         repo_count=result.get("repo_count", 0),
+        compute_env_note=compute_env_note,
     )
 
 

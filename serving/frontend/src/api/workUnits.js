@@ -6,10 +6,6 @@ import { request } from './index.js'
 
 // -- Decomposition --
 
-export async function getDecomposition(goalId) {
-  return request(`/decomposition/${goalId}`)
-}
-
 export async function getWorkUnits(goalId) {
   return request(`/decomposition/${goalId}/work-units`)
 }
@@ -18,30 +14,11 @@ export async function getPipelineStatus(goalId) {
   return request(`/decomposition/${goalId}/pipeline`)
 }
 
-export async function updateWorkUnit(unitId, updates) {
-  return request(`/work-units/${unitId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(updates),
-  })
-}
-
 export async function approveDecomposition(goalId) {
   return request(`/decomposition/${goalId}/approve`, { method: 'POST' })
 }
 
-export async function splitWorkUnit(unitId, splitSpec) {
-  return request(`/work-units/${unitId}/split`, {
-    method: 'POST',
-    body: JSON.stringify(splitSpec),
-  })
-}
-
-export async function mergeWorkUnits(unitIds) {
-  return request(`/work-units/merge`, {
-    method: 'POST',
-    body: JSON.stringify({ unit_ids: unitIds }),
-  })
-}
+// TODO: splitWorkUnit and mergeWorkUnits — implement when recomposition UI is built
 
 // -- Verification --
 

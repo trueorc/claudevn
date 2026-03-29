@@ -205,13 +205,10 @@ class WorkUnitBuilder:
                 constraints=o.get("constraints", []),
             ))
 
-        # Default: infer output type from whether file exists
+        # Default: infer output type from whether file exists in the codebase
         if not outputs:
-            import os
+            known_files = {fi.path for fi in self._codebase.file_tree} if self._codebase.file_tree else set()
             for f in target_files:
-                exists = os.path.exists(os.path.join(self._codebase.file_tree[0].path, '..', f)) if self._codebase.file_tree else False
-                # Simple check: if file path doesn't match any known file, it's a creation
-                known_files = {fi.path for fi in self._codebase.file_tree}
                 output_type = OutputType.FILE_MODIFIED if f in known_files else OutputType.FILE_CREATED
                 outputs.append(ExpectedOutput(type=output_type, path=f))
 

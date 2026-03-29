@@ -130,19 +130,6 @@ export default function WorkUnitCard({ unit, allUnits = [], onSelect }) {
             </div>
           )}
 
-          {/* Legacy interface contracts (from formal_spec) */}
-          {unit.formal_spec?.interface_contracts?.length > 0 && (
-            <div className="wuc-section">
-              <span className="wuc-section-label">Interface Contracts</span>
-              {unit.formal_spec.interface_contracts.map((c, i) => (
-                <div key={i} className="wuc-contract">
-                  <span className="wuc-contract-file">{c.file}</span>
-                  <span className="wuc-contract-type">{c.type}</span>
-                  <span className="wuc-contract-def">{c.definition}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>
