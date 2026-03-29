@@ -7,7 +7,7 @@ and verified by Layer 3 (integration verification).
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from .formal_spec import FormalSpec
@@ -70,6 +70,24 @@ class WorkUnit(BaseModel):
     independence: IndependenceAssertion = Field(
         default_factory=IndependenceAssertion,
         description="How this unit relates to others in terms of independence"
+    )
+
+    # Quality metadata (from LLM decomposition)
+    acceptance_criteria: List[str] = Field(
+        default_factory=list,
+        description="Testable conditions that prove this unit is done"
+    )
+    estimated_complexity: str = Field(
+        default="m",
+        description="Estimated complexity: xs, s, m, l, xl"
+    )
+    interface_produces: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="What this unit produces for others (type + definition)"
+    )
+    interface_consumes: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="What this unit expects from its dependencies (type + definition)"
     )
 
     # Lifecycle

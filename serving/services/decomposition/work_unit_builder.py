@@ -61,6 +61,8 @@ class WorkUnitBuilder:
         interface_contracts: Optional[List[Dict[str, str]]] = None,
         expected_outputs: Optional[List[Dict[str, Any]]] = None,
         depends_on: Optional[List[str]] = None,
+        acceptance_criteria: Optional[List[str]] = None,
+        estimated_complexity: Optional[str] = None,
     ) -> WorkUnit:
         """Build a single WorkUnit from decomposition data.
 
@@ -103,6 +105,18 @@ class WorkUnitBuilder:
             depends_on=depends_on or [],
         )
 
+        # Parse interface contracts from LLM format
+        produces = []
+        consumes = []
+        if interface_contracts:
+            # LLM returns {produces: [...], consumes: [...]} or flat list
+            if isinstance(interface_contracts, dict):
+                produces = interface_contracts.get("produces", [])
+                consumes = interface_contracts.get("consumes", [])
+            elif isinstance(interface_contracts, list):
+                # Legacy flat list format
+                pass
+
         return WorkUnit(
             id=unit_id,
             project_id=project_id,
@@ -112,6 +126,10 @@ class WorkUnitBuilder:
             verification_criteria=verification,
             context_package=context,
             independence=independence,
+            acceptance_criteria=acceptance_criteria or [],
+            estimated_complexity=estimated_complexity or "m",
+            interface_produces=produces,
+            interface_consumes=consumes,
             status=WorkUnitStatus.DRAFT,
         )
 
@@ -145,6 +163,8 @@ class WorkUnitBuilder:
                 interface_contracts=data.get("interface_contracts"),
                 expected_outputs=data.get("expected_outputs"),
                 depends_on=data.get("depends_on"),
+                acceptance_criteria=data.get("acceptance_criteria"),
+                estimated_complexity=data.get("estimated_complexity"),
             )
             units.append(unit)
 

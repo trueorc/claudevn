@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, FileCode, GitBranch, AlertTriangle, CheckCircle2, Shield } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileCode, GitBranch, AlertTriangle, CheckCircle2, Shield, ArrowUpRight, ArrowDownLeft, Target, Gauge } from 'lucide-react'
 import './WorkUnitCard.css'
 
 const STATUS_CONFIG = {
@@ -25,6 +25,11 @@ export default function WorkUnitCard({ unit, allUnits = [], onSelect }) {
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="wuc-id">{unit.id}</span>
         <span className="wuc-desc">{unit.description}</span>
+        {unit.estimated_complexity && (
+          <span className={`wuc-complexity wuc-complexity--${unit.estimated_complexity}`}>
+            {unit.estimated_complexity.toUpperCase()}
+          </span>
+        )}
         <span className={`wuc-status ${statusInfo.className}`}>{statusInfo.label}</span>
       </button>
 
@@ -80,7 +85,52 @@ export default function WorkUnitCard({ unit, allUnits = [], onSelect }) {
             </div>
           )}
 
-          {/* Interface contracts */}
+          {/* Interface: Produces */}
+          {unit.interface_produces?.length > 0 && (
+            <div className="wuc-section">
+              <span className="wuc-section-label"><ArrowUpRight size={12} /> Produces</span>
+              <div className="wuc-interface-list">
+                {unit.interface_produces.map((p, i) => (
+                  <div key={i} className="wuc-interface-item wuc-interface--produces">
+                    <span className="wuc-interface-type">{p.type}</span>
+                    <span className="wuc-interface-def">{p.definition}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Interface: Consumes */}
+          {unit.interface_consumes?.length > 0 && (
+            <div className="wuc-section">
+              <span className="wuc-section-label"><ArrowDownLeft size={12} /> Consumes</span>
+              <div className="wuc-interface-list">
+                {unit.interface_consumes.map((c, i) => (
+                  <div key={i} className="wuc-interface-item wuc-interface--consumes">
+                    <span className="wuc-interface-type">{c.type}</span>
+                    <span className="wuc-interface-def">{c.definition}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Acceptance Criteria */}
+          {unit.acceptance_criteria?.length > 0 && (
+            <div className="wuc-section">
+              <span className="wuc-section-label"><Target size={12} /> Acceptance Criteria</span>
+              <div className="wuc-criteria-list">
+                {unit.acceptance_criteria.map((criterion, i) => (
+                  <div key={i} className="wuc-criterion">
+                    <CheckCircle2 size={10} />
+                    <span>{criterion}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Legacy interface contracts (from formal_spec) */}
           {unit.formal_spec?.interface_contracts?.length > 0 && (
             <div className="wuc-section">
               <span className="wuc-section-label">Interface Contracts</span>

@@ -280,32 +280,73 @@ class DecompositionPipeline:
 
         prompt = "\n\n".join(context_parts)
 
-        system = """You are decomposing a software goal into independent work units.
+        system = """You are decomposing a software goal into independent, executable work units.
 
-For each work unit, provide:
-- description: what to build/change
+For each work unit, provide ALL of the following:
+
+- description: concise statement of what to build/change
 - target_files: specific file paths that will be modified or created
 - depends_on: list of other unit descriptions this depends on (empty if independent)
+- interface_contracts: what this unit PRODUCES that other units consume, and what it CONSUMES from other units
+  - produces: list of {type, definition} — e.g., {type: "exports", definition: "function add(a: number, b: number): number"}
+  - consumes: list of {type, definition} — what this unit expects from dependencies
+- acceptance_criteria: specific, testable conditions that prove this unit is DONE
+  - Each criterion should be verifiable (a test, a check, an observable behavior)
+- estimated_complexity: "xs" | "s" | "m" | "l" | "xl" based on scope
 
 Respond with JSON only:
 {
   "units": [
     {
       "description": "Implement calculator math operations module",
-      "target_files": ["src/calculator.py", "tests/test_calculator.py"],
-      "depends_on": []
+      "target_files": ["server/src/calculator.js", "server/src/calculator.test.js"],
+      "depends_on": [],
+      "interface_contracts": {
+        "produces": [
+          {"type": "exports", "definition": "functions: add, subtract, multiply, divide — each takes (a, b) returns number"}
+        ],
+        "consumes": []
+      },
+      "acceptance_criteria": [
+        "All four operations return correct results for valid inputs",
+        "Division by zero throws descriptive error",
+        "Unit tests pass for all operations including edge cases"
+      ],
+      "estimated_complexity": "s"
+    },
+    {
+      "description": "REST API endpoint for calculator operations",
+      "target_files": ["server/src/routes/calculate.js", "server/src/routes/calculate.test.js"],
+      "depends_on": ["Implement calculator math operations module"],
+      "interface_contracts": {
+        "produces": [
+          {"type": "api", "definition": "POST /calculate — accepts {operation, operands} returns {result} or {error}"}
+        ],
+        "consumes": [
+          {"type": "imports", "definition": "calculator module — add, subtract, multiply, divide functions"}
+        ]
+      },
+      "acceptance_criteria": [
+        "POST /calculate returns correct result for valid operations",
+        "Returns 400 with error message for invalid operation or operands",
+        "API tests cover success and error paths"
+      ],
+      "estimated_complexity": "s"
     }
   ],
   "confidence": 0.85,
-  "reasoning": "Split by module boundaries..."
+  "reasoning": "Split by module boundaries — calculator logic, API layer, frontend shell, frontend UI, integration..."
 }
 
 Rules:
-- Each unit should touch SEPARATE files (independence)
-- Include test files alongside implementation
-- Be specific about file paths
-- Order dependencies correctly
-- Keep units small and focused"""
+- Each unit should touch SEPARATE files (true independence — no shared mutable state)
+- Include test files alongside implementation in the same unit
+- Be specific about file paths — use realistic project structure
+- Interface contracts are CRITICAL — they define how units connect
+- Acceptance criteria must be TESTABLE — not vague ("works correctly" is bad, "returns 400 for invalid input" is good)
+- Keep units small and focused (prefer more small units over fewer large ones)
+- estimated_complexity: xs=trivial config, s=single module, m=multiple files with logic, l=cross-cutting, xl=architectural
+- Order dependencies correctly — a unit cannot depend on something that depends on it"""
 
         response = await client.complete(prompt=prompt, system=system)
 

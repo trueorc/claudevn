@@ -54,6 +54,20 @@
   flex-shrink: 0;
 }
 
+/* Complexity badge */
+.wuc-complexity {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.wuc-complexity--xs, .wuc-complexity--s { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.wuc-complexity--m { color: var(--text-secondary); background: var(--bg-hover); }
+.wuc-complexity--l { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+.wuc-complexity--xl { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }
+
 .wuc-status--draft { color: var(--text-muted); background: var(--bg-hover); }
 .wuc-status--ready { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
 .wuc-status--queued { color: var(--text-secondary); background: var(--bg-hover); }
@@ -159,4 +173,56 @@
 .wuc-contract-def {
   color: var(--text-muted);
   flex: 1;
+}
+
+/* Interface produces/consumes */
+.wuc-interface-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wuc-interface-item {
+  display: flex;
+  gap: var(--space-sm);
+  font-size: var(--font-size-xs);
+  padding: 3px var(--space-xs);
+  border-radius: var(--radius-sm);
+}
+
+.wuc-interface--produces { background: color-mix(in srgb, var(--status-online) 5%, transparent); }
+.wuc-interface--consumes { background: color-mix(in srgb, var(--primary) 5%, transparent); }
+
+.wuc-interface-type {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  min-width: 50px;
+}
+
+.wuc-interface-def {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Acceptance criteria */
+.wuc-criteria-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wuc-criterion {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.wuc-criterion svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 2px;
 }
