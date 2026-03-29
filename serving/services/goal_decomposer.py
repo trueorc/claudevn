@@ -25,8 +25,10 @@ from models.issue import Issue, IssueArea, IssuePriority, IssueType
 
 logger = logging.getLogger(__name__)
 
-# Default timeout for decomposition (5 minutes)
-DEFAULT_DECOMPOSITION_TIMEOUT = 300
+# Default timeout for decomposition
+# v2.0: reduced from 300s — no compute spawner means decomposition
+# via v1.0 path will fail quickly rather than hang for 5 minutes
+DEFAULT_DECOMPOSITION_TIMEOUT = 15
 
 # Polling interval for checking decomposition completion
 POLL_INTERVAL_SECONDS = 2
