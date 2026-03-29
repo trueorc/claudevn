@@ -47,14 +47,17 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
             )}
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              {/* Core: Control Center */}
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/directives" element={<GoalsPage />} />
-              <Route path="/plan" element={<ExecutionPlanPage />} />
+              {/* Process: Plan → Execute → Verify */}
+              <Route path="/plan" element={<GoalsPage />} />
+              <Route path="/execute" element={<ExecutionPlanPage />} />
+              <Route path="/verify" element={<VerificationPage />} />
+              {/* Administrative */}
               <Route path="/backlog" element={<BacklogPage />} />
               <Route path="/marketplace" element={<SkillsPage />} />
               <Route path="/network" element={<NetworkHealthPage />} />
-              <Route path="/verify" element={<VerificationPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/timing" element={<TimingPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
@@ -63,13 +66,14 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
               <Route path="/settings/general" element={<SettingsPage />} />
               <Route path="/settings/users" element={<UserManagementPage />} />
               {/* Redirects from old routes */}
-              <Route path="/goals" element={<Navigate to="/directives" replace />} />
+              <Route path="/directives" element={<Navigate to="/plan" replace />} />
+              <Route path="/goals" element={<Navigate to="/plan" replace />} />
               <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
               <Route path="/health" element={<Navigate to="/network" replace />} />
               <Route path="/work" element={<Navigate to="/backlog" replace />} />
-              <Route path="/workmap" element={<Navigate to="/plan" replace />} />
-              <Route path="/traces" element={<Navigate to="/plan" replace />} />
-              <Route path="/focus" element={<Navigate to="/plan" replace />} />
+              <Route path="/workmap" element={<Navigate to="/execute" replace />} />
+              <Route path="/traces" element={<Navigate to="/execute" replace />} />
+              <Route path="/focus" element={<Navigate to="/execute" replace />} />
               <Route path="/capabilities" element={<Navigate to="/network" replace />} />
               <Route path="/conflicts" element={<Navigate to="/network" replace />} />
             </Routes>

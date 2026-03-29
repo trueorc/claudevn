@@ -1,18 +1,21 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Radio, Sparkles, FolderGit2, ListTodo, Play, Target, ChevronDown, Check, Key, Timer, Settings } from 'lucide-react'
+import { Radio, Sparkles, FolderGit2, ListTodo, Play, GitBranch, ShieldCheck, ChevronDown, Check, Key, Timer, Settings } from 'lucide-react'
 import useSystemHealth from '../../hooks/useSystemHealth'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import NotificationBell from '../notifications/NotificationBell'
 import './Sidebar.css'
 
 const navItems = [
-  { to: '/network', icon: Radio, label: 'Network' },
-  { to: '/projects', icon: FolderGit2, label: 'Projects' },
-  { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
-  { to: '/directives', icon: Target, label: 'Directives', requiresProject: true },
-  { to: '/plan', icon: Play, label: 'Plan', requiresProject: true },
+  // Process
+  { to: '/plan', icon: GitBranch, label: 'Plan', requiresProject: true },
+  { to: '/execute', icon: Play, label: 'Execute', requiresProject: true },
+  { to: '/verify', icon: ShieldCheck, label: 'Verify', requiresProject: true },
+  // Administrative
   { to: '/backlog', icon: ListTodo, label: 'Backlog', requiresProject: true },
+  { to: '/projects', icon: FolderGit2, label: 'Projects' },
+  { to: '/network', icon: Radio, label: 'Network' },
+  { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
   { to: '/timing', icon: Timer, label: 'Timing', requiresProject: true },
   { to: '/settings/ssh-keys', icon: Key, label: 'SSH Keys' },
   { to: '/settings/general', icon: Settings, label: 'Settings' },

@@ -17,7 +17,7 @@ function DecompositionItem({ goal }) {
   return (
     <button
       className="dp-item"
-      onClick={() => navigate(`/directives?goal=${goal.goal_id}`)}
+      onClick={() => navigate(`/plan?goal=${goal.goal_id}`)}
     >
       <div className="dp-item-header">
         <GitBranch size={14} className="dp-item-icon" />
@@ -64,7 +64,7 @@ export default function DecompositionPanel({ goals = [] }) {
         </div>
       )}
 
-      <button className="dp-view-all" onClick={() => navigate('/directives')}>
+      <button className="dp-view-all" onClick={() => navigate('/plan')}>
         View all directives
         <ChevronRight size={14} />
       </button>

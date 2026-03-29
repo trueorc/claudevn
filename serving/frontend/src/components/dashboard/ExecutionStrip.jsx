@@ -10,7 +10,7 @@ export default function ExecutionStrip({ active = [], queued = [], completed = 0
   const navigate = useNavigate()
 
   return (
-    <button className="es-strip" onClick={() => navigate('/plan')}>
+    <button className="es-strip" onClick={() => navigate('/execute')}>
       <div className="es-strip-header">
         <span className="es-strip-title">Execution</span>
         <ChevronRight size={14} className="es-strip-chevron" />

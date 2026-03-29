@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  Radio, Sparkles, FolderGit2, ListTodo, Play, ShieldCheck,
+  Radio, Sparkles, FolderGit2, ListTodo, Play, ShieldCheck, GitBranch,
   Settings, Timer, Bell, LayoutDashboard,
   LogOut
 } from 'lucide-react'
@@ -12,13 +12,17 @@ import { useAuth } from '../../contexts/auth/AuthContext'
 import './IconBar.css'
 
 const navItems = [
+  // Core
   { to: '/dashboard', icon: LayoutDashboard, label: 'Control Center' },
-  { to: '/plan', icon: Play, label: 'Plan', projectRequired: true },
-  { to: '/verify', icon: ShieldCheck, label: 'Verification', projectRequired: true },
+  // Process: Plan → Execute → Verify
+  { to: '/plan', icon: GitBranch, label: 'Plan', projectRequired: true },
+  { to: '/execute', icon: Play, label: 'Execute', projectRequired: true },
+  { to: '/verify', icon: ShieldCheck, label: 'Verify', projectRequired: true },
+  // Administrative
   { to: '/backlog', icon: ListTodo, label: 'Backlog', projectRequired: true },
-  { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
-  { to: '/network', icon: Radio, label: 'Network' },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
+  { to: '/network', icon: Radio, label: 'Network' },
+  { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },
   { to: '/timing', icon: Timer, label: 'Timing', projectRequired: true },
 ]
 
