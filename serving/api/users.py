@@ -21,17 +21,38 @@ router = APIRouter(prefix="/users", tags=["users"])
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _is_bypass_mode() -> bool:
+    """Check if running in bypass auth mode."""
+    try:
+        from config import get_config
+        return get_config().cognito.auth_mode == "bypass"
+    except Exception:
+        return False
+
+
 async def get_current_user_id(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
 ) -> str:
     """Extract and verify user from Bearer token.
 
+    In bypass mode, returns a dev user ID without requiring a token.
+
     Returns:
         user_id string
 
     Raises:
-        HTTPException 401: Missing or invalid token
+        HTTPException 401: Missing or invalid token (non-bypass mode)
     """
+    # Bypass mode — no token required, return dev user
+    if _is_bypass_mode():
+        if credentials:
+            service = get_user_service()
+            if service:
+                user_id = service.verify_token(credentials.credentials)
+                if user_id:
+                    return user_id
+        return "bypass-dev-user"
+
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -50,6 +71,9 @@ async def get_optional_user_id(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
 ) -> Optional[str]:
     """Extract user from Bearer token, returning None if missing."""
+    if _is_bypass_mode() and not credentials:
+        return "bypass-dev-user"
+
     if not credentials:
         return None
 
