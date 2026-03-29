@@ -41,6 +41,7 @@ class WorkUnit(BaseModel):
     """
     # Identity
     id: str = Field(..., description="Unique work unit identifier")
+    project_id: str = Field(..., description="Project this work unit belongs to")
     goal_ref: str = Field(..., description="Reference to the parent goal")
 
     # What to do

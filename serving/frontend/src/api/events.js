@@ -1,21 +1,24 @@
 /**
  * SSE event stream API for v2.0 real-time updates.
  * Replaces all polling patterns with push-based event delivery.
+ * Project-scoped — pass projectId to only receive events for that project.
  */
 
 import { API_BASE } from './index.js'
 
 /**
  * Connect to the SSE event stream.
- * @param {string[]} patterns - Event patterns to subscribe to (e.g., ["decomposition.*", "verification.*"])
+ * @param {string[]} patterns - Event patterns to subscribe to
  * @param {object} handlers - Map of event name to handler function
  * @param {string} clientId - Unique client identifier
- * @returns {{ close: () => void }} - Call close() to disconnect
+ * @param {string|null} projectId - Project to scope events to (null = all)
+ * @returns {{ close: () => void, source: EventSource }}
  */
-export function connectEventStream(patterns = ['*'], handlers = {}, clientId = '') {
+export function connectEventStream(patterns = ['*'], handlers = {}, clientId = '', projectId = null) {
   const params = new URLSearchParams()
   patterns.forEach(p => params.append('pattern', p))
   if (clientId) params.append('client_id', clientId)
+  if (projectId) params.append('project_id', projectId)
 
   const url = `${API_BASE}/events/stream?${params.toString()}`
   const eventSource = new EventSource(url)
@@ -32,7 +35,6 @@ export function connectEventStream(patterns = ['*'], handlers = {}, clientId = '
     })
   })
 
-  // Generic message handler for unregistered events
   eventSource.onmessage = (event) => {
     if (handlers['*']) {
       try {
@@ -43,7 +45,6 @@ export function connectEventStream(patterns = ['*'], handlers = {}, clientId = '
   }
 
   eventSource.onerror = () => {
-    // EventSource auto-reconnects; log for debugging
     console.debug('SSE connection error, will auto-reconnect')
   }
 

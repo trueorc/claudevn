@@ -18,12 +18,13 @@ class Subscription:
     """A subscriber's connection to the event bus.
 
     Each subscription has its own async queue. Events matching
-    the subscription's patterns are delivered to the queue.
+    the subscription's patterns AND project scope are delivered.
     """
 
-    def __init__(self, patterns: Set[str], subscriber_id: str):
+    def __init__(self, patterns: Set[str], subscriber_id: str, project_id: Optional[str] = None):
         self.patterns = patterns
         self.subscriber_id = subscriber_id
+        self.project_id = project_id  # None = receive all projects
         self._queue: asyncio.Queue[BaseModel] = asyncio.Queue()
         self._active = True
 
@@ -38,12 +39,19 @@ class Subscription:
         except asyncio.TimeoutError:
             return None
 
-    def matches(self, event_name: str) -> bool:
+    def matches(self, event_name: str, event_project_id: Optional[str] = None) -> bool:
         """Check if this subscription wants this event.
 
-        Supports exact match ("execution.started") and prefix
-        match ("execution.*", "verification.*").
+        Checks both pattern match and project scope. If the subscription
+        has a project_id, only events for that project (or global events
+        without a project_id) are delivered.
         """
+        # Project filter: if subscription is project-scoped, check project
+        if self.project_id is not None and event_project_id is not None:
+            if self.project_id != event_project_id:
+                return False
+
+        # Pattern match
         for pattern in self.patterns:
             if pattern == "*":
                 return True
@@ -86,20 +94,27 @@ class EventBus:
         self._lock = asyncio.Lock()
         logger.info("EventBus initialized")
 
-    def subscribe(self, patterns: Set[str], subscriber_id: str = "") -> Subscription:
+    def subscribe(
+        self,
+        patterns: Set[str],
+        subscriber_id: str = "",
+        project_id: Optional[str] = None,
+    ) -> Subscription:
         """Create a subscription for events matching the given patterns.
 
         Args:
             patterns: Event name patterns to match. Supports exact
                 ("execution.started") and prefix ("execution.*").
             subscriber_id: Identifier for logging/debugging.
+            project_id: If set, only receive events for this project.
+                None means receive events for all projects.
 
         Returns:
             A Subscription whose receive() method delivers matching events.
         """
-        sub = Subscription(patterns, subscriber_id)
+        sub = Subscription(patterns, subscriber_id, project_id=project_id)
         self._subscriptions.append(sub)
-        logger.debug(f"New subscription: {subscriber_id} -> {patterns}")
+        logger.debug(f"New subscription: {subscriber_id} -> {patterns} (project={project_id})")
         return sub
 
     def unsubscribe(self, subscription: Subscription):
@@ -122,8 +137,10 @@ class EventBus:
 
         Args:
             event: A Pydantic event model with an 'event' field.
+                   Project-scoped events should have a 'project_id' field.
         """
         event_name = getattr(event, "event", "unknown")
+        event_project_id = getattr(event, "project_id", None)
 
         # Run registered handlers
         for handler in self._handlers.get(event_name, []):
@@ -132,13 +149,13 @@ class EventBus:
             except Exception as e:
                 logger.error(f"Handler error for {event_name}: {e}")
 
-        # Deliver to matching subscriptions
+        # Deliver to matching subscriptions (with project filtering)
         dead = []
         for sub in self._subscriptions:
             if not sub._active:
                 dead.append(sub)
                 continue
-            if sub.matches(event_name):
+            if sub.matches(event_name, event_project_id):
                 try:
                     sub._queue.put_nowait(event)
                 except asyncio.QueueFull:
@@ -150,7 +167,7 @@ class EventBus:
         if dead:
             self._subscriptions = [s for s in self._subscriptions if s._active]
 
-        logger.debug(f"Published {event_name}")
+        logger.debug(f"Published {event_name} (project={event_project_id})")
 
 
 # Singleton instance — import and use directly

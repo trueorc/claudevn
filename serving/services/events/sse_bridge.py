@@ -42,6 +42,7 @@ class SSEBridge:
         self,
         patterns: Set[str],
         client_id: str = "",
+        project_id: Optional[str] = None,
         keepalive_seconds: float = 15.0,
     ) -> AsyncGenerator[str, None]:
         """Generate SSE events for a frontend client.
@@ -49,12 +50,13 @@ class SSEBridge:
         Args:
             patterns: Event patterns this client wants.
             client_id: Identifier for logging/debugging.
+            project_id: If set, only receive events for this project.
             keepalive_seconds: Interval for keepalive pings.
 
         Yields:
             SSE-formatted strings ("event: ...\ndata: ...\n\n")
         """
-        sub = self._bus.subscribe(patterns, f"sse:{client_id}")
+        sub = self._bus.subscribe(patterns, f"sse:{client_id}", project_id=project_id)
         self._active_streams[client_id] = sub
 
         try:

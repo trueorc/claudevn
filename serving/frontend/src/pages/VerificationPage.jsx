@@ -164,6 +164,7 @@ export default function VerificationPage() {
   // Subscribe to verification events
   useEventStream({
     patterns: ['verification.*'],
+    projectId,
     enabled: !!projectId,
     onEvent: useCallback(() => {
       // Refresh on any verification event

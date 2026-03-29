@@ -46,6 +46,7 @@ function GoalsPage() {
   // Subscribe to decomposition events for real-time updates
   useEventStream({
     patterns: ['decomposition.*'],
+    projectId,
     enabled: !!projectId,
     onEvent: useCallback((event) => {
       if (selectedGoal && event.goal_id === selectedGoal.goal_id) {

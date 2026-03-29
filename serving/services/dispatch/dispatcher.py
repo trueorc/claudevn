@@ -111,6 +111,7 @@ class Dispatcher:
             unit.status = WorkUnitStatus.SUBMITTED
             unit.branch = branch
             await self._bus.publish(ExecutionCompleted(
+                project_id=unit.project_id,
                 work_unit_id=unit.id,
                 goal_id=unit.goal_ref,
                 instance_id=instance_id,
@@ -118,6 +119,7 @@ class Dispatcher:
             ))
             # Trigger verification
             await self._bus.publish(VerificationStarted(
+                project_id=unit.project_id,
                 work_unit_id=unit.id,
                 goal_id=unit.goal_ref,
                 checks=[c.type.value for c in unit.verification_criteria.automated],
@@ -127,6 +129,7 @@ class Dispatcher:
         else:
             unit.status = WorkUnitStatus.FAILED_VERIFICATION
             await self._bus.publish(ExecutionFailed(
+                project_id=unit.project_id,
                 work_unit_id=unit.id,
                 goal_id=unit.goal_ref,
                 instance_id=instance_id,
@@ -151,6 +154,7 @@ class Dispatcher:
 
                 # Emit queued event
                 await self._bus.publish(ExecutionQueued(
+                    project_id=unit.project_id,
                     work_unit_id=unit.id,
                     goal_id=unit.goal_ref,
                     queue_position=self._queue.size,
@@ -184,6 +188,7 @@ class Dispatcher:
         self._active[instance_id] = unit
 
         await self._bus.publish(ExecutionStarted(
+            project_id=unit.project_id,
             work_unit_id=unit.id,
             goal_id=unit.goal_ref,
             instance_id=instance_id,

@@ -53,6 +53,7 @@ class WorkUnitBuilder:
 
     def build(
         self,
+        project_id: str,
         goal_id: str,
         description: str,
         target_files: List[str],
@@ -64,6 +65,7 @@ class WorkUnitBuilder:
         """Build a single WorkUnit from decomposition data.
 
         Args:
+            project_id: Project this work unit belongs to.
             goal_id: Parent goal reference.
             description: Natural language description.
             target_files: Files this unit will modify.
@@ -103,6 +105,7 @@ class WorkUnitBuilder:
 
         return WorkUnit(
             id=unit_id,
+            project_id=project_id,
             goal_ref=goal_id,
             description=description,
             formal_spec=formal_spec,
@@ -114,6 +117,7 @@ class WorkUnitBuilder:
 
     def build_batch(
         self,
+        project_id: str,
         goal_id: str,
         units_data: List[Dict[str, Any]],
         input_state: str = "main",
@@ -121,6 +125,7 @@ class WorkUnitBuilder:
         """Build multiple WorkUnits and compute cross-unit independence.
 
         Args:
+            project_id: Project these work units belong to.
             goal_id: Parent goal reference.
             units_data: List of dicts with keys: description, target_files,
                 interface_contracts, expected_outputs, depends_on.
@@ -132,6 +137,7 @@ class WorkUnitBuilder:
         units = []
         for data in units_data:
             unit = self.build(
+                project_id=project_id,
                 goal_id=goal_id,
                 description=data["description"],
                 target_files=data.get("target_files", []),
