@@ -1,81 +1,112 @@
-# ClaudeVN - AI Agent Orchestration Platform
+# ClaudeVN - Intelligence Layer for Project-Scale AI Development
 
 ## Project Overview
 
-ClaudeVN enables emergent, conversation-driven coordination between specialized AI agents. Claude Code instances serve as compute workers, with Git-based state management and MCP tools for communication.
+ClaudeVN is the intelligence layer that makes Claude Code work at project scale. It decomposes ambiguous goals into formally specified work units, prepares each unit for efficient execution, and verifies that independently-produced results integrate correctly.
 
-**Version:** 1.0.0 (Architecture Redesign)
-**Status:** Major architecture redesign in progress
+**Version:** 2.0.0 (Three-Layer Architecture)
+**Status:** Active development on `feat/v2.0-architecture` branch
 
-## Architecture (v1.0)
+## Architecture (v2.0)
 
-Two-tier architecture: Serving (central hub) + Compute (Claude Code instances)
+Three-layer intelligence model: Decomposition → Execution → Verification
 
-| Component | Purpose |
-|-----------|---------|
-| **Serving** | Central coordination hub - work distribution, Git server, MCP server, monitoring UI |
-| **Marketplace** | Skill marketplace service - skill definitions, registry, composition (port 8003) |
-| **Compute** | Claude Code instances - execute work using skills, communicate via MCP and Git |
+| Layer | Purpose |
+|-------|---------|
+| **Layer 1: Decomposition** | Transform goals into formally specified, independent work units with verification criteria |
+| **Layer 2: Execution** | Simple priority queue dispatch — inject context, dispatch to Claude Code, get out of the way |
+| **Layer 3: Verification** | Computational verification of per-unit output and cross-unit integration |
 
-**Key Changes from v0.x:**
-- Compute is now **Claude Code** (not custom Python runtime)
-- Communication via **MCP tools** and **Git** (not REST APIs)
-- State managed in **Git branches** (1 branch = 1 work unit)
-- Skills replace agents (CLAUDE.md templates)
-- Marketplace is a separate service (communicates via HTTP)
+**Design principles:**
+- Structured state over conversation
+- Single-pass execution over iterative exploration
+- Computational verification over AI-as-reviewer
+- Independence by design — if units share state, they should be one unit
+- Queue/event-driven everywhere — no polling
+
+See `docs/design/architecture/v2.0-architecture.md` for full design rationale and research foundation.
 
 ## Tech Stack
 
 - **Serving:** FastAPI, Python 3.10+, Redis, Git (bare repos), MCP server (port 8002)
-- **Marketplace:** FastAPI, Python 3.10+, skill registry, composition service (port 8003)
+- **Marketplace:** FastAPI, Python 3.10+, skill registry (port 8003) — retained, not actively invested
 - **Compute:** Claude Code CLI with MCP client
-- **State:** Git repositories with worktree workflow
-- **Frontend:** React, TailwindCSS, WebSocket for real-time updates
+- **State:** Git repositories, Redis for transient state
+- **Frontend:** React 19, Vite, TailwindCSS, SSE for real-time updates (no polling)
+- **Events:** Async pub/sub EventBus with project-scoped SSE delivery
 
 ## Key Directories
 
 ```
-serving/              # Central coordination hub (v1.0) - port 8002
-  ├── services/       # Core services including ComputeSpawner
-  ├── git/            # Git infrastructure (Smart HTTP, hooks, PR management)
-  ├── mcp/            # MCP server for compute communication
-  └── frontend/       # React monitoring UI
-marketplace/          # Skill marketplace service (v1.0) - port 8003
-  ├── skills/         # Skill definitions (YAML)
-  ├── api.py          # FastAPI router
-  └── skill_registry.py  # Skill catalog service
-compute/              # Compute infrastructure containers - register with Serving
-docs/                 # Comprehensive documentation
-  ├── design/architecture/v1.0-architecture.md  # New architecture
-  ├── design/specifications/                     # Component specs
-  ├── design/adr/                                # Architecture decisions
-  └── archive/                                    # Legacy docs
+serving/
+  ├── services/
+  │   ├── decomposition/    # Layer 1: GoalAnalyzer, BoundaryDetector, WorkUnitBuilder, SpecValidator, ContextAssembler
+  │   ├── dispatch/         # Layer 2: DispatchQueue, Dispatcher (priority queue, not orchestration)
+  │   ├── verification/     # Layer 3: UnitVerifier, IntegrationVerifier, RetryHandler
+  │   ├── events/           # EventBus, SSEBridge, typed event definitions (project-scoped)
+  │   └── ...               # Existing services (goal_service, work_map_service, etc.)
+  ├── models/
+  │   └── work_unit/        # WorkUnit, FormalSpec, VerificationCriteria, ContextPackage, IndependenceAssertion, CoherenceInsight
+  ├── api/
+  │   ├── v2_events.py      # SSE stream endpoint
+  │   ├── v2_decomposition.py  # Work units, approval, coherence
+  │   ├── v2_verification.py   # Per-unit results, integration, retry/approve
+  │   ├── v2_dispatch.py       # Queue and active execution visibility
+  │   └── ...               # Existing API routes
+  ├── git/                  # Git infrastructure (Smart HTTP, hooks, PR management)
+  ├── mcp/                  # MCP server for compute communication
+  └── frontend/
+      └── src/
+          ├── pages/
+          │   ├── GoalsPage.jsx         # Decomposition workspace (not chat — ChatRail handles that)
+          │   ├── ExecutionPlanPage.jsx  # Queue observability, pipeline health, activity log
+          │   ├── VerificationPage.jsx   # Per-unit results, integration, retry/approve
+          │   └── ...
+          ├── components/
+          │   ├── decomposition/  # DecompositionSummary, DependencyGraph, WorkUnitCard, WorkUnitList, CoherencePanel
+          │   ├── plan/           # PipelineHealth, StuckWorkDetector, EventActivityLog, SummaryBar, ActiveWorkView
+          │   └── dashboard/      # DecompositionPanel, VerificationPanel, ExecutionStrip (+ existing panels)
+          ├── hooks/
+          │   └── useEventStream.js  # SSE subscription hook (project-scoped, replaces polling)
+          └── api/
+              ├── events.js      # SSE connection
+              └── workUnits.js   # Decomposition, verification, dispatch API calls
+marketplace/              # Skill marketplace service - port 8003 (retained)
+compute/                  # Compute infrastructure containers
+docs/
+  ├── design/architecture/v2.0-architecture.md  # Authoritative architecture document
+  ├── design/architecture/v1.0-architecture.md  # Previous architecture (reference)
+  └── ...
 ```
 
-## Authoritative Documentation (v1.0)
+## Key Concepts (v2.0)
 
-- `docs/design/architecture/v1.0-architecture.md` - System architecture
-- `docs/design/specifications/git-infrastructure.md` - Git server design
-- `docs/design/specifications/mcp-tools.md` - MCP tool specifications
-- `docs/design/specifications/skill-marketplace.md` - Skill marketplace management
-- `docs/guides/worktree-workflow.md` - Git worktree guide for compute
+- **Goals:** User-defined objectives decomposed into formally specified work units
+- **Work Units:** The atomic unit of work — has formal spec (target files, interface contracts, expected outputs), verification criteria, context package, and independence assertions
+- **Formal Spec:** Structured specification replacing natural language task descriptions — target files, interface boundaries, expected outputs
+- **Independence Assertion:** Declaration that a work unit shares no mutable state with others during execution. File overlaps are flagged.
+- **Verification Criteria:** Computational checks (build, test, lint, type check, scope containment) — no LLM judgment
+- **Context Package:** Pre-assembled files/tests/diffs injected into Claude Code instance — zero exploration needed
+- **Coherence Analysis:** Cross-goal consistency checking — detects contradictions, implicit requirements, scope drift, gaps
+- **EventBus:** Async pub/sub with project-scoped delivery — all inter-layer communication is event-driven
 
-## Key Concepts (v1.0)
+## v1.0 Services Removed
 
-- **Goals:** User-defined high-level objectives. The AI interprets goals dynamically - decomposing them into backlog items, influencing execution priority, or both. This enables emergent, context-aware behavior.
-- **Backlog Items:** Specific units of work that users can modify (priority, labels, assignments). The user's explicit influence point for specific work items. Accessible via `/backlog` in the UI.
-- **Execution Plan:** System-managed view of active and queued work (`/plan`). Shows currently running items, ready queue, dependencies, and blocked items. Users can view but not directly modify the arrangement - the system arranges based on goal interpretation, backlog priorities, and dependencies.
-- **Skills:** Atomic capability units (CLAUDE.md fragments) composed into agents for Claude Code instances
-- **Git Worktrees:** Compute instances use worktrees for parallel branch access
-- **MCP Tools:** Communication protocol between compute and serving
-- **PR Queue:** Redis-backed branch status and merge management
+These v1.0 coordination overhead services have been deleted:
+- ContextAffinityService, FeedbackAggregationService, PlannerProfileService
+- PlannerFocusService, LeadComputeService, CoordinatingTeamService
+- SpecializationService, BucketReorganizationService, BucketTreeStore
+
+Rationale: Multi-agent coordination overhead replaced by the three-layer model.
 
 ## Development Rules
 
 1. All code changes go through Pull Requests (never push directly to main)
-2. Compute instances work on branches: `{type}/{task}/{compute-id}`
-3. Only Serving can merge to main
-4. Use Git worktrees: `/workspace/main` (reference) + `/workspace/active` (work)
+2. All inter-service communication must be queue/event-based — no polling
+3. Prefer small, composable Python files over large monolithic services
+4. Every project-scoped model and event must carry `project_id` — projects are fully independent
+5. Computational verification over AI-as-reviewer wherever possible
+6. v2.0 work is on `feat/v2.0-architecture` branch (tagged `v1.0-final` on main)
 
 ## GitHub Project Board
 
@@ -125,4 +156,5 @@ See `docs/guides/issue-creation-guide.md` for complete instructions.
 
 ## Legacy Documentation
 
-Legacy documentation is preserved in `docs/archive/` for reference.
+- v1.0 architecture: `docs/design/architecture/v1.0-architecture.md`
+- Legacy docs preserved in `docs/archive/`
