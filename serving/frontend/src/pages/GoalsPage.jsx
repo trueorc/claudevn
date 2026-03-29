@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen, CheckCircle2, XCircle, GitBranch, Scissors, Merge, RefreshCw } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
-import { getWorkUnits, approveDecomposition, getCoherenceInsights } from '../api/workUnits'
+import { getWorkUnits, approveDecomposition, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
@@ -10,6 +10,7 @@ import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog
 import DecompositionSummary from '../components/decomposition/DecompositionSummary'
 import CoherencePanel from '../components/decomposition/CoherencePanel'
 import DependencyGraph from '../components/decomposition/DependencyGraph'
+import ComputeEnvironmentPanel from '../components/decomposition/ComputeEnvironmentPanel'
 import WorkUnitList from '../components/decomposition/WorkUnitList'
 import EmptyState from '../components/common/EmptyState'
 import Spinner from '../components/common/Spinner'
@@ -44,6 +45,10 @@ function GoalsPage() {
   // Coherence analysis across all goals
   const [coherenceInsights, setCoherenceInsights] = useState([])
   const [coherenceLoading, setCoherenceLoading] = useState(false)
+
+  // Compute environment for selected goal
+  const [computeEnv, setComputeEnv] = useState(null)
+  const [envApproving, setEnvApproving] = useState(false)
 
   // Subscribe to decomposition events for real-time updates
   useEventStream({
@@ -122,13 +127,24 @@ function GoalsPage() {
   useEffect(() => { loadGoals() }, [loadGoals])
   useEffect(() => { loadCoherence() }, [loadCoherence])
 
+  const loadComputeEnv = useCallback(async (goalId) => {
+    try {
+      const data = await getComputeEnvironment(goalId)
+      setComputeEnv(data)
+    } catch {
+      setComputeEnv(null)
+    }
+  }, [])
+
   useEffect(() => {
     if (selectedGoal) {
       loadWorkUnits(selectedGoal.goal_id)
+      loadComputeEnv(selectedGoal.goal_id)
     } else {
       setWorkUnits([])
+      setComputeEnv(null)
     }
-  }, [selectedGoal, loadWorkUnits])
+  }, [selectedGoal, loadWorkUnits, loadComputeEnv])
 
   // Handlers
   const handleSelectGoal = useCallback((goal) => {
@@ -207,9 +223,25 @@ function GoalsPage() {
     }
   }, [selectedGoal, loadWorkUnits])
 
+  const handleApproveEnvironment = useCallback(async () => {
+    if (!selectedGoal) return
+    setEnvApproving(true)
+    try {
+      await approveComputeEnvironment(selectedGoal.goal_id)
+      await loadComputeEnv(selectedGoal.goal_id)
+    } catch (err) {
+      console.error('Failed to approve environment:', err)
+    } finally {
+      setEnvApproving(false)
+    }
+  }, [selectedGoal, loadComputeEnv])
+
   const handleRefresh = useCallback(() => {
-    if (selectedGoal) loadWorkUnits(selectedGoal.goal_id)
-  }, [selectedGoal, loadWorkUnits])
+    if (selectedGoal) {
+      loadWorkUnits(selectedGoal.goal_id)
+      loadComputeEnv(selectedGoal.goal_id)
+    }
+  }, [selectedGoal, loadWorkUnits, loadComputeEnv])
 
   // No project
   if (!projectId) {
@@ -287,6 +319,13 @@ function GoalsPage() {
 
               {/* Dependency graph */}
               <DependencyGraph units={workUnits} />
+
+              {/* Compute environment — first-class planning artifact */}
+              <ComputeEnvironmentPanel
+                environment={computeEnv}
+                onApprove={handleApproveEnvironment}
+                approving={envApproving}
+              />
 
               {/* Work unit detail cards */}
               <div className="goals-page-section">

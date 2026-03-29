@@ -26,6 +26,11 @@ from .coherence import (
     InsightSeverity,
     InsightSource,
 )
+from .compute_environment import (
+    ComputeEnvironmentSpec,
+    EnvironmentStatus,
+    RuntimeRequirement,
+)
 
 __all__ = [
     # Core
@@ -55,4 +60,8 @@ __all__ = [
     "InsightType",
     "InsightSeverity",
     "InsightSource",
+    # Compute environment
+    "ComputeEnvironmentSpec",
+    "EnvironmentStatus",
+    "RuntimeRequirement",
 ]

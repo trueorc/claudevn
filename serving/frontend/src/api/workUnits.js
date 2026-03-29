@@ -61,6 +61,16 @@ export async function approveUnit(unitId) {
   return request(`/verification/unit/${unitId}/approve`, { method: 'POST' })
 }
 
+// -- Compute environment --
+
+export async function getComputeEnvironment(goalId) {
+  return request(`/decomposition/${goalId}/environment`)
+}
+
+export async function approveComputeEnvironment(goalId) {
+  return request(`/decomposition/${goalId}/environment/approve`, { method: 'POST' })
+}
+
 // -- Coherence --
 
 export async function getCoherenceInsights(projectId) {

@@ -9,6 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from models.work_unit.compute_environment import EnvironmentStatus
 from services.events.event_bus import get_event_bus
 from services.events.event_types import DecompositionApproved
 
@@ -34,6 +35,24 @@ class WorkUnitResponse(BaseModel):
 class WorkUnitsListResponse(BaseModel):
     work_units: List[WorkUnitResponse] = Field(default_factory=list)
     count: int = 0
+
+
+class RuntimeRequirementResponse(BaseModel):
+    name: str
+    version: Optional[str] = None
+    reason: str = ""
+    install_cmd: Optional[str] = None
+
+
+class ComputeEnvironmentResponse(BaseModel):
+    id: str
+    project_id: str
+    status: str = "proposed"
+    requirements: List[RuntimeRequirementResponse] = Field(default_factory=list)
+    base_image: str = ""
+    dockerfile_content: str = ""
+    work_unit_ids: List[str] = Field(default_factory=list)
+    image_tag: Optional[str] = None
 
 
 class CoherenceInsightResponse(BaseModel):
@@ -84,6 +103,34 @@ async def approve_decomposition(goal_id: str):
         work_unit_ids=[],
     ))
 
+    return {"approved": True, "goal_id": goal_id}
+
+
+@router.get("/{goal_id}/environment", response_model=ComputeEnvironmentResponse)
+async def get_compute_environment(goal_id: str):
+    """Get the compute environment spec for a goal's work units.
+
+    Shows detected runtime requirements, generated Dockerfile, and
+    approval status. This is a first-class artifact of planning —
+    review and approve before execution.
+    """
+    # TODO: wire to environment analyzer + storage
+    return ComputeEnvironmentResponse(
+        id=f"env-{goal_id}",
+        project_id="",
+        status="proposed",
+        requirements=[],
+        dockerfile_content="",
+    )
+
+
+@router.post("/{goal_id}/environment/approve")
+async def approve_environment(goal_id: str):
+    """Approve a compute environment spec for building.
+
+    Human gate — nothing gets built until explicitly approved.
+    """
+    # TODO: wire to environment status update + build trigger
     return {"approved": True, "goal_id": goal_id}
 
 

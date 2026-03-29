@@ -10,6 +10,7 @@ from .boundary_detector import BoundaryDetector, BoundaryAnalysis, IndependenceB
 from .work_unit_builder import WorkUnitBuilder
 from .spec_validator import SpecValidator, SpecValidationResult, ValidationIssue
 from .context_assembler import ContextAssembler
+from .environment_analyzer import EnvironmentAnalyzer
 
 __all__ = [
     # Analysis
@@ -30,4 +31,6 @@ __all__ = [
     "ValidationIssue",
     # Context
     "ContextAssembler",
+    # Environment
+    "EnvironmentAnalyzer",
 ]

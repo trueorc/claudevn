@@ -1,0 +1,214 @@
+.cep-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.cep-panel--needs-action {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.cep-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.cep-header-icon {
+  color: var(--text-muted);
+}
+
+.cep-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.cep-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  margin-left: auto;
+}
+
+.cep-status--proposed { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.cep-status--approved { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.cep-status--building { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+.cep-status--ready { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.cep-status--active { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.cep-status--failed { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }
+
+/* Base image */
+.cep-base {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  font-size: var(--font-size-sm);
+}
+
+.cep-base-label {
+  color: var(--text-muted);
+}
+
+.cep-base-image {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.cep-base-units {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  margin-left: auto;
+}
+
+/* Requirements */
+.cep-requirements {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cep-section-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.cep-req-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cep-req {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  padding: 2px 0;
+}
+
+.cep-req-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cep-req-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.cep-req-version {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.cep-req-reason {
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Dockerfile */
+.cep-dockerfile {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cep-dockerfile-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cep-dockerfile-toggle:hover {
+  color: var(--primary);
+}
+
+.cep-dockerfile-content {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  margin-top: var(--space-xs);
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Image info */
+.cep-image-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cep-image-label {
+  color: var(--text-muted);
+}
+
+.cep-image-tag {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Actions */
+.cep-actions {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cep-approve-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  background: var(--status-online, #22c55e);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.cep-approve-btn:hover {
+  background: color-mix(in srgb, var(--status-online, #22c55e) 85%, black);
+}
+
+.cep-approve-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
