@@ -1,0 +1,159 @@
+.eal-container {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.eal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.eal-header:hover {
+  background: var(--bg-hover);
+}
+
+.eal-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.eal-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.eal-failed-badge {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--status-offline);
+  background: color-mix(in srgb, var(--status-offline) 15%, transparent);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+}
+
+/* Filters */
+.eal-filters {
+  display: flex;
+  gap: 4px;
+  padding: 0 var(--space-md) var(--space-sm);
+}
+
+.eal-filter-btn {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.eal-filter-btn:hover {
+  background: var(--bg-hover);
+}
+
+.eal-filter-btn--active {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Event list */
+.eal-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.eal-empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+}
+
+.eal-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--font-size-xs);
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast);
+}
+
+.eal-row:hover {
+  background: var(--bg-hover);
+}
+
+.eal-row--failed {
+  background: color-mix(in srgb, var(--status-offline) 5%, transparent);
+}
+
+.eal-row--failed:hover {
+  background: color-mix(in srgb, var(--status-offline) 8%, transparent);
+}
+
+.eal-time {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.eal-layer {
+  font-weight: 700;
+  font-size: 10px;
+  min-width: 20px;
+  flex-shrink: 0;
+}
+
+.eal-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.eal-icon--failed {
+  color: var(--status-offline);
+}
+
+.eal-label {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.eal-unit-id {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.eal-goal-id {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.eal-reason {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
