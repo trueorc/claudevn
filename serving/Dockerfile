@@ -46,6 +46,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy serving application
 COPY serving/ .
 
+# Set up local users file from example if not provided
+RUN if [ ! -f users.local ] && [ -f users.local.example ]; then cp users.local.example users.local; fi
+
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 

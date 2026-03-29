@@ -1,12 +1,5 @@
-# ClaudeVN Local Users File
+# ClaudeVN local user credentials (development only)
 # Format: username:password
-# WARNING: This file is for development/testing only. Do NOT use in production.
-#
-# Copy this file to users.local and edit as needed:
-#   cp users.local.example users.local
-#
-# The application reads users.local on startup (read-only).
-# Edit the file and restart to add/remove users.
-matt:password
-jason:password
-mom:password
+# WARNING: Plain text — use Cognito for production
+matt:changeme123
+jason:changeme123

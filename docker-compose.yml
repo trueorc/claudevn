@@ -118,8 +118,9 @@ services:
       - RATE_LIMIT_ENABLED=false
       # Claude authentication credentials path
       - CLAUDE_CREDENTIALS_PATH=/app/data/serving/claude-credentials
-      # Authentication - bypass for local dev (set in .env to override)
-      - AUTH_MODE=${AUTH_MODE:-bypass}
+      # Authentication - local for dev, cognito for production (set in .env)
+      - AUTH_MODE=${AUTH_MODE:-local}
+      - LOCAL_USERS_FILE=users.local
       - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID:-}
       - COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID:-}
       - COGNITO_REGION=${COGNITO_REGION:-us-east-1}
