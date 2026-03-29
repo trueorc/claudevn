@@ -1,0 +1,91 @@
+.ds-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-sm);
+}
+
+@media (max-width: 900px) {
+  .ds-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.ds-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.ds-card--ok {
+  border-color: color-mix(in srgb, var(--status-online) 30%, var(--border));
+}
+
+.ds-card--warn {
+  border-color: color-mix(in srgb, var(--status-degraded) 40%, var(--border));
+}
+
+.ds-card--info {
+  border-color: color-mix(in srgb, var(--primary) 20%, var(--border));
+}
+
+.ds-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
+}
+
+.ds-card--ok .ds-card-header svg { color: var(--status-online); }
+.ds-card--warn .ds-card-header svg { color: var(--status-degraded); }
+.ds-card--info .ds-card-header svg { color: var(--primary); }
+
+.ds-card-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.ds-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-card-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ds-value--ok { color: var(--status-online); }
+.ds-value--warn { color: var(--status-degraded); }
+
+.ds-card-detail {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.ds-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ds-status-pill {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.ds-status--draft { color: var(--text-muted); }
+.ds-status--ready { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ds-status--executing { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ds-status--verified { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.ds-status--completed { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.ds-status--failed_verification { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }

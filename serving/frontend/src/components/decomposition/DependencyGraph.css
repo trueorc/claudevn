@@ -1,0 +1,105 @@
+.dg-container {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.dg-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  color: var(--text-muted);
+}
+
+.dg-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.dg-meta {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.dg-layers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.dg-layer {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+}
+
+.dg-layer-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 60px;
+  padding-top: 4px;
+}
+
+.dg-layer-units {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  flex: 1;
+}
+
+.dg-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+}
+
+.dg-node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dg-node--draft { background: var(--text-muted); }
+.dg-node--ready { background: var(--primary); }
+.dg-node--executing { background: var(--primary); animation: dg-pulse 2s ease-in-out infinite; }
+.dg-node--verified { background: var(--status-online); }
+.dg-node--completed { background: var(--status-online); }
+.dg-node--failed_verification { background: var(--status-offline); }
+
+@keyframes dg-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.dg-node-id {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.dg-node-desc {
+  color: var(--text);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dg-node-deps {
+  color: var(--text-muted);
+  font-style: italic;
+}

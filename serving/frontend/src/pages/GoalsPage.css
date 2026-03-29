@@ -1,0 +1,127 @@
+/* Goals / Decomposition Page */
+.goals-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-lg);
+}
+
+.goals-page-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--space-xl);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.goals-page-main {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  gap: var(--space-lg);
+}
+
+.goals-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-shrink: 0;
+}
+
+.goals-page-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.goals-page-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+/* Actions */
+.goals-page-actions {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.goals-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.goals-action--secondary {
+  color: var(--text-secondary);
+  background: var(--bg);
+}
+
+.goals-action--secondary:hover {
+  background: var(--bg-hover);
+}
+
+.goals-action--approve {
+  color: white;
+  background: var(--status-online, #22c55e);
+  border-color: var(--status-online, #22c55e);
+}
+
+.goals-action--approve:hover {
+  background: color-mix(in srgb, var(--status-online, #22c55e) 85%, black);
+}
+
+.goals-action--approve:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Loading */
+.goals-page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+}
+
+/* Workspace */
+.goals-page-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* Section headers */
+.goals-page-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.goals-page-section-header h2 {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.goals-page-section-count {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+}
