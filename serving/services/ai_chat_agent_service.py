@@ -459,7 +459,7 @@ class AIChatAgentService:
             response = await client.complete(
                 prompt=followup_prompt,
                 system=system_prompt,
-                model=ClaudeModel.SONNET_4.value,
+                model=ClaudeModel.HAIKU_35.value,
                 max_tokens=config.sonnet_max_response_tokens,
                 temperature=0.3,
             )
@@ -592,7 +592,7 @@ class AIChatAgentService:
             response = await client.complete(
                 prompt=eval_prompt,
                 system=system_prompt,
-                model=ClaudeModel.SONNET_4.value,
+                model=ClaudeModel.HAIKU_35.value,
                 max_tokens=config.sonnet_max_response_tokens,
                 temperature=0.3,
             )
