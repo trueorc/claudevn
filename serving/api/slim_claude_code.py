@@ -583,31 +583,31 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
         if goal:
             goal.goal_text_evaluated = True
             goal.completed_at = datetime.now(timezone.utc)
-            goal.decomposition_reasoning = decomposition.reasoning
+            goal.decomposition_reasoning = f"v2.0 pipeline: {len(pipeline_result.work_units)} work units"
             goal.updated_at = datetime.now(timezone.utc)
-
-        if failed_issues:
-            logger.warning(
-                f"Auto-process goal {goal_id}: {len(failed_issues)} of "
-                f"{len(failed_issues) + len(created_issues)} issues failed to create"
-            )
 
         # Add system comment documenting results
         try:
             comment_service = get_goal_comment_service()
             characterized_count = len(characterization_map)
+            # Build step summary for comment
+            step_summary = ", ".join(
+                f"{s['name']}={s['status']}" for s in pipeline_result.to_dict().get("steps", [])
+            )
             comment_lines = [
-                f"**Decomposition complete** (confidence: {decomposition.confidence:.0%})",
+                f"**v2.0 Decomposition complete** — {len(pipeline_result.work_units)} work units",
                 "",
-                f"{decomposition.reasoning}",
+                f"Pipeline steps: {step_summary}",
                 "",
-                f"**{len(created_issues)} issues created** "
-                f"({ready_count} ready, {backlog_count} backlog, "
-                f"{characterized_count} characterized):",
+                f"**{len(created_issues)} backlog issues created:**",
             ]
             for item in created_issues:
                 status_label = item["status"].upper()
                 comment_lines.append(f"- [{status_label}] {item['title']}")
+
+            if pipeline_result.environment:
+                comment_lines.append("")
+                comment_lines.append(f"**Compute environment:** {pipeline_result.environment.base_image} ({len(pipeline_result.environment.requirements)} requirements)")
 
             comment_request = GoalCommentCreateRequest(
                 content="\n".join(comment_lines),
@@ -617,24 +617,22 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
         except Exception as e:
             logger.warning(f"Failed to add system comment to goal {goal_id}: {e}")
 
-        # Stage: COMPLETE — store result for the status endpoint
+        # Stage: COMPLETE
         result = AutoProcessResponse(
             success=True,
             goal_id=goal_id,
-            decomposition_id=decomposition.decomposition_id,
+            decomposition_id=decomposition_id,
             created_issues=created_issues,
-            ready_count=ready_count,
-            backlog_count=backlog_count,
-            confidence=decomposition.confidence,
-            reasoning=decomposition.reasoning,
+            ready_count=len(created_issues),
+            backlog_count=0,
+            confidence=0.0,
+            reasoning=f"v2.0 pipeline: {len(pipeline_result.work_units)} work units",
         )
         await _set_processing_status(goal_id, ProcessingStage.COMPLETE, result=result)
 
         logger.info(
-            f"Auto-processed goal {goal_id}: created {len(created_issues)} issues "
-            f"(ready={ready_count}, backlog={backlog_count}, "
-            f"failed={len(failed_issues)}, "
-            f"confidence={decomposition.confidence:.2f})"
+            f"Auto-processed goal {goal_id}: {len(pipeline_result.work_units)} work units, "
+            f"{len(created_issues)} issues created"
         )
 
     except DecompositionTimeoutError as e:
