@@ -70,6 +70,11 @@ from api import timing
 from api import conversation
 from api import presence
 from api import releases
+# v2.0 API routes
+from api import v2_events
+from api import v2_decomposition
+from api import v2_verification
+from api import v2_dispatch
 # MCP server for compute communication
 from mcp import get_router
 # Marketplace HTTP client (marketplace is a separate service on port 8003)
@@ -1186,6 +1191,12 @@ app.include_router(conflicts.router, prefix=api_prefix)
 app.include_router(plan_summary.router, prefix=api_prefix)
 # v2.0: removed — app.include_router(profile_presets.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
+
+# v2.0 API routes
+app.include_router(v2_events.router, prefix=api_prefix)
+app.include_router(v2_decomposition.router, prefix=api_prefix)
+app.include_router(v2_verification.router, prefix=api_prefix)
+app.include_router(v2_dispatch.router, prefix=api_prefix)
 app.include_router(unified_directives.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
 app.include_router(users.router, prefix=api_prefix)
