@@ -21,6 +21,16 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+ensure_base_image() {
+    # Build the compute base image if it doesn't exist
+    if ! docker image inspect claudevn-compute-base > /dev/null 2>&1; then
+        echo -e "${CYAN}Building compute base image...${NC}"
+        local project_root="$(dirname "$SCRIPT_DIR")"
+        docker build -t claudevn-compute-base -f "$project_root/compute/Dockerfile" "$project_root"
+        echo -e "${GREEN}Base image built: claudevn-compute-base${NC}"
+    fi
+}
+
 start_project() {
     local project_dir="$1"
     local project_name=$(basename "$project_dir")
@@ -71,6 +81,8 @@ start_project() {
 }
 
 # Main
+ensure_base_image
+
 if [ -n "$1" ]; then
     # Specific project
     if [ ! -d "$SCRIPT_DIR/$1" ]; then
