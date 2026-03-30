@@ -1,0 +1,210 @@
+.cp {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.cp.cp-level--green { border-color: color-mix(in srgb, var(--status-online) 30%, var(--border)); }
+.cp.cp-level--yellow { border-color: color-mix(in srgb, var(--status-degraded) 40%, var(--border)); }
+.cp.cp-level--red { border-color: color-mix(in srgb, var(--status-offline) 40%, var(--border)); }
+
+/* Header */
+.cp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cp-traffic-light {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.cp-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.cp-light--green { background: var(--status-online); box-shadow: 0 0 6px color-mix(in srgb, var(--status-online) 40%, transparent); }
+.cp-light--yellow { background: var(--status-degraded); box-shadow: 0 0 6px color-mix(in srgb, var(--status-degraded) 40%, transparent); }
+.cp-light--red { background: var(--status-offline); box-shadow: 0 0 6px color-mix(in srgb, var(--status-offline) 40%, transparent); }
+
+.cp-score-group {
+  display: flex;
+  align-items: baseline;
+}
+
+.cp-score {
+  font-size: var(--font-size-xl, 1.5rem);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cp-score-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.cp-level-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.cp-icon {
+  color: var(--text-muted);
+}
+
+/* Factor breakdown */
+.cp-factors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cp-factor-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.cp-factor-header:hover {
+  color: var(--text);
+}
+
+.cp-factor-name {
+  min-width: 130px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.cp-factor-bar-container {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cp-factor-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.cp-bar--good { background: var(--status-online); }
+.cp-bar--ok { background: color-mix(in srgb, var(--status-online) 60%, var(--status-degraded)); }
+.cp-bar--warn { background: var(--status-degraded); }
+.cp-bar--bad { background: var(--status-offline); }
+
+.cp-factor-score {
+  font-weight: 600;
+  font-family: var(--font-mono);
+  min-width: 24px;
+  text-align: right;
+}
+
+.cp-factor-weight {
+  color: var(--text-muted);
+  min-width: 28px;
+  text-align: right;
+}
+
+.cp-factor-detail {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  padding: 0 0 var(--space-xs) 130px;
+  margin-left: var(--space-sm);
+}
+
+/* Recommendations */
+.cp-recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-sm);
+}
+
+.cp-rec-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.cp-rec {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+}
+
+.cp-rec--split { background: color-mix(in srgb, var(--status-degraded) 5%, transparent); color: var(--status-degraded); }
+.cp-rec--merge { background: color-mix(in srgb, var(--primary) 5%, transparent); color: var(--primary); }
+
+.cp-rec svg { flex-shrink: 0; margin-top: 1px; }
+
+.cp-rec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cp-rec-reason {
+  color: var(--text-secondary);
+}
+
+.cp-rec-units {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Score badge for WorkUnitCard */
+.cp-badge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.cp-badge--good { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.cp-badge--ok { color: color-mix(in srgb, var(--status-online) 60%, var(--status-degraded)); background: color-mix(in srgb, var(--status-online) 5%, transparent); }
+.cp-badge--warn { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+.cp-badge--bad { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }
+
+/* ConfidenceMiniIndicator — tiny dot for sidebar */
+.cmi {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cmi--green { background: var(--status-online); }
+.cmi--yellow { background: var(--status-degraded); }
+.cmi--red { background: var(--status-offline); }

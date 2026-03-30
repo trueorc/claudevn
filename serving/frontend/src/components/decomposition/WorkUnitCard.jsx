@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, FileCode, GitBranch, AlertTriangle, CheckCircle2, Shield, ArrowUpRight, ArrowDownLeft, Target, Gauge } from 'lucide-react'
+import { ScoreBadge } from './ConfidencePanel'
 import './WorkUnitCard.css'
 
 const STATUS_CONFIG = {
@@ -13,7 +14,7 @@ const STATUS_CONFIG = {
   failed_verification: { label: 'Failed', className: 'wuc-status--failed' },
 }
 
-export default function WorkUnitCard({ unit, allUnits = [], onSelect }) {
+export default function WorkUnitCard({ unit, allUnits = [], unitScores = {}, onSelect }) {
   const [expanded, setExpanded] = useState(false)
   const statusInfo = STATUS_CONFIG[unit.status] || STATUS_CONFIG.draft
   const hasOverlap = unit.independence?.shares_files_with?.length > 0
@@ -30,6 +31,7 @@ export default function WorkUnitCard({ unit, allUnits = [], onSelect }) {
             {unit.estimated_complexity.toUpperCase()}
           </span>
         )}
+        <ScoreBadge score={unitScores[unit.id]} />
         <span className={`wuc-status ${statusInfo.className}`}>{statusInfo.label}</span>
       </button>
 

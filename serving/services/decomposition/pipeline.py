@@ -29,11 +29,17 @@ from services.events.event_bus import get_event_bus
 from services.events.event_types import (
     DecompositionStarted,
     DecompositionUpdated,
+    DecompositionCompleted,
+    DecompositionStepStarted,
+    DecompositionStepCompleted,
+    DecompositionStepFailed,
 )
 from .goal_analyzer import GoalAnalyzer
 from .work_unit_builder import WorkUnitBuilder
 from .spec_validator import SpecValidator
 from .environment_analyzer import EnvironmentAnalyzer
+from .quality_scorer import QualityScorer
+from .chain_analyzer import ChainAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +87,8 @@ class PipelineResult:
         self.work_units: List[WorkUnit] = []
         self.environment: Optional[ComputeEnvironmentSpec] = None
         self.validation_issues: List[dict] = []
+        self.quality_scores: Optional[dict] = None
+        self.chain_analysis: Optional[dict] = None
         self.success = False
         self.error = ""
 
@@ -94,6 +102,8 @@ class PipelineResult:
             ],
             "environment": json.loads(self.environment.model_dump_json()) if self.environment else None,
             "validation_issues": self.validation_issues,
+            "quality_scores": self.quality_scores,
+            "chain_analysis": self.chain_analysis,
             "success": self.success,
             "error": self.error,
         }
@@ -107,8 +117,10 @@ class DecompositionPipeline:
     1. llm_decompose — Claude breaks goal into structured units
     2. codebase_analysis — static analysis of the repo
     3. build_work_units — formal spec construction
-    4. validate — independence checking, cycle detection
-    5. analyze_environment — detect runtime requirements, generate Dockerfile
+    4. resolve_dependencies — map description-based deps to unit IDs
+    5. validate — independence checking, cycle detection
+    6. score_quality — per-unit scores + overall confidence
+    7. analyze_environment — detect runtime requirements, generate Dockerfile
     """
 
     def __init__(self, repo_path: str = "."):
@@ -150,12 +162,14 @@ class DecompositionPipeline:
         step1 = PipelineStep("llm_decompose")
         result.steps.append(step1)
         step1.start()
+        await self._emit_step_started(project_id, goal_id, step1)
         try:
             raw_units = await self._llm_decompose(goal_id, goal_text, project_context, existing_issues, conversation_comments)
             step1.complete(f"{len(raw_units)} units from LLM")
-            logger.info(f"Pipeline step 1 complete: {len(raw_units)} raw units for {goal_id}")
+            await self._emit_step_completed(project_id, goal_id, step1)
         except Exception as e:
             step1.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step1)
             result.error = f"LLM decomposition failed: {e}"
             logger.error(f"Pipeline step 1 failed for {goal_id}: {e}")
             await self._emit_update(project_id, goal_id, [], "failed")
@@ -165,14 +179,15 @@ class DecompositionPipeline:
         step2 = PipelineStep("codebase_analysis")
         result.steps.append(step2)
         step2.start()
+        await self._emit_step_started(project_id, goal_id, step2)
         try:
             analyzer = GoalAnalyzer(self._repo_path)
             codebase = await analyzer.analyze(max_files=2000)
             step2.complete(f"{codebase.total_files} files, {len(codebase.modules)} modules")
-            logger.info(f"Pipeline step 2 complete: {codebase.total_files} files analyzed for {goal_id}")
+            await self._emit_step_completed(project_id, goal_id, step2)
         except Exception as e:
             step2.fail(str(e))
-            # Non-fatal — continue with empty codebase
+            await self._emit_step_failed(project_id, goal_id, step2)
             codebase = None
             logger.warning(f"Pipeline step 2 failed (non-fatal) for {goal_id}: {e}")
 
@@ -180,6 +195,7 @@ class DecompositionPipeline:
         step3 = PipelineStep("build_work_units")
         result.steps.append(step3)
         step3.start()
+        await self._emit_step_started(project_id, goal_id, step3)
         try:
             from .goal_analyzer import CodebaseAnalysis
             builder = WorkUnitBuilder(codebase or CodebaseAnalysis())
@@ -188,27 +204,38 @@ class DecompositionPipeline:
                 goal_id=goal_id,
                 units_data=raw_units,
             )
-
-            # Resolve description-based depends_on to unit IDs
-            # (LLM returns dependency descriptions, not IDs)
-            self._resolve_dependencies(work_units, raw_units)
-
             result.work_units = work_units
             step3.complete(f"{len(work_units)} work units built")
-            logger.info(f"Pipeline step 3 complete: {len(work_units)} work units for {goal_id}")
-
+            await self._emit_step_completed(project_id, goal_id, step3)
             await self._emit_update(project_id, goal_id, [wu.id for wu in work_units], "created")
         except Exception as e:
             step3.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step3)
             result.error = f"Work unit building failed: {e}"
             logger.error(f"Pipeline step 3 failed for {goal_id}: {e}")
             await self._emit_update(project_id, goal_id, [], "failed")
             return result
 
-        # Step 4: Validate
-        step4 = PipelineStep("validate")
+        # Step 4: Resolve dependencies
+        step4 = PipelineStep("resolve_dependencies")
         result.steps.append(step4)
         step4.start()
+        await self._emit_step_started(project_id, goal_id, step4)
+        try:
+            self._resolve_dependencies(work_units, raw_units)
+            total_deps = sum(len(wu.independence.depends_on) for wu in work_units)
+            step4.complete(f"{total_deps} dependencies resolved")
+            await self._emit_step_completed(project_id, goal_id, step4)
+        except Exception as e:
+            step4.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step4)
+            logger.warning(f"Pipeline step 4 failed (non-fatal) for {goal_id}: {e}")
+
+        # Step 5: Validate
+        step5 = PipelineStep("validate")
+        result.steps.append(step5)
+        step5.start()
+        await self._emit_step_started(project_id, goal_id, step5)
         try:
             validator = SpecValidator(repo_path=self._repo_path)
             validation = validator.validate(work_units)
@@ -217,18 +244,46 @@ class DecompositionPipeline:
                 for i in validation.issues
             ]
             if validation.valid:
-                step4.complete(f"Valid — {len(validation.warnings)} warnings")
+                step5.complete(f"Valid — {len(validation.warnings)} warnings")
             else:
-                step4.complete(f"{len(validation.errors)} errors, {len(validation.warnings)} warnings")
-            logger.info(f"Pipeline step 4 complete: valid={validation.valid} for {goal_id}")
+                step5.complete(f"{len(validation.errors)} errors, {len(validation.warnings)} warnings")
+            await self._emit_step_completed(project_id, goal_id, step5)
         except Exception as e:
-            step4.fail(str(e))
-            logger.warning(f"Pipeline step 4 failed (non-fatal) for {goal_id}: {e}")
+            step5.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step5)
+            logger.warning(f"Pipeline step 5 failed (non-fatal) for {goal_id}: {e}")
 
-        # Step 5: Environment analysis
-        step5 = PipelineStep("analyze_environment")
-        result.steps.append(step5)
-        step5.start()
+        # Step 6: Quality scoring + chain analysis
+        step6 = PipelineStep("score_quality")
+        result.steps.append(step6)
+        step6.start()
+        await self._emit_step_started(project_id, goal_id, step6)
+        try:
+            scorer = QualityScorer()
+            confidence = scorer.score(work_units, result.validation_issues)
+            result.quality_scores = json.loads(confidence.model_dump_json())
+
+            # Chain analysis (fast — runs inline with scoring)
+            chain_analyzer = ChainAnalyzer()
+            unit_map = {u.id: u for u in work_units}
+            chains = chain_analyzer.analyze(work_units)
+            result.chain_analysis = chains.to_dict(unit_map)
+
+            step6.complete(
+                f"Confidence: {confidence.score}/100 ({confidence.level.value}), "
+                f"{chains.to_dict()['total_chains']} chains"
+            )
+            await self._emit_step_completed(project_id, goal_id, step6)
+        except Exception as e:
+            step6.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step6)
+            logger.warning(f"Pipeline step 6 failed (non-fatal) for {goal_id}: {e}")
+
+        # Step 7: Environment analysis
+        step7 = PipelineStep("analyze_environment")
+        result.steps.append(step7)
+        step7.start()
+        await self._emit_step_started(project_id, goal_id, step7)
         try:
             env_analyzer = EnvironmentAnalyzer(self._repo_path)
             environment = env_analyzer.analyze(
@@ -238,13 +293,15 @@ class DecompositionPipeline:
                 spec_id=f"env-{goal_id}",
             )
             result.environment = environment
-            step5.complete(f"Base: {environment.base_image}, {len(environment.requirements)} requirements")
-            logger.info(f"Pipeline step 5 complete: {len(environment.requirements)} requirements for {goal_id}")
+            step7.complete(f"Base: {environment.base_image}, {len(environment.requirements)} requirements")
+            await self._emit_step_completed(project_id, goal_id, step7)
         except Exception as e:
-            step5.fail(str(e))
-            logger.warning(f"Pipeline step 5 failed (non-fatal) for {goal_id}: {e}")
+            step7.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step7)
+            logger.warning(f"Pipeline step 7 failed (non-fatal) for {goal_id}: {e}")
 
         result.success = True
+        await self._emit_completed(project_id, goal_id, result)
         logger.info(f"Decomposition pipeline complete for {goal_id}: {len(result.work_units)} work units")
         return result
 
@@ -421,6 +478,46 @@ Rules:
                     dep_unit = unit_map[dep_id]
                     if wu.id not in dep_unit.independence.depended_by:
                         dep_unit.independence.depended_by.append(wu.id)
+
+    async def _emit_step_started(self, project_id: str, goal_id: str, step: PipelineStep):
+        """Emit a step_started event."""
+        await self._bus.publish(DecompositionStepStarted(
+            project_id=project_id,
+            goal_id=goal_id,
+            step_name=step.name,
+        ))
+
+    async def _emit_step_completed(self, project_id: str, goal_id: str, step: PipelineStep):
+        """Emit a step_completed event."""
+        duration = step.to_dict().get("duration_ms") or 0
+        await self._bus.publish(DecompositionStepCompleted(
+            project_id=project_id,
+            goal_id=goal_id,
+            step_name=step.name,
+            duration_ms=duration,
+            detail=step.detail,
+        ))
+
+    async def _emit_step_failed(self, project_id: str, goal_id: str, step: PipelineStep):
+        """Emit a step_failed event."""
+        await self._bus.publish(DecompositionStepFailed(
+            project_id=project_id,
+            goal_id=goal_id,
+            step_name=step.name,
+            error=step.error,
+        ))
+
+    async def _emit_completed(self, project_id: str, goal_id: str, result: 'PipelineResult'):
+        """Emit a decomposition.completed event."""
+        scores = result.quality_scores or {}
+        await self._bus.publish(DecompositionCompleted(
+            project_id=project_id,
+            goal_id=goal_id,
+            work_unit_count=len(result.work_units),
+            confidence_score=scores.get("score"),
+            confidence_level=scores.get("level"),
+            success=result.success,
+        ))
 
     async def _emit_update(self, project_id: str, goal_id: str, unit_ids: List[str], change_type: str):
         """Emit a decomposition update event."""

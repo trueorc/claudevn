@@ -12,6 +12,11 @@ from pydantic import BaseModel, Field
 from services.events.event_bus import get_event_bus
 from services.events.event_types import DecompositionApproved
 
+
+async def _get_redis():
+    from git.redis_client import get_redis
+    return await get_redis()
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/decomposition", tags=["decomposition"])
@@ -53,15 +58,178 @@ async def get_pipeline_status(goal_id: str):
 
 @router.post("/{goal_id}/approve")
 async def approve_decomposition(goal_id: str):
-    """Approve a decomposition — transition work units from draft to ready."""
+    """Approve a decomposition — transition work units from draft to ready.
+
+    Updates all draft work units to ready status in Redis,
+    then publishes a DecompositionApproved event.
+    """
+    from services.decomposition.storage import (
+        get_work_units,
+        get_pipeline_result,
+    )
+    import json as _json
+
     project_id = await _resolve_project_id(goal_id)
+
+    # Load and update work units
+    units = await get_work_units(project_id, goal_id)
+    if not units:
+        raise HTTPException(status_code=404, detail="No work units found for this goal")
+
+    approved_ids = []
+    for u in units:
+        if u.get("status") == "draft":
+            u["status"] = "ready"
+            approved_ids.append(u.get("id", ""))
+
+    if not approved_ids:
+        return {"approved": True, "goal_id": goal_id, "transitioned": 0, "message": "No draft units to approve"}
+
+    # Save updated work units back to Redis
+    redis = await _get_redis()
+    wu_key = f"claudevn:v2:work_units:{project_id}:{goal_id}"
+    await redis.set(wu_key, _json.dumps(units))
+
+    # Also update the pipeline result's work_units
+    pipeline_key = f"claudevn:v2:pipeline:{project_id}:{goal_id}"
+    pipeline_raw = await redis.get(pipeline_key)
+    if pipeline_raw:
+        pipeline = _json.loads(pipeline_raw)
+        for wu in pipeline.get("work_units", []):
+            if wu.get("id") in approved_ids:
+                wu["status"] = "ready"
+        await redis.set(pipeline_key, _json.dumps(pipeline))
+
+    # Publish event
     bus = get_event_bus()
     await bus.publish(DecompositionApproved(
         project_id=project_id,
         goal_id=goal_id,
-        work_unit_ids=[],
+        work_unit_ids=approved_ids,
     ))
-    return {"approved": True, "goal_id": goal_id}
+
+    logger.info(f"Approved decomposition for {goal_id}: {len(approved_ids)} units transitioned draft → ready")
+    return {"approved": True, "goal_id": goal_id, "transitioned": len(approved_ids)}
+
+
+class RecomposeRequest(BaseModel):
+    """Request body for recomposition."""
+    refinement: str = Field(..., description="What to change (e.g., 'split the frontend unit')")
+    context: Optional[str] = Field(default=None, description="Additional context for the refinement")
+
+
+@router.post("/{goal_id}/recompose")
+async def trigger_recomposition(goal_id: str, body: RecomposeRequest):
+    """Trigger a supplemental decomposition pass with refinement context.
+
+    Re-runs the pipeline with the existing decomposition as reference
+    plus the specific refinement request. This is not a fresh decomposition —
+    the LLM sees what exists and adjusts.
+    """
+    from services.decomposition.pipeline import DecompositionPipeline
+    from services.decomposition.storage import (
+        get_pipeline_result,
+        get_work_units,
+        store_pipeline_result,
+    )
+
+    project_id = await _resolve_project_id(goal_id)
+
+    # Get existing decomposition for context
+    existing_result = await get_pipeline_result(project_id, goal_id)
+    existing_units = await get_work_units(project_id, goal_id)
+
+    # Get the goal
+    try:
+        from services.work_map_service import get_work_map_service
+        wm = get_work_map_service()
+        goal = await wm.get_goal(goal_id)
+        if not goal:
+            raise HTTPException(status_code=404, detail="Goal not found")
+        goal_text = goal.description
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not load goal: {e}")
+
+    # Build recomposition context as a conversation comment
+    recompose_context = [
+        {"content": f"REFINEMENT REQUEST: {body.refinement}"},
+    ]
+    if body.context:
+        recompose_context.append({"content": f"Additional context: {body.context}"})
+
+    # Include existing decomposition as context
+    if existing_units:
+        unit_summary = "\n".join(
+            f"- [{u.get('id', '?')}] {u.get('description', '')} "
+            f"(files: {', '.join(u.get('formal_spec', {}).get('target_files', [])[:3])})"
+            for u in existing_units[:10]
+        )
+        recompose_context.append({
+            "content": f"EXISTING DECOMPOSITION (adjust, don't start from scratch):\n{unit_summary}"
+        })
+
+    # Re-run pipeline
+    pipeline = DecompositionPipeline(repo_path=".")
+    result = await pipeline.run(
+        goal_id=goal_id,
+        project_id=project_id,
+        goal_text=goal_text,
+        conversation_comments=recompose_context,
+    )
+
+    # Store updated result
+    await store_pipeline_result(
+        project_id=project_id,
+        goal_id=goal_id,
+        result_dict=result.to_dict(),
+    )
+
+    # Emit update event
+    bus = get_event_bus()
+    from services.events.event_types import DecompositionUpdated
+    await bus.publish(DecompositionUpdated(
+        project_id=project_id,
+        goal_id=goal_id,
+        work_unit_ids=[wu.id for wu in result.work_units],
+        change_type="recomposed",
+    ))
+
+    return {
+        "success": result.success,
+        "work_unit_count": len(result.work_units),
+        "refinement": body.refinement,
+        "quality_scores": result.quality_scores,
+    }
+
+
+@router.get("/{goal_id}/scores")
+async def get_quality_scores(goal_id: str):
+    """Get quality scores and confidence for a goal's decomposition."""
+    from services.decomposition.storage import get_pipeline_result
+    project_id = await _resolve_project_id(goal_id)
+    result = await get_pipeline_result(project_id, goal_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="No pipeline result found")
+    scores = result.get("quality_scores")
+    if not scores:
+        return {"score": 0, "level": "red", "factors": [], "unit_scores": [], "recommendations": []}
+    return scores
+
+
+@router.get("/{goal_id}/chains")
+async def get_dependency_chains(goal_id: str):
+    """Get dependency chain analysis for a goal's decomposition."""
+    from services.decomposition.storage import get_pipeline_result
+    project_id = await _resolve_project_id(goal_id)
+    result = await get_pipeline_result(project_id, goal_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="No pipeline result found")
+    chains = result.get("chain_analysis")
+    if not chains:
+        return {"chains": [], "critical_path_id": None, "parallel_groups": [], "max_depth": 0, "total_chains": 0}
+    return chains
 
 
 @router.get("/{goal_id}/environment")
@@ -149,4 +317,72 @@ async def approve_environment(goal_id: str):
 @router.get("/coherence/{project_id}")
 async def get_coherence_insights(project_id: str):
     """Get goal coherence analysis for a project."""
-    return {"insights": [], "goals_analyzed": 0}
+    from services.decomposition.storage import get_coherence
+    result = await get_coherence(project_id)
+    if not result:
+        return {"insights": [], "goals_analyzed": 0}
+    return result
+
+
+@router.post("/coherence/{project_id}/analyze")
+async def trigger_coherence_analysis(project_id: str):
+    """Trigger coherence analysis across all goals for a project.
+
+    Collects all goals and their work units, runs LLM analysis,
+    stores results, and emits an event.
+    """
+    from services.decomposition.coherence_analyzer import CoherenceAnalyzer
+    from services.decomposition.storage import (
+        get_project_goals,
+        get_work_units,
+        store_coherence,
+    )
+
+    # Collect goals
+    try:
+        from services.work_map_service import get_work_map_service
+        wm = get_work_map_service()
+        goal_list = await wm.list_goals(project_id=project_id)
+        goals_data = goal_list.goals if hasattr(goal_list, 'goals') else []
+        goals = [
+            {
+                "goal_id": g.goal_id,
+                "title": getattr(g, 'title', '') or getattr(g, 'description', '')[:80],
+                "description": getattr(g, 'description', ''),
+            }
+            for g in goals_data
+        ]
+    except Exception as e:
+        logger.warning(f"Could not load goals for coherence: {e}")
+        goals = []
+
+    if len(goals) < 2:
+        return {"insights": [], "goals_analyzed": len(goals), "message": "Need at least 2 goals"}
+
+    # Collect work units per goal
+    goal_ids = await get_project_goals(project_id)
+    work_units_by_goal = {}
+    for gid in goal_ids:
+        units = await get_work_units(project_id, gid)
+        if units:
+            work_units_by_goal[gid] = units
+
+    # Run analysis
+    analyzer = CoherenceAnalyzer()
+    analysis = await analyzer.analyze(project_id, goals, work_units_by_goal)
+
+    # Store results
+    import json
+    analysis_dict = json.loads(analysis.model_dump_json())
+    await store_coherence(project_id, analysis_dict)
+
+    # Emit event
+    bus = get_event_bus()
+    from services.events.event_types import CoherenceUpdated
+    await bus.publish(CoherenceUpdated(
+        project_id=project_id,
+        insight_count=len(analysis.insights),
+        goals_analyzed=analysis.goals_analyzed,
+    ))
+
+    return analysis_dict

@@ -1,0 +1,92 @@
+.dab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.dab-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dab-back:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.dab-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dab-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.dab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dab-btn--secondary {
+  color: var(--text-secondary);
+  background: var(--bg);
+}
+
+.dab-btn--secondary:hover {
+  background: var(--bg-hover);
+}
+
+.dab-btn--approve {
+  color: white;
+  background: var(--status-online);
+  border-color: var(--status-online);
+  padding: 10px 20px;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.dab-btn--approve:hover {
+  background: color-mix(in srgb, var(--status-online) 85%, black);
+}
+
+.dab-btn--approve:disabled,
+.dab-btn--secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -891,6 +891,17 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to start work dispatcher: {e}. Falling back to polling-only dispatch.")
 
     # =========================================================================
+    # OPTIONAL: Decomposition Event Handlers
+    # Registers handlers for auto-coherence analysis on decomposition changes.
+    # =========================================================================
+    try:
+        from services.decomposition.event_handlers import register_decomposition_handlers
+        register_decomposition_handlers()
+        logger.info("Decomposition event handlers registered")
+    except Exception as e:
+        logger.warning(f"Failed to register decomposition event handlers: {e}")
+
+    # =========================================================================
     # OPTIONAL: System Integrity Monitor
     # Active agent (60s sweep) that detects cross-cutting state machine
     # inconsistencies (merged but un-finalized work, stuck issues/goals,

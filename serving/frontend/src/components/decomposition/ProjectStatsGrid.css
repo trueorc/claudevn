@@ -1,0 +1,78 @@
+.psg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-sm);
+}
+
+@media (max-width: 900px) {
+  .psg-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.psg-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.psg-card--green { border-color: color-mix(in srgb, var(--status-online) 30%, var(--border)); }
+.psg-card--yellow { border-color: color-mix(in srgb, var(--status-degraded) 40%, var(--border)); }
+.psg-card--red { border-color: color-mix(in srgb, var(--status-offline) 40%, var(--border)); }
+
+.psg-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
+  color: var(--text-muted);
+}
+
+.psg-card-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.psg-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.psg-card-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.psg-value--green { color: var(--status-online); }
+.psg-value--yellow { color: var(--status-degraded); }
+.psg-value--red { color: var(--status-offline); }
+
+.psg-card-detail {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.psg-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.psg-pill {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.psg-pill--draft { color: var(--text-muted); }
+.psg-pill--ready { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.psg-pill--executing { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.psg-pill--completed { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }

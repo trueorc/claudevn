@@ -7,7 +7,7 @@ import './WorkUnitList.css'
  * Shown alongside the AI chat in the decomposition page.
  * Includes independence audit summary at the top.
  */
-export default function WorkUnitList({ units = [], onSelectUnit }) {
+export default function WorkUnitList({ units = [], unitScores = {}, onSelectUnit }) {
   if (units.length === 0) return null
 
   const overlaps = units.filter(u => u.independence?.shares_files_with?.length > 0)
@@ -39,6 +39,7 @@ export default function WorkUnitList({ units = [], onSelectUnit }) {
             key={unit.id}
             unit={unit}
             allUnits={units}
+            unitScores={unitScores}
             onSelect={onSelectUnit}
           />
         ))}

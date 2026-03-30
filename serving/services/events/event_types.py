@@ -51,6 +51,48 @@ class DecompositionApproved(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class DecompositionStepStarted(BaseModel):
+    """A pipeline step has started."""
+    event: str = "decomposition.step_started"
+    project_id: str
+    goal_id: str
+    step_name: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DecompositionStepCompleted(BaseModel):
+    """A pipeline step has completed."""
+    event: str = "decomposition.step_completed"
+    project_id: str
+    goal_id: str
+    step_name: str
+    duration_ms: int
+    detail: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DecompositionStepFailed(BaseModel):
+    """A pipeline step has failed."""
+    event: str = "decomposition.step_failed"
+    project_id: str
+    goal_id: str
+    step_name: str
+    error: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DecompositionCompleted(BaseModel):
+    """Decomposition pipeline finished — all steps done, work units ready for review."""
+    event: str = "decomposition.completed"
+    project_id: str
+    goal_id: str
+    work_unit_count: int
+    confidence_score: Optional[int] = None
+    confidence_level: Optional[str] = None
+    success: bool = True
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class DecompositionFeedback(BaseModel):
     """Verification sent feedback to decomposition (e.g., scope violation)."""
     event: str = "decomposition.feedback"
@@ -59,6 +101,17 @@ class DecompositionFeedback(BaseModel):
     work_unit_id: str
     feedback_type: str = Field(description="scope_violation | interface_mismatch | gap_detected")
     details: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# -- Coherence events --
+
+class CoherenceUpdated(BaseModel):
+    """Coherence analysis completed for a project."""
+    event: str = "coherence.updated"
+    project_id: str
+    insight_count: int
+    goals_analyzed: int
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -175,6 +228,9 @@ class PresenceChanged(BaseModel):
 # Union type for event routing
 Event = (
     DecompositionStarted | DecompositionUpdated | DecompositionApproved | DecompositionFeedback |
+    DecompositionStepStarted | DecompositionStepCompleted | DecompositionStepFailed |
+    DecompositionCompleted |
+    CoherenceUpdated |
     ExecutionQueued | ExecutionStarted | ExecutionCompleted | ExecutionFailed |
     VerificationStarted | VerificationCompleted | VerificationFailed | IntegrationConflict |
     SystemHealth | PresenceChanged

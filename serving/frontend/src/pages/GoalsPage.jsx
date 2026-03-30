@@ -1,28 +1,36 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FolderOpen, CheckCircle2, XCircle, GitBranch, Scissors, Merge, RefreshCw } from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
-import { getWorkUnits, getPipelineStatus, approveDecomposition, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
+import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
+import useProjectDecompositionSummary, { computeAttentionItems } from '../hooks/useProjectDecompositionSummary'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
 import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog'
-import DecompositionSummary from '../components/decomposition/DecompositionSummary'
-import CoherencePanel from '../components/decomposition/CoherencePanel'
-import DependencyGraph from '../components/decomposition/DependencyGraph'
-import ComputeEnvironmentPanel from '../components/decomposition/ComputeEnvironmentPanel'
-import PipelineStatus from '../components/decomposition/PipelineStatus'
-import WorkUnitList from '../components/decomposition/WorkUnitList'
+import ProjectOverview from '../components/decomposition/ProjectOverview'
+import DirectiveDetail from '../components/decomposition/DirectiveDetail'
 import EmptyState from '../components/common/EmptyState'
-import Spinner from '../components/common/Spinner'
 import { PageSubtitle } from '../components/common/InlineHint'
 import '../components/goals/Goals.css'
 import './GoalsPage.css'
+
+function buildUnitScoreMap(qualityScores) {
+  if (!qualityScores?.unit_scores) return {}
+  const map = {}
+  for (const us of qualityScores.unit_scores) {
+    map[us.unit_id] = us.score
+  }
+  return map
+}
 
 function GoalsPage() {
   const { activeProject } = useProjectContext()
   const projectId = activeProject?.project_id || null
   const { setActiveGoal, clearActiveGoal } = useConversationContext()
+
+  // View mode: project overview (default) or directive detail
+  const [viewMode, setViewMode] = useState('project') // 'project' | 'directive'
 
   // Goal list
   const [goals, setGoals] = useState([])
@@ -38,36 +46,58 @@ function GoalsPage() {
     return stored === 'true'
   })
 
-  // Work units for selected goal
+  // Selected directive detail state
   const [workUnits, setWorkUnits] = useState([])
   const [workUnitsLoading, setWorkUnitsLoading] = useState(false)
   const [approving, setApproving] = useState(false)
+  const [recomposing, setRecomposing] = useState(false)
+  const [pipelineData, setPipelineData] = useState(null)
+  const [qualityScores, setQualityScores] = useState(null)
+  const [chainAnalysis, setChainAnalysis] = useState(null)
 
-  // Coherence analysis across all goals
+  // Project-level state
   const [coherenceInsights, setCoherenceInsights] = useState([])
   const [coherenceLoading, setCoherenceLoading] = useState(false)
-
-  // Pipeline status and compute environment for selected goal
-  const [pipelineData, setPipelineData] = useState(null)
   const [computeEnv, setComputeEnv] = useState(null)
   const [envApproving, setEnvApproving] = useState(false)
 
-  // Subscribe to decomposition events for real-time updates
+  // Accumulated events for timeline
+  const [decompEvents, setDecompEvents] = useState([])
+
+  // Project-level aggregate data
+  const {
+    allWorkUnits, allScores, allChains, loading: summaryLoading, invalidateGoal,
+  } = useProjectDecompositionSummary(projectId, goals)
+
+  // Attention items
+  const attentionItems = computeAttentionItems(goals, allWorkUnits, allScores, coherenceInsights, computeEnv)
+
+  // SSE subscription
   useEventStream({
-    patterns: ['decomposition.*'],
+    patterns: ['decomposition.*', 'coherence.*'],
     projectId,
     enabled: !!projectId,
     onEvent: useCallback((event) => {
+      // Accumulate events for timeline (cap at 200)
+      setDecompEvents(prev => [...prev.slice(-199), event])
+
+      // Invalidate project summary cache for changed goal
+      if (event.goal_id) {
+        invalidateGoal(event.goal_id)
+      }
+
+      // Reload directive detail if viewing the changed goal
       if (selectedGoal && event.goal_id === selectedGoal.goal_id) {
         loadWorkUnits(selectedGoal.goal_id)
       }
-      // Refresh goal list and coherence on any decomposition event
+
       loadGoals()
       loadCoherence()
     }, [selectedGoal]), // eslint-disable-line react-hooks/exhaustive-deps
   })
 
-  // Load goals
+  // --- Data loaders ---
+
   const loadGoals = useCallback(async () => {
     if (!projectId) {
       setGoals([])
@@ -106,13 +136,6 @@ function GoalsPage() {
     }
   }, [])
 
-  // Clear on project change
-  useEffect(() => {
-    setSelectedGoal(null)
-    setWorkUnits([])
-    clearActiveGoal()
-  }, [projectId, clearActiveGoal])
-
   const loadCoherence = useCallback(async () => {
     if (!projectId) return
     setCoherenceLoading(true)
@@ -126,9 +149,6 @@ function GoalsPage() {
     }
   }, [projectId])
 
-  useEffect(() => { loadGoals() }, [loadGoals])
-  useEffect(() => { loadCoherence() }, [loadCoherence])
-
   const loadComputeEnv = useCallback(async (goalId) => {
     try {
       const data = await getComputeEnvironment(goalId)
@@ -137,17 +157,6 @@ function GoalsPage() {
       setComputeEnv(null)
     }
   }, [])
-
-  // Load project-level compute environment on project change
-  useEffect(() => {
-    if (projectId) {
-      // Load the project-level environment spec
-      // When a goal is selected, this updates to that goal's spec
-      loadComputeEnv(projectId)
-    } else {
-      setComputeEnv(null)
-    }
-  }, [projectId, loadComputeEnv])
 
   const loadPipeline = useCallback(async (goalId) => {
     try {
@@ -158,27 +167,78 @@ function GoalsPage() {
     }
   }, [])
 
+  const loadScores = useCallback(async (goalId) => {
+    try {
+      const data = await getQualityScores(goalId)
+      setQualityScores(data)
+    } catch {
+      setQualityScores(null)
+    }
+  }, [])
+
+  const loadChains = useCallback(async (goalId) => {
+    try {
+      const data = await getDependencyChains(goalId)
+      setChainAnalysis(data)
+    } catch {
+      setChainAnalysis(null)
+    }
+  }, [])
+
+  // --- Effects ---
+
+  useEffect(() => { loadGoals() }, [loadGoals])
+  useEffect(() => { loadCoherence() }, [loadCoherence])
+
+  // Load project-level env on project change
+  useEffect(() => {
+    if (projectId) loadComputeEnv(projectId)
+    else setComputeEnv(null)
+  }, [projectId, loadComputeEnv])
+
+  // Clear on project change
+  useEffect(() => {
+    setSelectedGoal(null)
+    setWorkUnits([])
+    setViewMode('project')
+    clearActiveGoal()
+  }, [projectId, clearActiveGoal])
+
+  // Load directive detail when selected
   useEffect(() => {
     if (selectedGoal) {
       loadWorkUnits(selectedGoal.goal_id)
       loadComputeEnv(selectedGoal.goal_id)
       loadPipeline(selectedGoal.goal_id)
+      loadScores(selectedGoal.goal_id)
+      loadChains(selectedGoal.goal_id)
     } else {
       setWorkUnits([])
       setPipelineData(null)
+      setQualityScores(null)
+      setChainAnalysis(null)
       if (projectId) loadComputeEnv(projectId)
     }
-  }, [selectedGoal, projectId, loadWorkUnits, loadComputeEnv, loadPipeline])
+  }, [selectedGoal, projectId, loadWorkUnits, loadComputeEnv, loadPipeline, loadScores, loadChains])
 
-  // Handlers
+  // --- Handlers ---
+
   const handleSelectGoal = useCallback((goal) => {
     setSelectedGoal(goal)
     if (goal) {
+      setViewMode('directive')
       setActiveGoal(goal.goal_id, goal.title || goal.description?.slice(0, 60))
     } else {
+      setViewMode('project')
       clearActiveGoal()
     }
   }, [setActiveGoal, clearActiveGoal])
+
+  const handleBackToProject = useCallback(() => {
+    setSelectedGoal(null)
+    setViewMode('project')
+    clearActiveGoal()
+  }, [clearActiveGoal])
 
   const handleDeleteGoal = useCallback((goal) => {
     setGoalToDelete(goal)
@@ -191,8 +251,7 @@ function GoalsPage() {
     try {
       await deleteGoal(goalToDelete.goal_id)
       if (selectedGoal?.goal_id === goalToDelete.goal_id) {
-        setSelectedGoal(null)
-        setWorkUnits([])
+        handleBackToProject()
       }
       await loadGoals()
       setShowDeleteDialog(false)
@@ -207,15 +266,12 @@ function GoalsPage() {
   const handleArchiveGoal = useCallback(async (goal) => {
     try {
       await archiveGoal(goal.goal_id)
-      if (selectedGoal?.goal_id === goal.goal_id) {
-        setSelectedGoal(null)
-        setWorkUnits([])
-      }
+      if (selectedGoal?.goal_id === goal.goal_id) handleBackToProject()
       await loadGoals()
     } catch (err) {
       console.error('Failed to archive:', err)
     }
-  }, [selectedGoal, loadGoals])
+  }, [selectedGoal, loadGoals, handleBackToProject])
 
   const handleUnarchiveGoal = useCallback(async (goal) => {
     try {
@@ -240,12 +296,34 @@ function GoalsPage() {
     try {
       await approveDecomposition(selectedGoal.goal_id)
       await loadWorkUnits(selectedGoal.goal_id)
+      invalidateGoal(selectedGoal.goal_id)
     } catch (err) {
       console.error('Failed to approve decomposition:', err)
     } finally {
       setApproving(false)
     }
-  }, [selectedGoal, loadWorkUnits])
+  }, [selectedGoal, loadWorkUnits, invalidateGoal])
+
+  const handleRecompose = useCallback(async () => {
+    if (!selectedGoal) return
+    const refinement = window.prompt('What would you like to change about the decomposition?')
+    if (!refinement) return
+    setRecomposing(true)
+    try {
+      await recomposeDecomposition(selectedGoal.goal_id, refinement)
+      await Promise.all([
+        loadWorkUnits(selectedGoal.goal_id),
+        loadPipeline(selectedGoal.goal_id),
+        loadScores(selectedGoal.goal_id),
+        loadChains(selectedGoal.goal_id),
+      ])
+      invalidateGoal(selectedGoal.goal_id)
+    } catch (err) {
+      console.error('Failed to recompose:', err)
+    } finally {
+      setRecomposing(false)
+    }
+  }, [selectedGoal, loadWorkUnits, loadPipeline, loadScores, loadChains, invalidateGoal])
 
   const handleApproveEnvironment = useCallback(async () => {
     const goalId = selectedGoal?.goal_id || goals.find(g => g.status !== 'failed')?.goal_id
@@ -253,7 +331,6 @@ function GoalsPage() {
     setEnvApproving(true)
     try {
       await approveComputeEnvironment(goalId)
-      // Reload to show approved status with copyable command
       await loadComputeEnv(goalId)
     } catch (err) {
       console.error('Failed to approve environment:', err)
@@ -267,15 +344,18 @@ function GoalsPage() {
       loadWorkUnits(selectedGoal.goal_id)
       loadComputeEnv(selectedGoal.goal_id)
       loadPipeline(selectedGoal.goal_id)
+      loadScores(selectedGoal.goal_id)
+      loadChains(selectedGoal.goal_id)
     }
-  }, [selectedGoal, loadWorkUnits, loadComputeEnv, loadPipeline])
+  }, [selectedGoal, loadWorkUnits, loadComputeEnv, loadPipeline, loadScores, loadChains])
 
-  // No project
+  // --- Render ---
+
   if (!projectId) {
     return (
       <div className="goals-page">
         <div className="goals-page-header">
-          <h1>Decomposition</h1>
+          <h1>Plan</h1>
           <PageSubtitle>Select a project to get started</PageSubtitle>
         </div>
         <EmptyState icon={FolderOpen} title="Select a Project" description="Select a project from the sidebar to review decompositions." />
@@ -283,93 +363,83 @@ function GoalsPage() {
     )
   }
 
-  const hasDraftUnits = workUnits.length > 0 && workUnits.some(u => u.status === 'draft')
-  const hasWorkUnits = workUnits.length > 0
+  // Build confidence map for sidebar indicators
+  const confidenceMap = {}
+  for (const [gid, scores] of allScores.entries()) {
+    if (scores?.score != null) {
+      confidenceMap[gid] = { score: scores.score, level: scores.level }
+    }
+  }
+
+  // Build attention set for sidebar dots
+  const attentionGoalIds = new Set(
+    attentionItems.filter(i => i.goalId).map(i => i.goalId)
+  )
+
+  // Build work unit count map for sidebar
+  const workUnitCountMap = {}
+  for (const [gid, units] of allWorkUnits.entries()) {
+    workUnitCountMap[gid] = units.length
+  }
 
   return (
     <div className="goals-page">
       <div className="goals-page-layout">
-        {/* Main content — decomposition workspace */}
+        {/* Main content */}
         <div className="goals-page-main">
           {/* Header */}
           <div className="goals-page-header">
             <div className="goals-page-header-content">
-              <h1>Decomposition</h1>
+              <h1>Plan</h1>
               <PageSubtitle>
-                {selectedGoal
+                {viewMode === 'directive' && selectedGoal
                   ? selectedGoal.title || selectedGoal.description?.slice(0, 80)
-                  : `Review and approve decompositions for ${activeProject.name}`
+                  : `${activeProject.name} — ${goals.length} directive${goals.length !== 1 ? 's' : ''}`
                 }
               </PageSubtitle>
             </div>
-            {selectedGoal && (
-              <div className="goals-page-actions">
-                <button className="goals-action-btn goals-action--secondary" onClick={handleRefresh} title="Refresh">
-                  <RefreshCw size={14} />
-                </button>
-                {hasDraftUnits && (
-                  <button
-                    className="goals-action-btn goals-action--approve"
-                    onClick={handleApproveDecomposition}
-                    disabled={approving}
-                  >
-                    <CheckCircle2 size={14} />
-                    {approving ? 'Approving...' : 'Approve'}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* Project-level sections — always visible */}
-          <CoherencePanel insights={coherenceInsights} loading={coherenceLoading} />
-          <ComputeEnvironmentPanel
-            environment={computeEnv}
-            onApprove={handleApproveEnvironment}
-            approving={envApproving}
-          />
-
-          {/* Pipeline progress — shows when a goal has been processed */}
-          {selectedGoal && pipelineData && (
-            <PipelineStatus pipeline={pipelineData} />
-          )}
-
-          {/* Goal detail or selection prompt */}
-          {!selectedGoal ? (
-            <EmptyState
-              icon={GitBranch}
-              title="Select a Directive"
-              description="Choose a directive from the right panel to review its decomposition, independence, and verification readiness."
-            />
-          ) : workUnitsLoading ? (
-            <div className="goals-page-loading"><Spinner size="md" /></div>
-          ) : !hasWorkUnits ? (
-            <EmptyState
-              icon={GitBranch}
-              title="No Work Units Yet"
-              description="This directive hasn't been decomposed into work units yet. Use the chat sidebar to describe what you'd like done — the system will decompose it into formally specified units."
+          {/* View: Project Overview or Directive Detail */}
+          {viewMode === 'project' ? (
+            <ProjectOverview
+              goals={goals}
+              allWorkUnits={allWorkUnits}
+              allScores={allScores}
+              allChains={allChains}
+              attentionItems={attentionItems}
+              coherenceInsights={coherenceInsights}
+              coherenceLoading={coherenceLoading}
+              computeEnv={computeEnv}
+              onApproveEnvironment={handleApproveEnvironment}
+              envApproving={envApproving}
+              onSelectGoal={handleSelectGoal}
+              decompEvents={decompEvents}
+              summaryLoading={summaryLoading}
             />
           ) : (
-            <div className="goals-page-workspace">
-              {/* Quality summary cards */}
-              <DecompositionSummary units={workUnits} />
-
-              {/* Dependency graph */}
-              <DependencyGraph units={workUnits} />
-
-              {/* Work unit detail cards */}
-              <div className="goals-page-section">
-                <div className="goals-page-section-header">
-                  <h2>Work Units</h2>
-                  <span className="goals-page-section-count">{workUnits.length}</span>
-                </div>
-                <WorkUnitList units={workUnits} />
-              </div>
-            </div>
+            <DirectiveDetail
+              goal={selectedGoal}
+              workUnits={workUnits}
+              workUnitsLoading={workUnitsLoading}
+              pipelineData={pipelineData}
+              qualityScores={qualityScores}
+              chainAnalysis={chainAnalysis}
+              computeEnv={computeEnv}
+              unitScoreMap={buildUnitScoreMap(qualityScores)}
+              onBack={handleBackToProject}
+              onApprove={handleApproveDecomposition}
+              onRefine={handleRecompose}
+              onRefresh={handleRefresh}
+              onApproveEnvironment={handleApproveEnvironment}
+              approving={approving}
+              recomposing={recomposing}
+              envApproving={envApproving}
+            />
           )}
         </div>
 
-        {/* Right sidebar — goal history */}
+        {/* Right sidebar — directive history */}
         <GoalHistoryPanel
           goals={goals}
           selectedGoalId={selectedGoal?.goal_id}
@@ -382,6 +452,11 @@ function GoalsPage() {
           loading={goalsLoading}
           showArchived={showArchived}
           onToggleShowArchived={handleToggleArchived}
+          viewMode={viewMode}
+          onBackToProject={handleBackToProject}
+          confidenceMap={confidenceMap}
+          attentionGoalIds={attentionGoalIds}
+          workUnitCountMap={workUnitCountMap}
         />
       </div>
 

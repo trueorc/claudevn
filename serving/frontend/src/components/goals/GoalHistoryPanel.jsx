@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
-import { Clock, ChevronRight, Search, Filter, MessageSquare, X, ArrowUpDown, Trash2, Archive, ArchiveRestore } from 'lucide-react'
+import { Clock, ChevronRight, Search, Filter, MessageSquare, X, ArrowUpDown, Trash2, Archive, ArchiveRestore, ArrowLeft } from 'lucide-react'
 import EvaluationStatusIndicator from './EvaluationStatusIndicator'
+import ConfidenceMiniIndicator from '../decomposition/ConfidenceMiniIndicator'
 
 /**
  * Truncates text at word boundary to avoid cutting words mid-way.
@@ -126,7 +127,7 @@ function FilterChip({ label, onRemove }) {
   )
 }
 
-function GoalCard({ goal, isSelected, onClick, commentCount, onDelete, onArchive, onUnarchive }) {
+function GoalCard({ goal, isSelected, onClick, commentCount, onDelete, onArchive, onUnarchive, confidence, needsAttention, workUnitCount }) {
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     const date = new Date(dateStr)
@@ -231,13 +232,20 @@ function GoalCard({ goal, isSelected, onClick, commentCount, onDelete, onArchive
               {commentCount}
             </span>
           )}
+          {workUnitCount > 0 && (
+            <span className="goal-card-units">{workUnitCount} units</span>
+          )}
           {goal.created_by_name && (
             <span className="goal-attribution">
               by {goal.created_by_name}
             </span>
           )}
         </div>
-        <ChevronRight size={14} className="goal-card-chevron" />
+        <div className="goal-card-footer-right">
+          {confidence && <ConfidenceMiniIndicator score={confidence.score} level={confidence.level} />}
+          {needsAttention && <span className="goal-attention-dot" title="Needs attention" />}
+          <ChevronRight size={14} className="goal-card-chevron" />
+        </div>
       </div>
     </button>
   )
@@ -254,7 +262,12 @@ function GoalHistoryPanel({
   goalProgress = {},
   loading = false,
   showArchived = false,
-  onToggleShowArchived
+  onToggleShowArchived,
+  viewMode,
+  onBackToProject,
+  confidenceMap = {},
+  attentionGoalIds = new Set(),
+  workUnitCountMap = {},
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
@@ -343,12 +356,19 @@ function GoalHistoryPanel({
   return (
     <div className="goal-history-panel">
       <div className="history-panel-header">
-        <h3 className="history-panel-title">History</h3>
+        <h3 className="history-panel-title">Directives</h3>
         <span className="history-panel-count">
           {filteredAndSortedGoals.length}
-          {hasActiveFilters && ` / ${goals?.length || 0}`} items
+          {hasActiveFilters && ` / ${goals?.length || 0}`}
         </span>
       </div>
+
+      {viewMode === 'directive' && onBackToProject && (
+        <button className="history-back-btn" onClick={onBackToProject}>
+          <ArrowLeft size={12} />
+          Back to Overview
+        </button>
+      )}
 
       <div className="history-panel-search">
         <div className="search-input-wrapper">
@@ -481,6 +501,9 @@ function GoalHistoryPanel({
               onArchive={onArchiveGoal}
               onUnarchive={onUnarchiveGoal}
               commentCount={goalCommentCounts[goal.goal_id] || 0}
+              confidence={confidenceMap[goal.goal_id]}
+              needsAttention={attentionGoalIds.has(goal.goal_id)}
+              workUnitCount={workUnitCountMap[goal.goal_id]}
             />
           ))
         )}

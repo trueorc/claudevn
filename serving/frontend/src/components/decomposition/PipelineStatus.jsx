@@ -6,7 +6,9 @@ const STEP_LABELS = {
   llm_decompose: 'LLM Decomposition',
   codebase_analysis: 'Codebase Analysis',
   build_work_units: 'Build Work Units',
+  resolve_dependencies: 'Resolve Dependencies',
   validate: 'Validate Independence',
+  score_quality: 'Quality Scoring',
   analyze_environment: 'Analyze Environment',
 }
 
@@ -48,8 +50,8 @@ function StepRow({ step }) {
 
 /**
  * Shows the v2.0 decomposition pipeline progress.
- * Each step (LLM → Analyze → Build → Validate → Environment) shows
- * its status with timing, details on expand, and error info on failure.
+ * Each step (LLM → Analyze → Build → Resolve Deps → Validate → Score → Environment)
+ * shows its status with timing, details on expand, and error info on failure.
  */
 export default function PipelineStatus({ pipeline }) {
   if (!pipeline || !pipeline.steps || pipeline.steps.length === 0) return null

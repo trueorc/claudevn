@@ -17,6 +17,7 @@ _WU_KEY = "claudevn:v2:work_units:{project_id}:{goal_id}"
 _PIPELINE_KEY = "claudevn:v2:pipeline:{project_id}:{goal_id}"
 _ENV_KEY = "claudevn:v2:environment:{project_id}:{goal_id}"
 _PROJECT_GOALS_KEY = "claudevn:v2:goals:{project_id}"
+_COHERENCE_KEY = "claudevn:v2:coherence:{project_id}"
 
 
 async def _get_redis():
@@ -137,3 +138,23 @@ async def get_project_goals(project_id: str) -> List[str]:
     goals_key = _PROJECT_GOALS_KEY.format(project_id=project_id)
     members = await redis.smembers(goals_key)
     return [m.decode() if isinstance(m, bytes) else m for m in members]
+
+
+# -- Coherence analysis storage --
+
+async def store_coherence(project_id: str, analysis_dict: dict) -> None:
+    """Store coherence analysis results for a project."""
+    redis = await _get_redis()
+    key = _COHERENCE_KEY.format(project_id=project_id)
+    await redis.set(key, json.dumps(analysis_dict))
+    logger.info(f"Stored coherence analysis for {project_id}: {len(analysis_dict.get('insights', []))} insights")
+
+
+async def get_coherence(project_id: str) -> Optional[dict]:
+    """Get coherence analysis results for a project."""
+    redis = await _get_redis()
+    key = _COHERENCE_KEY.format(project_id=project_id)
+    data = await redis.get(key)
+    if not data:
+        return None
+    return json.loads(data)

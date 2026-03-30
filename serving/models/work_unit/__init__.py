@@ -31,6 +31,14 @@ from .compute_environment import (
     EnvironmentStatus,
     RuntimeRequirement,
 )
+from .quality_score import (
+    ConfidenceLevel,
+    ScoringFactor,
+    UnitQualityScore,
+    RecommendationType,
+    SplitMergeRecommendation,
+    DecompositionConfidence,
+)
 
 __all__ = [
     # Core
@@ -64,4 +72,11 @@ __all__ = [
     "ComputeEnvironmentSpec",
     "EnvironmentStatus",
     "RuntimeRequirement",
+    # Quality scoring
+    "ConfidenceLevel",
+    "ScoringFactor",
+    "UnitQualityScore",
+    "RecommendationType",
+    "SplitMergeRecommendation",
+    "DecompositionConfidence",
 ]

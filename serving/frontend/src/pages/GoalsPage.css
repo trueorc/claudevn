@@ -117,6 +117,20 @@
   margin: 0;
 }
 
+/* Views */
+.project-overview,
+.directive-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.directive-detail-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
 .goals-page-section-count {
   font-size: var(--font-size-xs);
   font-weight: 600;

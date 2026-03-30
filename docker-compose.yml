@@ -129,6 +129,8 @@ services:
       - SERVING_PUBLIC_URL=http://serving:8002
       # v2.0: Disable v1.0 work orchestrator (replaced by dispatch queue)
       - ORCHESTRATOR_ENABLED=false
+      # v2.0: Disable integrity monitor (not needed yet)
+      - INTEGRITY_MONITOR_ENABLED=false
     volumes:
       - serving_data:/app/data
       - serving_logs:/app/logs

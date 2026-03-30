@@ -9,6 +9,7 @@ Extends v1.0 decomposition validation with v2.0 independence checks:
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
@@ -147,7 +148,80 @@ class SpecValidator:
                     message=f"'{u.id}' has no automated verification criteria",
                 ))
 
-        # 7. Target file existence (if repo_path provided)
+        # 7. Missing acceptance criteria
+        for u in units:
+            if not u.acceptance_criteria:
+                issues.append(ValidationIssue(
+                    severity="warning",
+                    work_unit_id=u.id,
+                    code="no_acceptance_criteria",
+                    message=f"'{u.id}' has no acceptance criteria",
+                ))
+
+        # 8. High complexity warning
+        for u in units:
+            c = (u.estimated_complexity or "").lower()
+            if c in ("l", "xl"):
+                issues.append(ValidationIssue(
+                    severity="warning",
+                    work_unit_id=u.id,
+                    code="high_complexity",
+                    message=f"'{u.id}' estimated as {c.upper()} — consider splitting",
+                ))
+
+        # 9. Many files warning (>6 target files)
+        for u in units:
+            file_count = len(u.formal_spec.target_files or [])
+            if file_count > 6:
+                issues.append(ValidationIssue(
+                    severity="warning",
+                    work_unit_id=u.id,
+                    code="many_files",
+                    message=f"'{u.id}' targets {file_count} files — consider splitting",
+                ))
+
+        # 10. Vague acceptance criteria
+        vague_pattern = re.compile(
+            r"\b(works?|correct(?:ly)?|proper(?:ly)?|good|nice|appropriate(?:ly)?|"
+            r"should work|functions? correctly|as expected)\b",
+            re.IGNORECASE,
+        )
+        for u in units:
+            for criterion in (u.acceptance_criteria or []):
+                if vague_pattern.search(criterion):
+                    issues.append(ValidationIssue(
+                        severity="warning",
+                        work_unit_id=u.id,
+                        code="vague_criteria",
+                        message=f"'{u.id}' has vague acceptance criterion: \"{criterion[:60]}\"",
+                    ))
+                    break  # One warning per unit is enough
+
+        # 11. Missing interface contracts on dependent units
+        unit_ids = {u.id for u in units}
+        unit_map = {u.id: u for u in units}
+        for u in units:
+            for dep_id in u.independence.depends_on:
+                if dep_id not in unit_map:
+                    continue
+                dep = unit_map[dep_id]
+                # Upstream should produce, downstream should consume
+                if not dep.interface_produces and u.interface_consumes:
+                    issues.append(ValidationIssue(
+                        severity="warning",
+                        work_unit_id=dep.id,
+                        code="missing_interface",
+                        message=f"'{dep.id}' has dependents but no interface_produces defined",
+                    ))
+                if not u.interface_consumes and dep.interface_produces:
+                    issues.append(ValidationIssue(
+                        severity="warning",
+                        work_unit_id=u.id,
+                        code="missing_interface",
+                        message=f"'{u.id}' depends on '{dep.id}' but has no interface_consumes defined",
+                    ))
+
+        # 12. Target file existence (if repo_path provided)
         if self._repo_path:
             for u in units:
                 for f in u.formal_spec.target_files:

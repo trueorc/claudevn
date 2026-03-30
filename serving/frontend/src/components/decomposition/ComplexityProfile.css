@@ -1,0 +1,124 @@
+.cxp {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.cxp-header {
+  margin-bottom: var(--space-sm);
+}
+
+.cxp-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.cxp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.cxp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all var(--transition-fast);
+}
+
+.cxp-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.cxp-row-label {
+  font-size: var(--font-size-xs);
+  color: var(--text);
+  min-width: 120px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cxp-bar-container {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cxp-bar {
+  height: 100%;
+  display: flex;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: width 0.3s ease;
+}
+
+.cxp-bar-segment {
+  height: 100%;
+  min-width: 2px;
+}
+
+.cxp-row-count {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  min-width: 50px;
+  text-align: right;
+}
+
+.cxp-row-confidence {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  min-width: 24px;
+  text-align: center;
+}
+
+.cxp-confidence--green { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.cxp-confidence--yellow { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+.cxp-confidence--red { color: var(--status-offline); background: color-mix(in srgb, var(--status-offline) 10%, transparent); }
+
+.cxp-row-arrow {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cxp-legend {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cxp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cxp-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}

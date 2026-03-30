@@ -1,0 +1,80 @@
+.dsm {
+  display: flex;
+  align-items: center;
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.dsm-step-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.dsm-step-wrapper:first-child {
+  flex: 0;
+}
+
+.dsm-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  min-width: 20px;
+}
+
+.dsm-connector--done {
+  background: var(--status-online);
+}
+
+.dsm-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dsm-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: all var(--transition-fast);
+}
+
+.dsm-step--done .dsm-dot {
+  background: var(--status-online);
+}
+
+.dsm-step--active .dsm-dot {
+  background: var(--primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 50%, transparent);
+  animation: dsm-pulse 2s ease-in-out infinite;
+}
+
+.dsm-step--pending .dsm-dot {
+  background: var(--border);
+}
+
+@keyframes dsm-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+}
+
+.dsm-label {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dsm-step--done .dsm-label {
+  color: var(--status-online);
+}
+
+.dsm-step--active .dsm-label {
+  color: var(--primary);
+  font-weight: 600;
+}

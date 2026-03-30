@@ -576,6 +576,57 @@
   opacity: 0.8;
 }
 
+.goal-card-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.goal-card-units {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.goal-attention-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-degraded);
+  animation: attention-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes attention-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Back to overview button in sidebar */
+.history-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: var(--space-xs);
+}
+
+.history-back-btn:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
 .goal-card-chevron {
   color: var(--text-muted);
   opacity: 0;

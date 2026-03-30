@@ -589,7 +589,6 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
         # Add system comment documenting results
         try:
             comment_service = get_goal_comment_service()
-            characterized_count = len(characterization_map)
             # Build step summary for comment
             step_summary = ", ".join(
                 f"{s['name']}={s['status']}" for s in pipeline_result.to_dict().get("steps", [])

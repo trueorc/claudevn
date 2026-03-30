@@ -18,7 +18,25 @@ export async function approveDecomposition(goalId) {
   return request(`/decomposition/${goalId}/approve`, { method: 'POST' })
 }
 
-// TODO: splitWorkUnit and mergeWorkUnits — implement when recomposition UI is built
+export async function getQualityScores(goalId) {
+  return request(`/decomposition/${goalId}/scores`)
+}
+
+export async function getDependencyChains(goalId) {
+  return request(`/decomposition/${goalId}/chains`)
+}
+
+export async function recomposeDecomposition(goalId, refinement, context = null) {
+  return request(`/decomposition/${goalId}/recompose`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refinement, context }),
+  })
+}
+
+export async function triggerCoherenceAnalysis(projectId) {
+  return request(`/decomposition/coherence/${projectId}/analyze`, { method: 'POST' })
+}
 
 // -- Verification --
 
