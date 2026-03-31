@@ -40,7 +40,7 @@ function ExecutionPlanPage() {
 
   // SSE subscription — patches graph + feeds activity log
   useEventStream({
-    patterns: ['execution.*', 'verification.*', 'decomposition.*', 'compute.*', 'work.*', 'error.*'],
+    patterns: ['execution.*', 'verification.*', 'decomposition.*', 'compute.*', 'work.*', 'work_unit.*', 'error.*'],
     projectId,
     enabled: !!projectId,
     onEvent: useCallback((event) => {

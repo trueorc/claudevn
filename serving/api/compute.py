@@ -678,46 +678,59 @@ async def receive_compute_event(
     if event.event.value == "claude_code_rejected":
         await _handle_rejection_redispatch(event)
 
-    # v2.0 Dispatcher integration — notify reactive dispatcher of state changes
-    #
-    # IMPORTANT: claude_code_completed does NOT mean "done" — the unit still
-    # needs to be merged to main. We notify the dispatcher of the submitted
-    # state but do NOT unblock dependents or free the compute slot yet.
-    # The real "done" comes from finalize_work() after merge succeeds.
+    # v2.0 State Machine Engine — route compute events to the engine
+    # The engine handles ALL state transitions. We just translate
+    # compute events to engine events.
     try:
-        from services.dispatch.dispatcher import get_dispatcher
-        v2_dispatcher = get_dispatcher()
-        if v2_dispatcher:
+        from services.dispatch.engine import get_engine
+        engine = get_engine()
+        if engine:
             if event.event.value == "claude_code_completed":
-                # Mark as submitted (awaiting merge)
-                unit = v2_dispatcher._active.get(event.compute_id)
+                # Code complete → unit enters SUBMITTED state (awaiting merge)
+                # The engine's transition table will handle SUBMITTED → MERGING
+                unit = engine._units.get(event.task_id)
                 if unit:
                     from models.work_unit import WorkUnitStatus
                     unit.status = WorkUnitStatus.SUBMITTED
                     unit.branch = event.branch_name
-                    logger.info(f"v2.0: {unit.id} submitted (awaiting merge)")
+                    logger.info(f"v2.0 engine: {unit.id} → submitted (code complete, awaiting merge)")
+                    await engine.on_event("code_complete", unit_id=event.task_id)
 
-                    # Trigger merge for v2.0 work units
-                    # v1.0 merge pipeline won't find these in WorkMapService,
-                    # so we handle the merge directly here
-                    branch_name = event.branch_name
-                    if branch_name and unit.project_id:
-                        asyncio.create_task(
-                            _v2_merge_and_finalize(unit, branch_name, event.compute_id, v2_dispatcher)
-                        )
             elif event.event.value == "claude_code_failed":
-                await v2_dispatcher.on_execution_complete(
-                    instance_id=event.compute_id,
-                    success=False,
-                )
+                unit = engine._units.get(event.task_id)
+                if unit:
+                    from models.work_unit import WorkUnitStatus
+                    unit.status = WorkUnitStatus.FAILED
+                    engine.release_compute(unit.id)
+                    logger.info(f"v2.0 engine: {unit.id} → failed (code failed)")
+                    await engine.on_event("code_failed", unit_id=event.task_id)
+
             elif event.event.value == "claude_code_rejected":
-                await v2_dispatcher.on_execution_rejected(
-                    instance_id=event.compute_id,
-                    work_unit_id=event.task_id,
-                    reason=event.error or "rejected by compute",
-                )
+                unit = engine._units.get(event.task_id)
+                if unit:
+                    from models.work_unit import WorkUnitStatus
+                    unit.status = WorkUnitStatus.QUEUED  # Return to queue
+                    engine.release_compute(unit.id)
+                    logger.info(f"v2.0 engine: {unit.id} → queued (rejected by compute)")
+                    await engine.on_event("rejected", unit_id=event.task_id)
+        else:
+            # Fallback to old dispatcher
+            from services.dispatch.dispatcher import get_dispatcher
+            v2_dispatcher = get_dispatcher()
+            if v2_dispatcher:
+                if event.event.value == "claude_code_completed":
+                    success = event.exit_code == 0 if event.exit_code is not None else True
+                    await v2_dispatcher.on_execution_complete(
+                        instance_id=event.compute_id, success=success, branch=event.branch_name)
+                elif event.event.value == "claude_code_failed":
+                    await v2_dispatcher.on_execution_complete(
+                        instance_id=event.compute_id, success=False)
+                elif event.event.value == "claude_code_rejected":
+                    await v2_dispatcher.on_execution_rejected(
+                        instance_id=event.compute_id, work_unit_id=event.task_id,
+                        reason=event.error or "rejected")
     except Exception as e:
-        logger.debug(f"v2.0 Dispatcher notification failed: {e}")
+        logger.debug(f"v2.0 engine notification failed: {e}")
 
     return ComputeEventResponse(
         status="acknowledged",

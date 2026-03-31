@@ -64,6 +64,15 @@ export default function useDispatchGraph(projectId) {
     if (!unitId) return
 
     switch (event.event) {
+      case 'work_unit.state_transition':
+        // Canonical state machine event — update to new state directly
+        if (event.unit_id) {
+          patchNodeStatus(event.unit_id, {
+            status: event.new_state,
+            instance_id: event.compute_id || undefined,
+          })
+        }
+        break
       case 'execution.queued':
         patchNodeStatus(unitId, { status: 'queued' })
         break
@@ -84,7 +93,6 @@ export default function useDispatchGraph(projectId) {
         patchNodeStatus(unitId, { status: 'failed' })
         break
       case 'decomposition.approved':
-        // New units entering the graph — full refresh
         load()
         break
     }

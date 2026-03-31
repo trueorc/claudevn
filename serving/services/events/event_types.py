@@ -340,7 +340,27 @@ class ComputeDisconnected(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-# -- Work lifecycle events --
+# -- Work unit state machine events --
+
+class WorkUnitStateTransition(BaseModel):
+    """Canonical event for ALL work unit state changes.
+
+    Every state transition in the engine emits this event.
+    One event type, all lifecycle changes. Subscribe to
+    work_unit.state_transition to observe the full lifecycle.
+    """
+    event: str = "work_unit.state_transition"
+    project_id: str
+    unit_id: str
+    old_state: str
+    new_state: str
+    reason: str = ""
+    error: Optional[Dict[str, Any]] = None
+    compute_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# -- Work lifecycle events (legacy — kept for backward compat) --
 
 class WorkReadyForDispatch(BaseModel):
     """A work unit is ready for dispatch."""
@@ -426,6 +446,7 @@ Event = (
     InstanceRegistered | InstanceRemoved | InstanceApproved | InstanceRejected |
     ComputeDrainStarted | ComputeDrainCancelled | InstanceHealthChanged | ComputeAuthChanged |
     ComputeConnected | ComputeDisconnected |
+    WorkUnitStateTransition |
     WorkReadyForDispatch | WorkStuckDetected | WorkTimeoutRecovered | WorkTimeoutFailed |
     MCPToolError | DispatchError | HealthCheckError | SSEConnectionError |
     SystemHealth | PresenceChanged

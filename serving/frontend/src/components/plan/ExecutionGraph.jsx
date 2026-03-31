@@ -7,27 +7,30 @@ const NODE_HEIGHT = 48
 const LAYER_GAP = 100
 const NODE_GAP = 16
 
-// Simplified 4-state color scheme — painfully obvious what's what:
-// WAITING (gray) → IN PROGRESS (bright cyan) → DONE (bright green) → FAILED (bright red)
+// 5-state color scheme — painfully obvious what's what:
+// WAITING (gray) → EXECUTING (cyan) → MERGING (purple) → DONE (green) → FAILED (red)
 const STATUS_COLORS = {
-  // Waiting states: muted gray — "hasn't started"
+  // Waiting: muted gray — "hasn't started"
   draft:               { fill: '#1a1a1a', stroke: '#444',    text: '#71717a' },
   ready:               { fill: '#1a1a1a', stroke: '#555',    text: '#a1a1aa' },
   queued:              { fill: '#1a1a1a', stroke: '#666',    text: '#a1a1aa' },
+  waiting_compute:     { fill: '#1a1a1a', stroke: '#555',    text: '#a1a1aa' },
 
-  // In progress: bright cyan/blue — "actively running" (with pulse animation)
+  // Executing: bright cyan — "compute is working" (with pulse animation)
   executing:           { fill: '#0a1929', stroke: '#06b6d4', text: '#67e8f9' },
-  submitted:           { fill: '#0a1929', stroke: '#06b6d4', text: '#67e8f9' },
-  verifying:           { fill: '#0a1929', stroke: '#06b6d4', text: '#67e8f9' },
 
-  // Done: bright green — "finished successfully"
+  // Merge phase: purple/violet — "code done, merging to main"
+  submitted:           { fill: '#1a0a2e', stroke: '#8b5cf6', text: '#c4b5fd' },
+  merging:             { fill: '#1a0a2e', stroke: '#a855f7', text: '#d8b4fe' },
+  verifying:           { fill: '#1a0a2e', stroke: '#8b5cf6', text: '#c4b5fd' },
+
+  // Done: bright green — "merged and complete"
   completed:           { fill: '#052e16', stroke: '#22c55e', text: '#86efac' },
-  verified:            { fill: '#052e16', stroke: '#22c55e', text: '#86efac' },
 
-  // Failed/blocked: bright red — "needs attention"
+  // Attention: amber/red — "needs intervention"
+  merge_conflict:      { fill: '#2a1a0a', stroke: '#f59e0b', text: '#fcd34d' },
   failed:              { fill: '#2a0a0a', stroke: '#ef4444', text: '#fca5a5' },
-  failed_verification: { fill: '#2a0a0a', stroke: '#ef4444', text: '#fca5a5' },
-  stuck:               { fill: '#2a1a0a', stroke: '#f59e0b', text: '#fcd34d' },
+  needs_review:        { fill: '#2a0a0a', stroke: '#ef4444', text: '#fca5a5' },
 }
 
 const DEFAULT_COLOR = { fill: '#1a1a1a', stroke: '#444', text: '#71717a' }
@@ -144,12 +147,12 @@ export default function ExecutionGraph({
           const isSelected = node.id === selectedNodeId
           const isHovered = node.id === hoveredId
           const isCritical = criticalSet.has(node.id)
-          const isExecuting = node.status === 'executing'
+          const isActive = ['executing', 'merging', 'submitted', 'verifying'].includes(node.status)
 
           return (
             <g
               key={node.id}
-              className={`eg-node ${isExecuting ? 'eg-node--executing' : ''}`}
+              className={`eg-node ${isActive ? 'eg-node--executing' : ''}`}
               onClick={() => onNodeClick?.(node.id)}
               onMouseEnter={() => setHoveredId(node.id)}
               onMouseLeave={() => setHoveredId(null)}

@@ -27,6 +27,8 @@ const EVENT_CONFIG = {
   'compute.connected': { icon: Zap, label: 'Compute connected', layer: 'SYS' },
   'compute.disconnected': { icon: XCircle, label: 'Compute disconnected', layer: 'SYS' },
   'compute.drain_started': { icon: Clock, label: 'Drain started', layer: 'SYS' },
+  // State machine transitions (canonical event)
+  'work_unit.state_transition': { icon: ArrowRight, label: 'State transition', layer: 'L2' },
   // Work lifecycle
   'work.ready_for_dispatch': { icon: ArrowRight, label: 'Work ready', layer: 'L2' },
   'work.stuck_detected': { icon: AlertTriangle, label: 'Work stuck', layer: 'L2' },

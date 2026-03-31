@@ -17,18 +17,23 @@ from .independence import IndependenceAssertion
 
 
 class WorkUnitStatus(str, Enum):
-    """Lifecycle status of a work unit."""
+    """Lifecycle status of a work unit.
+
+    The state machine engine advances units through these states.
+    Every transition is driven by evaluate() checking conditions.
+    """
     DRAFT = "draft"                     # Being refined in Layer 1
     READY = "ready"                     # Approved, waiting for dispatch
-    QUEUED = "queued"                   # In the dispatch queue
+    QUEUED = "queued"                   # In dispatch queue, deps satisfied
+    WAITING_COMPUTE = "waiting_compute" # In queue but no compute available
     EXECUTING = "executing"             # Claude Code instance is working
-    SUBMITTED = "submitted"             # PR submitted, awaiting verification
-    VERIFYING = "verifying"             # Layer 3 verification running
-    VERIFIED = "verified"               # All checks passed
-    FAILED_VERIFICATION = "failed_verification"  # Verification failed
-    RETRYING = "retrying"               # Single retry in progress
-    NEEDS_HUMAN_REVIEW = "needs_human_review"    # Escalated to human
-    COMPLETED = "completed"             # Merged and done
+    SUBMITTED = "submitted"             # Code complete, branch pushed, awaiting merge
+    MERGING = "merging"                 # Merge to main in progress
+    MERGE_CONFLICT = "merge_conflict"   # Merge failed, conflict resolution needed
+    VERIFYING = "verifying"             # Post-merge verification running
+    COMPLETED = "completed"             # Merged, verified, done
+    FAILED = "failed"                   # Permanently failed (retries exhausted)
+    NEEDS_REVIEW = "needs_review"       # Ambiguous failure, human decision needed
     CANCELLED = "cancelled"             # Cancelled by user or system
     SUPERSEDED = "superseded"           # Replaced by a newer directive's work unit
 

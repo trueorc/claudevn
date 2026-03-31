@@ -140,39 +140,76 @@ async def _enqueue_ready_units_on_startup():
                         dispatcher.queue.enqueue_batch(work_units)
                         total_enqueued += len(work_units)
 
+                        # Also track in the state machine engine
+                        try:
+                            from services.dispatch.engine import get_engine
+                            engine = get_engine()
+                            if engine:
+                                engine.track_units(work_units)
+                        except Exception:
+                            pass
+
+            # Also track superseded/completed units in engine
+            try:
+                from services.dispatch.engine import get_engine
+                engine = get_engine()
+                if engine:
+                    for goal_id in goal_ids:
+                        units_data = await get_work_units(project_id, goal_id)
+                        for ud in units_data:
+                            status = ud.get("status", "")
+                            uid = ud.get("id", "")
+                            if status in ("superseded", "completed", "verified") and uid:
+                                engine.mark_completed(uid)
+            except Exception:
+                pass
+
         if total_enqueued > 0:
             logger.info(f"Startup: enqueued {total_enqueued} ready work units for dispatch")
-            # State changed (work ready) — trigger evaluation
-            await dispatcher.evaluate()
+            # Evaluate via engine first, fallback to old dispatcher
+            try:
+                from services.dispatch.engine import get_engine
+                engine = get_engine()
+                if engine:
+                    await engine.evaluate()
+                else:
+                    await dispatcher.evaluate()
+            except Exception:
+                await dispatcher.evaluate()
     except Exception as e:
         logger.warning(f"Failed to enqueue ready units on startup: {e}")
 
 
 async def _on_compute_connected(event):
     """When a compute connects, evaluate for dispatch."""
-    await _trigger_dispatch_evaluation(getattr(event, "instance_id", ""), "connected")
+    await _trigger_engine_evaluation(getattr(event, "instance_id", ""), "connected")
 
 
 async def _on_compute_available(event):
-    """When a compute is approved, evaluate for dispatch.
-
-    A newly approved compute transitions from PENDING to ONLINE,
-    making it available for work. This is the typical flow:
-    compute connects (PENDING) → user approves → now dispatchable.
-    """
-    await _trigger_dispatch_evaluation(getattr(event, "instance_id", ""), "approved")
+    """When a compute is approved, evaluate for dispatch."""
+    await _trigger_engine_evaluation(getattr(event, "instance_id", ""), "approved")
 
 
-async def _trigger_dispatch_evaluation(instance_id: str, reason: str):
-    """Trigger dispatch evaluation when compute state changes."""
+async def _trigger_engine_evaluation(instance_id: str, reason: str):
+    """Trigger state machine evaluation when compute state changes."""
+    logger.info(f"Compute {reason} ({instance_id}) — triggering evaluation")
+    try:
+        from services.dispatch.engine import get_engine
+        engine = get_engine()
+        if engine:
+            await engine.on_event("compute_available", compute_id=instance_id)
+            return
+    except Exception as e:
+        logger.debug(f"Engine evaluation failed: {e}")
+
+    # Fallback to old dispatcher if engine not available
     try:
         from services.dispatch.dispatcher import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher:
-            logger.info(f"Compute {reason} ({instance_id}) — triggering dispatch evaluation")
             await dispatcher.evaluate()
-    except Exception as e:
-        logger.debug(f"Failed to trigger dispatch evaluation on compute {reason}: {e}")
+    except Exception:
+        pass
 
 
 async def _on_decomposition_approved(event):
