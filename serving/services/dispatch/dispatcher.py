@@ -219,13 +219,21 @@ class Dispatcher:
 
             branch = f"wu/{unit.id}"
             task_data = {
+                # v1.0 compute compatibility fields
+                "task_id": unit.id,
+                "title": unit.description[:120],
+                "description": unit.description,
+                "branch": branch,
+                "context": {
+                    "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
+                    "acceptance_criteria": unit.acceptance_criteria or [],
+                    "interface_produces": unit.interface_produces or [],
+                    "interface_consumes": unit.interface_consumes or [],
+                },
+                # v2.0 fields
                 "work_unit_id": unit.id,
                 "goal_id": unit.goal_ref,
                 "project_id": unit.project_id,
-                "description": unit.description,
-                "branch": branch,
-                "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
-                "acceptance_criteria": unit.acceptance_criteria or [],
             }
             await sse_manager.send_event(
                 compute_id=instance_id,

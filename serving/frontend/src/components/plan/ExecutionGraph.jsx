@@ -7,20 +7,30 @@ const NODE_HEIGHT = 48
 const LAYER_GAP = 100
 const NODE_GAP = 16
 
+// Simplified 4-state color scheme — painfully obvious what's what:
+// WAITING (gray) → IN PROGRESS (bright cyan) → DONE (bright green) → FAILED (bright red)
 const STATUS_COLORS = {
-  draft: { fill: '#2a2a2a', stroke: '#555', text: '#a1a1aa' },
-  ready: { fill: '#1a1a2e', stroke: '#6366f1', text: '#a5b4fc' },
-  queued: { fill: '#1a1a2e', stroke: '#3b82f6', text: '#93c5fd' },
-  executing: { fill: '#1a2332', stroke: '#3b82f6', text: '#93c5fd' },
-  completed: { fill: '#0f2918', stroke: '#22c55e', text: '#86efac' },
-  verified: { fill: '#0f2918', stroke: '#22c55e', text: '#86efac' },
-  submitted: { fill: '#1a2332', stroke: '#8b5cf6', text: '#c4b5fd' },
-  failed: { fill: '#2a1515', stroke: '#ef4444', text: '#fca5a5' },
-  failed_verification: { fill: '#2a1515', stroke: '#ef4444', text: '#fca5a5' },
-  stuck: { fill: '#2a2010', stroke: '#f59e0b', text: '#fcd34d' },
+  // Waiting states: muted gray — "hasn't started"
+  draft:               { fill: '#1a1a1a', stroke: '#444',    text: '#71717a' },
+  ready:               { fill: '#1a1a1a', stroke: '#555',    text: '#a1a1aa' },
+  queued:              { fill: '#1a1a1a', stroke: '#666',    text: '#a1a1aa' },
+
+  // In progress: bright cyan/blue — "actively running" (with pulse animation)
+  executing:           { fill: '#0a1929', stroke: '#06b6d4', text: '#67e8f9' },
+  submitted:           { fill: '#0a1929', stroke: '#06b6d4', text: '#67e8f9' },
+  verifying:           { fill: '#0a1929', stroke: '#06b6d4', text: '#67e8f9' },
+
+  // Done: bright green — "finished successfully"
+  completed:           { fill: '#052e16', stroke: '#22c55e', text: '#86efac' },
+  verified:            { fill: '#052e16', stroke: '#22c55e', text: '#86efac' },
+
+  // Failed/blocked: bright red — "needs attention"
+  failed:              { fill: '#2a0a0a', stroke: '#ef4444', text: '#fca5a5' },
+  failed_verification: { fill: '#2a0a0a', stroke: '#ef4444', text: '#fca5a5' },
+  stuck:               { fill: '#2a1a0a', stroke: '#f59e0b', text: '#fcd34d' },
 }
 
-const DEFAULT_COLOR = { fill: '#1a1a1a', stroke: '#555', text: '#a1a1aa' }
+const DEFAULT_COLOR = { fill: '#1a1a1a', stroke: '#444', text: '#71717a' }
 
 /**
  * SVG-based execution dependency graph.

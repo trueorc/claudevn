@@ -133,6 +133,24 @@ function ExecutionPlanPage() {
   const activeCount = executingNodes.length
   const queuedCount = queuedNodes.length
   const completedCount = nodes.filter(n => n.status === 'completed' || n.status === 'verified').length
+  const failedCount = nodes.filter(n => n.status === 'failed' || n.status === 'failed_verification').length
+  const blockedCount = nodes.filter(n => {
+    const deps = n.depends_on || []
+    return deps.length > 0 && n.status === 'ready' && deps.some(d => {
+      const dep = nodes.find(nn => nn.id === d)
+      return dep && dep.status !== 'completed' && dep.status !== 'verified'
+    })
+  }).length
+
+  // Build SummaryBar-compatible data from graph nodes
+  const graphSummaryData = {
+    in_progress_count: activeCount,
+    ready_count: queuedCount,
+    blocked_count: blockedCount,
+    failed_count: failedCount,
+    done_count: completedCount,
+    total_count: nodes.length,
+  }
 
   return (
     <div className="exec-page">
@@ -182,7 +200,7 @@ function ExecutionPlanPage() {
 
         {/* Right: Sidebar panels */}
         <div className="exec-sidebar">
-          <SummaryBar data={summaryData} loading={summaryLoading} />
+          <SummaryBar data={graphSummaryData} loading={graphLoading} />
 
           <StuckWorkDetector items={stuckItems} />
 

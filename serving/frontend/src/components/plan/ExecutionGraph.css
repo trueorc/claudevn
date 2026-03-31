@@ -26,14 +26,15 @@
   transition: stroke 0.15s ease, stroke-width 0.15s ease;
 }
 
-/* Running nodes pulse */
+/* Running nodes pulse — bright and obvious */
 .eg-node--executing rect {
-  animation: eg-pulse 2s ease-in-out infinite;
+  animation: eg-pulse 1.5s ease-in-out infinite;
+  stroke-width: 2;
 }
 
 @keyframes eg-pulse {
-  0%, 100% { stroke-opacity: 1; }
-  50% { stroke-opacity: 0.4; }
+  0%, 100% { stroke-opacity: 1; filter: drop-shadow(0 0 4px #06b6d4); }
+  50% { stroke-opacity: 0.5; filter: none; }
 }
 
 .eg-empty {
