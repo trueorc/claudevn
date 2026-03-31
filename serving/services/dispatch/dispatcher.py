@@ -213,6 +213,25 @@ class Dispatcher:
         else:
             logger.warning(f"Rejection for unknown work on {instance_id}: {work_unit_id}")
 
+    async def _get_project_repo_url(self, project_id: str) -> Optional[str]:
+        """Look up the primary repository URL for a project."""
+        try:
+            from services.project_service import get_project_service
+            ps = get_project_service()
+            project = await ps.get_project(project_id)
+            if project and project.repos:
+                # Use primary repo or first repo
+                primary = next(
+                    (r for r in project.repos if r.repo_id == project.primary_repo_id),
+                    project.repos[0]
+                )
+                # Externalize URL for compute access
+                from git.url_utils import externalize_url
+                return externalize_url(primary.url)
+        except Exception as e:
+            logger.warning(f"Could not look up repo URL for {project_id}: {e}")
+        return None
+
     async def _find_available_compute(self):
         """Find an idle compute that is NOT already busy with our work."""
         try:
@@ -244,13 +263,20 @@ class Dispatcher:
             sse_manager = get_sse_connection_manager()
 
             branch = f"wu/{unit.id}"
+
+            # Look up the project's repo URL for git integration
+            repo_url = await self._get_project_repo_url(unit.project_id)
+
             task_data = {
                 # v1.0 compute compatibility
                 "task_id": unit.id,
                 "title": unit.description[:120],
                 "description": unit.description,
-                "branch": branch,
+                "branch_name": branch,
                 "context": {
+                    "repository": repo_url or "",
+                    "repo_url": repo_url or "",
+                    "branch": branch,
                     "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
                     "acceptance_criteria": unit.acceptance_criteria or [],
                     "interface_produces": unit.interface_produces or [],

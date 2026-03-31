@@ -48,6 +48,22 @@ export default function ExecutionGraph({
   const [hoveredId, setHoveredId] = useState(null)
   const criticalSet = useMemo(() => new Set(criticalPath), [criticalPath])
 
+  // Compute execution order numbers for queued/ready units
+  const queueOrder = useMemo(() => {
+    const order = {}
+    let pos = 1
+    // Completed/executing first (already ran), then queued by priority
+    nodes.forEach(n => {
+      if (n.status === 'completed' || n.status === 'verified') order[n.id] = 'done'
+      else if (n.status === 'executing' || n.status === 'submitted') order[n.id] = 'now'
+    })
+    // Remaining: assign queue position
+    nodes.filter(n => !order[n.id]).forEach(n => {
+      order[n.id] = pos++
+    })
+    return order
+  }, [nodes])
+
   // Compute layout
   const layers = useMemo(() => computeLayers(nodes), [nodes])
   const positions = useMemo(
@@ -170,13 +186,38 @@ export default function ExecutionGraph({
                 {node.id.slice(-8)}
                 {node.complexity && ` [${node.complexity.toUpperCase()}]`}
               </text>
-              {/* Status indicator dot */}
-              <circle
-                cx={pos.x + NODE_WIDTH - 14}
-                cy={pos.y + NODE_HEIGHT / 2}
-                r={4}
-                fill={colors.stroke}
-              />
+              {/* Execution order / status badge */}
+              {queueOrder[node.id] === 'done' && (
+                <text
+                  x={pos.x + NODE_WIDTH - 16}
+                  y={pos.y + NODE_HEIGHT / 2 + 4}
+                  fill={colors.stroke}
+                  fontSize={12}
+                  textAnchor="middle"
+                >
+                  ✓
+                </text>
+              )}
+              {queueOrder[node.id] === 'now' && (
+                <circle
+                  cx={pos.x + NODE_WIDTH - 14}
+                  cy={pos.y + NODE_HEIGHT / 2}
+                  r={5}
+                  fill={colors.stroke}
+                />
+              )}
+              {typeof queueOrder[node.id] === 'number' && (
+                <text
+                  x={pos.x + NODE_WIDTH - 14}
+                  y={pos.y + NODE_HEIGHT / 2 + 4}
+                  fill="#71717a"
+                  fontSize={10}
+                  textAnchor="middle"
+                  fontWeight={600}
+                >
+                  {queueOrder[node.id]}
+                </text>
+              )}
             </g>
           )
         })}
