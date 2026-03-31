@@ -84,20 +84,32 @@ async def get_environment(project_id: str, goal_id: str) -> Optional[dict]:
 
 
 async def get_project_environment(project_id: str) -> Optional[dict]:
-    """Get the most recent environment spec for a project (any goal)."""
+    """Get the project-level environment spec.
+
+    Prefers an approved environment over a proposed one.
+    If multiple environments exist across directives, returns
+    the approved one (or the most recent proposed if none approved).
+    """
     redis = await _get_redis()
     goals_key = _PROJECT_GOALS_KEY.format(project_id=project_id)
     goal_ids = await redis.smembers(goals_key)
     if not goal_ids:
         return None
 
-    # Return the most recent environment
-    for goal_id in sorted(goal_ids, reverse=True):
-        gid = goal_id.decode() if isinstance(goal_id, bytes) else goal_id
+    # Collect all environments, prefer approved
+    approved_env = None
+    latest_proposed = None
+    for goal_id_raw in goal_ids:
+        gid = goal_id_raw.decode() if isinstance(goal_id_raw, bytes) else goal_id_raw
         env = await get_environment(project_id, gid)
-        if env:
-            return env
-    return None
+        if not env:
+            continue
+        if env.get("status") == "approved":
+            approved_env = env
+        elif not latest_proposed:
+            latest_proposed = env
+
+    return approved_env or latest_proposed
 
 
 async def store_environment_update(project_id: str, goal_id: str, updates: dict) -> None:

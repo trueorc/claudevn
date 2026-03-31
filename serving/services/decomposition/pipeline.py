@@ -372,6 +372,22 @@ class DecompositionPipeline:
                 spec_id=f"env-{goal_id}",
             )
             result.environment = environment
+
+            # Check if project already has an approved env with matching requirements
+            # If so, inherit the approval — no need to re-approve the same stack
+            from .storage import get_project_environment
+            existing_env = await get_project_environment(project_id)
+            if existing_env and existing_env.get("status") == "approved":
+                existing_reqs = {r.get("name") for r in existing_env.get("requirements", [])}
+                new_reqs = {r.name for r in environment.requirements}
+                if new_reqs <= existing_reqs:
+                    # New requirements are a subset of approved — inherit approval
+                    environment.status = "approved"
+                    logger.info(
+                        f"Environment for {goal_id} auto-approved "
+                        f"(requirements subset of existing approved env)"
+                    )
+
             step8.complete(f"Base: {environment.base_image}, {len(environment.requirements)} requirements")
             await self._emit_step_completed(project_id, goal_id, step8)
         except Exception as e:
