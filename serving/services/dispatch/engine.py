@@ -389,7 +389,22 @@ class WorkUnitEngine:
             self._completed_ids.add(unit.id)
 
     async def _emit_transition(self, unit: WorkUnit, old_state, new_state, reason: str = "") -> None:
-        """Emit the canonical state transition event."""
+        """Persist state change to Redis AND emit event.
+
+        This is the SINGLE place all state changes pass through.
+        Redis is the source of truth. Events are for real-time UI.
+        Both happen on every transition. No exceptions.
+        """
+        new_state_str = new_state.value if hasattr(new_state, 'value') else str(new_state)
+        old_state_str = old_state.value if hasattr(old_state, 'value') else str(old_state)
+
+        # 1. Persist to Redis — source of truth
+        try:
+            await self._persist_unit_status(unit, new_state_str)
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to persist state {unit.id} → {new_state_str}: {e}")
+
+        # 2. Emit event — real-time UI updates
         error_dict = None
         err = self._errors.get(unit.id)
         if err:
@@ -399,14 +414,63 @@ class WorkUnitEngine:
             await self._bus.publish(WorkUnitStateTransition(
                 project_id=unit.project_id,
                 unit_id=unit.id,
-                old_state=old_state.value if hasattr(old_state, 'value') else str(old_state),
-                new_state=new_state.value if hasattr(new_state, 'value') else str(new_state),
+                old_state=old_state_str,
+                new_state=new_state_str,
                 reason=reason,
                 error=error_dict,
                 compute_id=self._unit_compute.get(unit.id),
             ))
         except Exception as e:
-            logger.debug(f"Failed to emit state transition event: {e}")
+            logger.warning(f"Failed to emit state transition event for {unit.id}: {e}")
+
+        # 3. Log — always visible
+        logger.info(f"State: {unit.id} {old_state_str} → {new_state_str} ({reason})")
+
+    async def _persist_unit_status(self, unit: WorkUnit, new_status: str) -> None:
+        """Write unit status to Redis. Updates both per-goal and project index."""
+        try:
+            from services.decomposition.storage import (
+                get_work_units,
+                _get_redis,
+            )
+            import json
+
+            redis = await _get_redis()
+            project_id = unit.project_id
+            goal_id = unit.goal_ref
+
+            # Update in per-goal key
+            wu_key = f"claudevn:v2:work_units:{project_id}:{goal_id}"
+            data = await redis.get(wu_key)
+            if data:
+                units = json.loads(data)
+                for u in units:
+                    if u.get("id") == unit.id:
+                        u["status"] = new_status
+                        if unit.assigned_instance:
+                            u["assigned_instance"] = unit.assigned_instance
+                        if unit.branch:
+                            u["branch"] = unit.branch
+                        break
+                await redis.set(wu_key, json.dumps(units))
+
+            # Update in project index
+            proj_key = f"claudevn:v2:project_units:{project_id}"
+            data = await redis.get(proj_key)
+            if data:
+                units = json.loads(data)
+                for u in units:
+                    if u.get("id") == unit.id:
+                        u["status"] = new_status
+                        if unit.assigned_instance:
+                            u["assigned_instance"] = unit.assigned_instance
+                        if unit.branch:
+                            u["branch"] = unit.branch
+                        break
+                await redis.set(proj_key, json.dumps(units))
+
+        except Exception as e:
+            logger.error(f"Redis persist failed for {unit.id}: {e}")
 
     # -- Helpers for transition actions --
 

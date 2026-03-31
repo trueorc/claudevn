@@ -152,28 +152,8 @@ async def get_dispatch_graph(project_id: str):
     # Filter to active units only (not superseded/cancelled)
     active = [u for u in all_units if u.get("status") not in ("superseded", "cancelled")]
 
-    # Overlay live state from engine (primary) or old dispatcher (fallback)
-    live_states = {}  # unit_id -> {status, instance_id}
-
-    try:
-        from services.dispatch.engine import get_engine
-        engine = get_engine()
-        if engine:
-            for uid, wu in engine._units.items():
-                live_states[uid] = {
-                    "status": wu.status.value if hasattr(wu.status, 'value') else str(wu.status),
-                    "instance_id": engine._unit_compute.get(uid),
-                }
-    except Exception:
-        pass
-
-    if not live_states:
-        dispatcher = get_dispatcher()
-        if dispatcher:
-            for wu in dispatcher.queue.queued_items:
-                live_states[wu.id] = {"status": "queued", "instance_id": None}
-            for inst_id, wu in dispatcher._active.items():
-                live_states[wu.id] = {"status": "executing", "instance_id": inst_id}
+    # Redis IS the source of truth — engine persists every transition there.
+    # No overlay needed. Just read what's in Redis.
 
     active_ids = {u.get("id") for u in active}
     nodes = []
@@ -184,13 +164,9 @@ async def get_dispatch_graph(project_id: str):
         deps = [d for d in u.get("independence", {}).get("depends_on", []) if d in active_ids]
         depby = [d for d in u.get("independence", {}).get("depended_by", []) if d in active_ids]
 
-        # Use live state if available, otherwise Redis state
+        # Redis is the source of truth — engine writes every transition there
         status = u.get("status", "draft")
         instance_id = u.get("assigned_instance")
-        if uid in live_states:
-            status = live_states[uid]["status"]
-            if live_states[uid].get("instance_id"):
-                instance_id = live_states[uid]["instance_id"]
 
         nodes.append(GraphNode(
             id=uid,

@@ -45,6 +45,10 @@ export default function useEventStream({ patterns = ['*'], projectId, onEvent, e
       'decomposition.started', 'decomposition.updated', 'decomposition.approved', 'decomposition.feedback',
       'execution.queued', 'execution.started', 'execution.completed', 'execution.failed',
       'verification.started', 'verification.completed', 'verification.failed', 'verification.integration_conflict',
+      'work_unit.state_transition',
+      'compute.connected', 'compute.disconnected', 'compute.health_changed', 'compute.instance_approved',
+      'work.ready_for_dispatch', 'work.stuck_detected',
+      'error.mcp_tool', 'error.dispatch', 'error.health_check', 'error.sse_connection',
       'system.health', 'system.presence',
     ]
     eventNames.forEach(name => { handlers[name] = handleEvent })
