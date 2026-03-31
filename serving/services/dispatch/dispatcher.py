@@ -262,7 +262,10 @@ class Dispatcher:
             from services.sse_connection_manager import get_sse_connection_manager
             sse_manager = get_sse_connection_manager()
 
-            branch = f"wu/{unit.id}"
+            # Branch name follows git hook convention: {type}/{identifier}/{compute-id}
+            # e.g., f/work_59f333e41fed/test11-compute_node_vitest_eslint
+            unit_short = unit.id.replace("wu-", "")
+            branch = f"f/work_{unit_short}/{instance_id}"
 
             # Look up the project's repo URL for git integration
             repo_url = await self._get_project_repo_url(unit.project_id)
@@ -275,7 +278,8 @@ class Dispatcher:
                 # Use the most recently completed dependency's branch
                 for dep_id in reversed(unit.independence.depends_on):
                     if dep_id in self._queue._completed_ids:
-                        base_branch = f"wu/{dep_id}"
+                        dep_short = dep_id.replace("wu-", "")
+                        base_branch = f"f/work_{dep_short}/{instance_id}"
                         break
 
             task_data = {
@@ -311,7 +315,7 @@ class Dispatcher:
         # Track
         unit.status = WorkUnitStatus.EXECUTING
         unit.assigned_instance = instance_id
-        unit.branch = f"wu/{unit.id}"
+        unit.branch = branch
         self._active[instance_id] = unit
 
         await self._bus.publish(ExecutionStarted(
@@ -319,10 +323,10 @@ class Dispatcher:
             work_unit_id=unit.id,
             goal_id=unit.goal_ref,
             instance_id=instance_id,
-            branch=f"wu/{unit.id}",
+            branch=branch,
         ))
 
-        logger.info(f"Dispatched {unit.id} to {instance_id}")
+        logger.info(f"Dispatched {unit.id} to {instance_id} (branch={branch})")
         return True
 
 
