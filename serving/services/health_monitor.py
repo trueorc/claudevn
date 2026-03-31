@@ -86,21 +86,31 @@ class HealthMonitor:
         logger.info("Health monitor stopped")
     
     async def _monitoring_loop(self):
-        """Main monitoring loop."""
-        logger.info("Health monitoring loop started")
-        
+        """Lightweight staleness detector — checks for ABSENCE of heartbeats.
+
+        v2.0: This is a scheduler, not a poller. It doesn't scan for new state;
+        it detects timeout conditions (missing heartbeats). The interval is
+        how often we check for staleness, not how often we discover state.
+        """
+        logger.info("Health staleness detector started (interval=%ds)", self.check_interval)
+
         while self._running:
             try:
                 await self._check_health()
                 await asyncio.sleep(self.check_interval)
-                
+
             except asyncio.CancelledError:
-                logger.info("Health monitoring loop cancelled")
+                logger.info("Health staleness detector cancelled")
                 break
-                
+
             except Exception as e:
-                logger.error(f"Error in health monitoring loop: {e}", exc_info=True)
-                # Continue running despite errors
+                logger.error(f"Error in health staleness detector: {e}", exc_info=True)
+                try:
+                    from services.events.event_bus import get_event_bus
+                    from services.events.event_types import HealthCheckError
+                    await get_event_bus().publish(HealthCheckError(error_message=str(e)))
+                except Exception:
+                    pass
                 await asyncio.sleep(self.check_interval)
     
     async def _check_drain_completion(self):

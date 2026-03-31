@@ -902,6 +902,20 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to register decomposition event handlers: {e}")
 
     # =========================================================================
+    # OPTIONAL: v2.0 Dispatch Queue + Dispatcher
+    # The Layer 2 dispatch infrastructure. Initialized as a singleton so
+    # the dispatch API endpoints can access it.
+    # =========================================================================
+    try:
+        from services.dispatch.dispatcher import Dispatcher, set_dispatcher
+        v2_dispatcher = Dispatcher(max_concurrent=int(os.getenv('DISPATCH_MAX_CONCURRENT', '5')))
+        set_dispatcher(v2_dispatcher)
+        await v2_dispatcher.start()
+        logger.info("v2.0 Dispatcher started")
+    except Exception as e:
+        logger.warning(f"Failed to start v2.0 Dispatcher: {e}")
+
+    # =========================================================================
     # OPTIONAL: System Integrity Monitor
     # Active agent (60s sweep) that detects cross-cutting state machine
     # inconsistencies (merged but un-finalized work, stuck issues/goals,

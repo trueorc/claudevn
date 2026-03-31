@@ -159,16 +159,23 @@ class WorkOrchestrator:
         )
 
     async def start(self) -> None:
-        """Start the orchestration loop."""
+        """Start the work orchestrator.
+
+        v2.0: The orchestration polling loop has been removed. Work dispatch
+        is handled entirely by the event-driven WorkDispatcher. This service
+        now only runs timeout monitoring (staleness detection) and provides
+        capability matching and retry logic invoked by the dispatcher.
+        """
         if self._running:
             logger.warning("Work orchestrator already running")
             return
 
-        # Restore persisted pause state before entering loop
+        # Restore persisted pause state
         await self._load_pause_state()
 
         self._running = True
-        self._task = asyncio.create_task(self._orchestration_loop())
+        # v2.0: No orchestration loop — WorkDispatcher is the single dispatch path
+        self._task = None
 
         # Register handler to auto-resolve capability blockers when new compute connects
         try:
@@ -178,10 +185,10 @@ class WorkOrchestrator:
         except Exception as e:
             logger.warning(f"Could not register compute connect handler: {e}")
 
-        # Start timeout monitoring if enabled
+        # Start timeout monitoring if enabled (staleness detector, not polling)
         if self.timeout_enabled:
             self._timeout_task = asyncio.create_task(self._timeout_monitoring_loop())
-            logger.info("Work orchestrator started (with timeout monitoring)")
+            logger.info("Work orchestrator started (timeout monitoring only, no orchestration loop)")
         else:
             logger.info("Work orchestrator started (timeout monitoring disabled)")
 
@@ -271,45 +278,19 @@ class WorkOrchestrator:
             "assigned_timeout_minutes": self.assigned_timeout_minutes
         }
 
-    async def _orchestration_loop(self) -> None:
-        """Polling fallback for orchestration.
-
-        The primary dispatch path is event-driven via WorkDispatcher (triggered
-        by compute idle events in api/compute.py). This loop runs at the
-        configured poll_interval as a fallback to catch any work that slips
-        through the event path (e.g., work created while no compute was idle).
-
-        In steady state with an active WorkDispatcher, this loop runs idle most
-        of the time — the dispatcher handles immediate assignment.
-        """
-        # Grace period on startup to allow SSE computes to reconnect
-        # before processing pending work (avoids spawning CLI fallbacks).
-        startup_grace = int(os.environ.get("ORCHESTRATOR_STARTUP_GRACE_SECONDS", "10"))
-        if startup_grace > 0:
-            logger.info(f"Orchestration loop waiting {startup_grace}s for computes to connect")
-            await asyncio.sleep(startup_grace)
-        logger.info("Orchestration loop started (polling fallback)")
-
-        while self._running:
-            try:
-                if not self._paused:
-                    await self._process_pending_work()
-
-                self._stats["last_poll"] = datetime.now(timezone.utc).isoformat()
-                await asyncio.sleep(self.poll_interval)
-
-            except asyncio.CancelledError:
-                logger.info("Orchestration loop cancelled")
-                break
-
-            except Exception as e:
-                logger.error(f"Error in orchestration loop: {e}", exc_info=True)
-                # Continue running despite errors
-                await asyncio.sleep(self.poll_interval)
+    # v2.0: _orchestration_loop REMOVED
+    # Work dispatch is entirely event-driven via WorkDispatcher.
+    # No polling fallback. The dispatcher subscribes to work.ready_for_dispatch
+    # and compute.connected events on the EventBus.
 
     async def _timeout_monitoring_loop(self) -> None:
-        """Background loop for detecting and handling stuck work."""
-        logger.info("Timeout monitoring loop started")
+        """Staleness detector — checks for stuck work items.
+
+        v2.0: This is a lightweight scheduler, not a polling loop.
+        It detects timeout conditions (work executing too long) and
+        emits events. It does not discover or dispatch new work.
+        """
+        logger.info("Timeout staleness detector started (interval=%ds)", self.timeout_check_interval)
 
         while self._running:
             try:
@@ -320,11 +301,17 @@ class WorkOrchestrator:
                 await asyncio.sleep(self.timeout_check_interval)
 
             except asyncio.CancelledError:
-                logger.info("Timeout monitoring loop cancelled")
+                logger.info("Timeout staleness detector cancelled")
                 break
 
             except Exception as e:
-                logger.error(f"Error in timeout monitoring loop: {e}", exc_info=True)
+                logger.error(f"Error in timeout staleness detector: {e}", exc_info=True)
+                try:
+                    from services.events.event_bus import get_event_bus
+                    from services.events.event_types import HealthCheckError
+                    await get_event_bus().publish(HealthCheckError(error_message=f"Timeout monitor error: {e}"))
+                except Exception:
+                    pass
                 await asyncio.sleep(self.timeout_check_interval)
 
     async def _detect_and_handle_stale_work(self) -> None:

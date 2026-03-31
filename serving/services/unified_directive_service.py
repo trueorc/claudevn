@@ -324,7 +324,7 @@ class UnifiedDirectiveService:
 
             # Poll for result in Redis
             result_key = self._key(f"classification:{directive.directive_id}")
-            result = await self._poll_for_result(result_key, CLASSIFICATION_TIMEOUT)
+            result = await self._wait_for_result(result_key, CLASSIFICATION_TIMEOUT)
 
             if result:
                 intent_str = result.strip().lower().replace('"', '').replace("'", "")
@@ -338,37 +338,40 @@ class UnifiedDirectiveService:
 
         return None
 
-    async def _poll_for_result(
+    async def _wait_for_result(
         self,
         redis_key: str,
         timeout: int,
     ) -> Optional[str]:
-        """Poll a Redis key for a result string.
+        """Wait for a result to appear in Redis using exponential backoff.
 
-        Args:
-            redis_key: Key to poll.
-            timeout: Max seconds to wait.
+        v2.0: Replaced 1-second busy polling with exponential backoff.
+        Checks rapidly at first (100ms) then backs off to 2s intervals.
+        Total wait is capped at timeout seconds.
 
-        Returns:
-            Result string or None if timed out.
+        A future improvement would use Redis pub/sub or in-process
+        completion events to eliminate checking entirely.
         """
         if not self._redis:
             return None
 
+        import asyncio
         elapsed = 0
+        interval = 0.1  # Start at 100ms, back off
+
         while elapsed < timeout:
             try:
                 result = await self._redis._redis.get(redis_key)
                 if result:
                     val = result.decode() if isinstance(result, bytes) else result
-                    # Clean up
                     await self._redis._redis.delete(redis_key)
                     return val
             except Exception:
                 pass
 
-            await asyncio.sleep(CLASSIFICATION_POLL_INTERVAL)
-            elapsed += CLASSIFICATION_POLL_INTERVAL
+            await asyncio.sleep(interval)
+            elapsed += interval
+            interval = min(interval * 1.5, 2.0)  # Back off to max 2s
 
         return None
 

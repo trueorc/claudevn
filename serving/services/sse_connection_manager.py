@@ -136,6 +136,14 @@ class SSEConnectionManager:
 
         logger.info(f"SSE connection registered: {compute_id} (capabilities: {capabilities}, labels: {labels or []})")
 
+        # Emit connected event for observability
+        try:
+            from services.events.event_bus import get_event_bus
+            from services.events.event_types import ComputeConnected
+            await get_event_bus().publish(ComputeConnected(instance_id=compute_id))
+        except Exception:
+            pass
+
         # Call connect handlers
         for handler in self._on_connect_handlers:
             try:
@@ -157,6 +165,14 @@ class SSEConnectionManager:
         connection = self._connections.pop(compute_id, None)
         if connection:
             logger.info(f"SSE connection unregistered: {compute_id}")
+
+            # Emit disconnected event for observability
+            try:
+                from services.events.event_bus import get_event_bus
+                from services.events.event_types import ComputeDisconnected
+                await get_event_bus().publish(ComputeDisconnected(instance_id=compute_id))
+            except Exception:
+                pass
 
             # Call disconnect handlers
             for handler in self._on_disconnect_handlers:
@@ -551,27 +567,27 @@ class SSEConnectionManager:
         return await self.send_event(compute_id, "shutdown", data)
 
     async def _keepalive_loop(self) -> None:
-        """Send periodic keepalive events and reconcile registry state."""
+        """Lightweight SSE protocol keepalive — sends minimal pings to prevent connection timeout.
+
+        v2.0: No longer refreshes registry heartbeats (the SSE generator in
+        compute.py handles per-connection heartbeats directly). This loop
+        only maintains the SSE transport layer.
+        """
         while True:
             try:
                 await asyncio.sleep(self._keepalive_interval)
                 timestamp = datetime.now(timezone.utc).isoformat()
                 await self.broadcast_event("keepalive", {"timestamp": timestamp})
-
-                # Reconcile: refresh heartbeat for all SSE-connected instances
-                # so the health monitor doesn't mark them as degraded/offline
-                if self._registry:
-                    for compute_id in list(self._connections.keys()):
-                        try:
-                            await self._registry.update_heartbeat(
-                                compute_id, metadata={"sse_keepalive": True}
-                            )
-                        except Exception as e:
-                            logger.debug(f"Failed to refresh heartbeat for {compute_id}: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in keepalive loop: {e}")
+                try:
+                    from services.events.event_bus import get_event_bus
+                    from services.events.event_types import SSEConnectionError as SSEConnErr
+                    await get_event_bus().publish(SSEConnErr(error_message=f"Keepalive loop error: {e}"))
+                except Exception:
+                    pass
 
     def get_stats(self) -> dict[str, Any]:
         """Get connection statistics."""

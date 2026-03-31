@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import {
   GitBranch, Play, ShieldCheck, AlertTriangle, CheckCircle2,
-  XCircle, Clock, ArrowRight, ChevronDown, ChevronRight, Filter
+  XCircle, Clock, ArrowRight, ChevronDown, ChevronRight, Filter,
+  Cpu, Zap, AlertCircle
 } from 'lucide-react'
 import './EventActivityLog.css'
 
@@ -18,12 +19,32 @@ const EVENT_CONFIG = {
   'verification.completed': { icon: CheckCircle2, label: 'Verification passed', layer: 'L3' },
   'verification.failed': { icon: XCircle, label: 'Verification failed', layer: 'L3' },
   'verification.integration_conflict': { icon: AlertTriangle, label: 'Integration conflict', layer: 'L3' },
+  // Compute lifecycle
+  'compute.instance_registered': { icon: Cpu, label: 'Compute registered', layer: 'SYS' },
+  'compute.instance_removed': { icon: Cpu, label: 'Compute removed', layer: 'SYS' },
+  'compute.instance_approved': { icon: CheckCircle2, label: 'Compute approved', layer: 'SYS' },
+  'compute.health_changed': { icon: AlertTriangle, label: 'Health changed', layer: 'SYS' },
+  'compute.connected': { icon: Zap, label: 'Compute connected', layer: 'SYS' },
+  'compute.disconnected': { icon: XCircle, label: 'Compute disconnected', layer: 'SYS' },
+  'compute.drain_started': { icon: Clock, label: 'Drain started', layer: 'SYS' },
+  // Work lifecycle
+  'work.ready_for_dispatch': { icon: ArrowRight, label: 'Work ready', layer: 'L2' },
+  'work.stuck_detected': { icon: AlertTriangle, label: 'Work stuck', layer: 'L2' },
+  'work.timeout_recovered': { icon: Play, label: 'Timeout recovered', layer: 'L2' },
+  'work.timeout_failed': { icon: XCircle, label: 'Timeout failed', layer: 'L2' },
+  // Errors
+  'error.mcp_tool': { icon: AlertCircle, label: 'MCP tool error', layer: 'ERR' },
+  'error.dispatch': { icon: AlertCircle, label: 'Dispatch error', layer: 'ERR' },
+  'error.health_check': { icon: AlertCircle, label: 'Health check error', layer: 'ERR' },
+  'error.sse_connection': { icon: AlertCircle, label: 'SSE error', layer: 'ERR' },
 }
 
 const LAYER_COLORS = {
   L1: 'var(--primary)',
   L2: 'var(--status-degraded)',
   L3: 'var(--status-online)',
+  SYS: 'var(--text-muted)',
+  ERR: 'var(--status-offline)',
 }
 
 function formatTime(timestamp) {
