@@ -50,6 +50,9 @@ class Dispatcher:
         self._active: Dict[str, WorkUnit] = {}  # instance_id -> work unit
         self._instance_available = asyncio.Event()
         self._running = False
+        self._paused = False
+        self._resume_signal = asyncio.Event()
+        self._resume_signal.set()  # Start unpaused
         self._task: Optional[asyncio.Task] = None
 
     @property
@@ -66,6 +69,11 @@ class Dispatcher:
     def active_units(self) -> List[WorkUnit]:
         """Currently executing work units."""
         return list(self._active.values())
+
+    @property
+    def is_paused(self) -> bool:
+        """Whether dispatch is paused."""
+        return self._paused
 
     async def start(self) -> None:
         """Start the dispatch loop."""
@@ -86,6 +94,21 @@ class Dispatcher:
             except asyncio.CancelledError:
                 pass
         logger.info("Dispatcher stopped")
+
+    def pause(self) -> None:
+        """Pause dispatch — no new work will be assigned.
+
+        In-flight work continues to completion.
+        """
+        self._paused = True
+        self._resume_signal.clear()
+        logger.info("Dispatcher paused — no new work will be dispatched")
+
+    def resume(self) -> None:
+        """Resume dispatch — new work can be assigned again."""
+        self._paused = False
+        self._resume_signal.set()
+        logger.info("Dispatcher resumed")
 
     def notify_instance_available(self, instance_id: str) -> None:
         """Signal that a compute instance is available for work."""
@@ -125,7 +148,9 @@ class Dispatcher:
                 checks=[c.type.value for c in unit.verification_criteria.automated],
             ))
             # Unblock dependents
-            self._queue.mark_completed(unit.id)
+            unblocked = self._queue.mark_completed(unit.id)
+            if unblocked:
+                logger.info(f"Unblocked {len(unblocked)} dependents after {unit.id} completed")
         else:
             unit.status = WorkUnitStatus.FAILED_VERIFICATION
             await self._bus.publish(ExecutionFailed(
@@ -142,6 +167,10 @@ class Dispatcher:
         """Main dispatch loop — event-driven, not polling."""
         while self._running:
             try:
+                # Wait if paused
+                if self._paused:
+                    await self._resume_signal.wait()
+
                 # Wait until we have capacity
                 while self.active_count >= self._max_concurrent:
                     self._instance_available.clear()
@@ -196,3 +225,19 @@ class Dispatcher:
         ))
 
         logger.info(f"Dispatched {unit.id} to {instance_id}")
+
+
+# -- Singleton access --
+
+_dispatcher: Optional[Dispatcher] = None
+
+
+def get_dispatcher() -> Optional[Dispatcher]:
+    """Get the singleton Dispatcher instance."""
+    return _dispatcher
+
+
+def set_dispatcher(dispatcher: Dispatcher) -> None:
+    """Set the singleton Dispatcher instance."""
+    global _dispatcher
+    _dispatcher = dispatcher

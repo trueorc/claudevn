@@ -12,7 +12,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from models.work_unit import WorkUnit, WorkUnitStatus
 
@@ -41,17 +41,15 @@ class DispatchQueue:
         self._queue: List[QueueEntry] = []
         self._work_available = asyncio.Event()
         self._completed_ids: Set[str] = set()
-        self._pending_ids: Set[str] = set()  # IDs waiting for dependencies
+        self._pending_ids: Set[str] = set()
+        # Store pending units so we can re-enqueue when deps are met
+        self._pending_units: Dict[str, Tuple[WorkUnit, int]] = {}
 
     def enqueue(self, unit: WorkUnit, priority: int = 0) -> None:
         """Add a work unit to the dispatch queue.
 
         Only enqueues if all dependencies are satisfied. Otherwise,
         tracks it as pending until dependencies complete.
-
-        Args:
-            unit: Work unit to dispatch.
-            priority: Topological order position (lower = first).
         """
         unmet = [
             dep for dep in unit.independence.depends_on
@@ -60,6 +58,7 @@ class DispatchQueue:
 
         if unmet:
             self._pending_ids.add(unit.id)
+            self._pending_units[unit.id] = (unit, priority)
             logger.debug(
                 f"Work unit {unit.id} waiting on dependencies: {unmet}"
             )
@@ -69,6 +68,10 @@ class DispatchQueue:
         self._queue.append(entry)
         self._queue.sort(key=lambda e: e.priority)
         unit.status = WorkUnitStatus.QUEUED
+
+        # Remove from pending if it was there
+        self._pending_ids.discard(unit.id)
+        self._pending_units.pop(unit.id, None)
 
         self._work_available.set()
         logger.info(f"Work unit {unit.id} queued at priority {priority}")
@@ -86,6 +89,9 @@ class DispatchQueue:
     def mark_completed(self, unit_id: str) -> List[WorkUnit]:
         """Mark a work unit as completed and unblock dependents.
 
+        Checks all pending units to see if their dependencies are now
+        satisfied and re-enqueues them.
+
         Returns:
             List of newly unblocked work units that were added to the queue.
         """
@@ -93,12 +99,30 @@ class DispatchQueue:
         unblocked = []
 
         # Check if any pending units are now unblocked
-        still_pending = set()
-        for pending_id in self._pending_ids:
-            # We need the actual unit — caller should re-enqueue
-            still_pending.add(pending_id)
+        still_pending = {}
+        for pid, (unit, priority) in self._pending_units.items():
+            unmet = [
+                dep for dep in unit.independence.depends_on
+                if dep not in self._completed_ids
+            ]
+            if not unmet:
+                # All deps satisfied — enqueue
+                entry = QueueEntry(work_unit=unit, priority=priority)
+                self._queue.append(entry)
+                unit.status = WorkUnitStatus.QUEUED
+                unblocked.append(unit)
+                self._pending_ids.discard(pid)
+                logger.info(f"Work unit {pid} unblocked by {unit_id}, queued at priority {priority}")
+            else:
+                still_pending[pid] = (unit, priority)
 
-        self._pending_ids = still_pending
+        self._pending_units = still_pending
+        self._pending_ids = set(still_pending.keys())
+
+        if unblocked:
+            self._queue.sort(key=lambda e: e.priority)
+            self._work_available.set()
+
         return unblocked
 
     async def next(self) -> WorkUnit:
@@ -127,13 +151,23 @@ class DispatchQueue:
 
     @property
     def size(self) -> int:
-        """Number of units currently in the queue."""
+        """Number of units currently in the queue (ready to dispatch)."""
         return len(self._queue)
 
     @property
     def pending_count(self) -> int:
         """Number of units waiting for dependencies."""
         return len(self._pending_ids)
+
+    @property
+    def queued_items(self) -> List[WorkUnit]:
+        """Work units currently in the queue."""
+        return [e.work_unit for e in self._queue]
+
+    @property
+    def completed_ids(self) -> Set[str]:
+        """IDs of completed work units."""
+        return set(self._completed_ids)
 
     def _topological_sort(self, units: List[WorkUnit]) -> List[WorkUnit]:
         """Sort work units by dependency order (Kahn's algorithm)."""

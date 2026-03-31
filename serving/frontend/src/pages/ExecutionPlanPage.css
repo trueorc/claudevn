@@ -1,87 +1,85 @@
-/* Plan Page Styles */
+/* Execution Page — graph-first split layout */
 
-.header-content {
+.exec-page {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-lg);
   gap: var(--space-md);
 }
 
-.error-banner {
-  padding: var(--space-md);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid var(--status-offline);
-  border-radius: var(--radius-md);
-  color: var(--status-offline);
-  margin-bottom: var(--space-lg);
-  font-size: var(--font-size-sm);
-}
-
-/* Header Controls */
-.plan-header-controls {
+/* Header */
+.exec-header {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  margin-left: auto;
+  justify-content: space-between;
+  flex-shrink: 0;
 }
 
-/* Pause Button */
-.plan-pause-btn {
+.exec-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.exec-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.exec-pause-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 8px 16px;
   border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-sm);
-  transition: all 0.15s ease;
+  font-weight: 500;
+  transition: all var(--transition-fast);
 }
 
-.plan-pause-btn:hover {
+.exec-pause-btn:hover {
   background: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--text);
 }
 
-.plan-pause-btn:disabled {
+.exec-pause-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.plan-pause-btn--paused {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(99, 102, 241, 0.08);
-}
-
-.plan-pause-btn--paused:hover {
-  background: rgba(99, 102, 241, 0.15);
+.exec-pause-btn--paused {
+  border-color: var(--status-degraded);
+  color: var(--status-degraded);
+  background: color-mix(in srgb, var(--status-degraded) 8%, transparent);
 }
 
 /* Paused Banner */
-.plan-paused-banner {
+.exec-paused-banner {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  background: rgba(234, 179, 8, 0.08);
-  border: 1px solid rgba(234, 179, 8, 0.3);
+  background: color-mix(in srgb, var(--status-degraded) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-degraded) 30%, var(--border));
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
-  margin-bottom: var(--space-md);
 }
 
-.plan-paused-banner svg {
-  color: rgb(234, 179, 8);
+.exec-paused-banner svg {
+  color: var(--status-degraded);
   flex-shrink: 0;
 }
 
-.plan-paused-resume {
+.exec-paused-resume {
   margin-left: auto;
   padding: 2px 10px;
-  border: 1px solid rgba(234, 179, 8, 0.4);
+  border: 1px solid color-mix(in srgb, var(--status-degraded) 40%, var(--border));
   background: transparent;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
@@ -89,49 +87,180 @@
   font-size: var(--font-size-xs);
 }
 
-.plan-paused-resume:hover {
-  background: rgba(234, 179, 8, 0.12);
+.exec-paused-resume:hover {
+  background: color-mix(in srgb, var(--status-degraded) 12%, transparent);
 }
 
-/* View Toggle */
-.plan-view-toggle {
+/* Main body — split layout */
+.exec-body {
   display: flex;
-  gap: 2px;
-  background: var(--bg-hover);
-  border-radius: var(--radius-sm);
-  padding: 2px;
+  gap: var(--space-lg);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.plan-view-btn {
+/* Left: Graph area */
+.exec-graph-area {
+  flex: 3;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  flex-direction: column;
 }
 
-.plan-view-btn:hover {
-  color: var(--text);
+/* Right: Sidebar panels */
+.exec-sidebar {
+  flex: 2;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 280px;
+  max-width: 420px;
 }
 
-.plan-view-btn--active {
-  background: var(--bg-elevated);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-/* Graph View Container */
-.plan-graph-view {
-  margin-bottom: var(--space-lg);
+/* Shared panel styles for sidebar components */
+.exec-panel {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: var(--space-md);
-  min-height: 400px;
+}
+
+.exec-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  color: var(--text-muted);
+}
+
+.exec-panel-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.exec-panel-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.exec-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.exec-panel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 3px var(--space-xs);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+}
+
+.exec-panel-row:hover {
+  background: var(--bg-hover);
+}
+
+.exec-panel-id {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.exec-panel-desc {
+  color: var(--text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exec-complexity {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.exec-complexity--xs, .exec-complexity--s { color: var(--status-online); }
+.exec-complexity--m { color: var(--text-secondary); }
+.exec-complexity--l { color: var(--status-degraded); }
+.exec-complexity--xl { color: var(--status-offline); }
+
+/* Active compute specific */
+.exec-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-online);
+  animation: exec-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes exec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.exec-instance {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.exec-elapsed {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* Timing grid */
+.exec-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-xs);
+}
+
+.exec-timing-stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.exec-timing-value {
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.exec-timing-label {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* Responsive: stack on narrow */
+@media (max-width: 900px) {
+  .exec-body {
+    flex-direction: column;
+  }
+  .exec-sidebar {
+    max-width: none;
+  }
 }

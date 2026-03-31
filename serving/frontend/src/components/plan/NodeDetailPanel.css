@@ -1,0 +1,116 @@
+.ndp {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  width: 280px;
+  max-height: calc(100% - var(--space-xl));
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.ndp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ndp-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.ndp-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.ndp-id {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.ndp-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.ndp-close:hover { background: var(--bg-hover); color: var(--text); }
+
+.ndp-description {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.ndp-meta {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.ndp-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.ndp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.ndp-label { color: var(--text-muted); }
+.ndp-value { font-family: var(--font-mono); }
+
+.ndp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-xs);
+}
+
+.ndp-section-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ndp-row-sm {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  padding-left: var(--space-md);
+}
+
+.ndp-dep {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding-left: var(--space-md);
+}
