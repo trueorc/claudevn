@@ -678,6 +678,32 @@ async def receive_compute_event(
     if event.event.value == "claude_code_rejected":
         await _handle_rejection_redispatch(event)
 
+    # v2.0 Dispatcher integration — notify reactive dispatcher of state changes
+    try:
+        from services.dispatch.dispatcher import get_dispatcher
+        v2_dispatcher = get_dispatcher()
+        if v2_dispatcher:
+            if event.event.value == "claude_code_completed":
+                success = event.exit_code == 0 if event.exit_code is not None else True
+                await v2_dispatcher.on_execution_complete(
+                    instance_id=event.compute_id,
+                    success=success,
+                    branch=event.branch_name,
+                )
+            elif event.event.value == "claude_code_failed":
+                await v2_dispatcher.on_execution_complete(
+                    instance_id=event.compute_id,
+                    success=False,
+                )
+            elif event.event.value == "claude_code_rejected":
+                await v2_dispatcher.on_execution_rejected(
+                    instance_id=event.compute_id,
+                    work_unit_id=event.task_id,
+                    reason=event.error or "rejected by compute",
+                )
+    except Exception as e:
+        logger.debug(f"v2.0 Dispatcher notification failed: {e}")
+
     return ComputeEventResponse(
         status="acknowledged",
         event=event.event.value,

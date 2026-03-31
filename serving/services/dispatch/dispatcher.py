@@ -3,16 +3,20 @@
 v2.0 replacement for the polling-based WorkOrchestrator.
 
 Two conditions must both be true for dispatch to occur:
-  1. Work is queued (queue has ready units)
-  2. Compute is available (idle instance exists)
+  1. Work is queued (queue has ready units with deps satisfied)
+  2. Compute is available (idle instance exists with capacity)
 
 When EITHER condition changes, evaluate. If both true → dispatch.
 No polling loops. No grace periods. No placeholders.
+
+Dispatches one unit at a time per compute. Respects chain ordering —
+within a dependency chain, units execute sequentially. Independent
+chains can run on separate computes in parallel.
 """
 
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from models.work_unit import WorkUnit, WorkUnitStatus
 from services.events.event_bus import EventBus, get_event_bus
@@ -31,14 +35,8 @@ logger = logging.getLogger(__name__)
 class Dispatcher:
     """Reactive dispatcher — evaluates and dispatches on state changes.
 
-    Not a loop. Not a poller. Just an evaluate() method called whenever:
-    - Work enters the queue (enqueue)
-    - A compute instance connects or becomes idle
-    - An execution completes (frees capacity)
-    - Pause/resume changes
-
     evaluate() checks: is there work AND is there compute AND not paused?
-    If yes → dispatch. If no → do nothing, wait for next trigger.
+    If yes → dispatch ONE unit to ONE compute. Then re-evaluate.
     """
 
     def __init__(
@@ -51,8 +49,9 @@ class Dispatcher:
         self._bus = bus or get_event_bus()
         self._max_concurrent = max_concurrent
         self._active: Dict[str, WorkUnit] = {}  # instance_id -> work unit
+        self._busy_computes: Set[str] = set()   # compute_ids currently executing
         self._paused = False
-        self._evaluating = False  # guard against re-entrant evaluate
+        self._evaluating = False
         self._running = False
 
         logger.info(f"Dispatcher initialized (max_concurrent={max_concurrent})")
@@ -76,56 +75,46 @@ class Dispatcher:
     async def start(self) -> None:
         """Mark the dispatcher as running. No loop to start."""
         self._running = True
-        logger.info("Dispatcher started (reactive — no dispatch loop)")
+        logger.info("Dispatcher started (reactive)")
 
     async def stop(self) -> None:
-        """Stop the dispatcher."""
         self._running = False
         logger.info("Dispatcher stopped")
 
     def pause(self) -> None:
-        """Pause dispatch — evaluate() will be a no-op until resumed."""
         self._paused = True
         logger.info("Dispatcher paused")
 
     def resume(self) -> None:
-        """Resume dispatch and immediately evaluate."""
         self._paused = False
         logger.info("Dispatcher resumed")
         asyncio.create_task(self.evaluate())
 
     async def evaluate(self) -> None:
-        """Core method: check conditions and dispatch if ready.
+        """Core: check conditions and dispatch if ready.
 
-        Called by event handlers whenever state changes. Dispatches
-        as many units as possible given current conditions.
-
-        Conditions:
-          - Not paused
-          - Queue has work
-          - Idle compute exists
-          - Under max_concurrent limit
+        Called whenever state changes. Dispatches at most ONE unit
+        per idle compute, then re-evaluates. This ensures we never
+        overwhelm a compute with multiple assignments.
         """
         if not self._running or self._paused:
             return
-
-        # Guard against re-entrant calls (evaluate triggers events that trigger evaluate)
         if self._evaluating:
             return
         self._evaluating = True
 
         try:
-            while True:
-                # Check all conditions
-                if self._paused:
-                    break
-                if self.active_count >= self._max_concurrent:
+            dispatched_any = True
+            while dispatched_any:
+                dispatched_any = False
+
+                if self._paused or self.active_count >= self._max_concurrent:
                     break
                 if self._queue.size == 0:
                     break
 
-                # Find available compute
-                compute = await self._find_idle_compute()
+                # Find an idle compute that is NOT already busy
+                compute = await self._find_available_compute()
                 if not compute:
                     break
 
@@ -134,8 +123,15 @@ class Dispatcher:
                 if not unit:
                     break
 
-                # Dispatch
-                await self._dispatch_to_compute(unit, compute)
+                # Dispatch ONE unit to this compute
+                success = await self._dispatch_to_compute(unit, compute)
+                if success:
+                    dispatched_any = True
+                    # Mark this compute as busy so we don't send it more work
+                    self._busy_computes.add(compute.compute_id)
+                else:
+                    # Failed to dispatch — return to queue
+                    self._queue.enqueue(unit, priority=0)
 
         except Exception as e:
             logger.error(f"Error during dispatch evaluation: {e}", exc_info=True)
@@ -150,12 +146,16 @@ class Dispatcher:
     ) -> None:
         """Handle work unit execution completion.
 
-        Frees the instance slot, emits events, unblocks dependents,
-        then evaluates for more work.
+        Frees the compute slot, emits events, unblocks dependents,
+        then re-evaluates for more work.
         """
         unit = self._active.pop(instance_id, None)
+        self._busy_computes.discard(instance_id)
+
         if not unit:
             logger.warning(f"Completion for unknown instance: {instance_id}")
+            # Still evaluate — the compute is now free
+            await self.evaluate()
             return
 
         if success:
@@ -187,11 +187,34 @@ class Dispatcher:
                 reason="Execution failed",
             ))
 
-        # State changed — evaluate for more work
+        logger.info(f"Execution complete: {unit.id} on {instance_id} (success={success})")
+
+        # State changed — re-evaluate
         await self.evaluate()
 
-    async def _find_idle_compute(self):
-        """Find an available compute instance. Returns connection or None."""
+    async def on_execution_rejected(
+        self,
+        instance_id: str,
+        work_unit_id: str,
+        reason: str = "",
+    ) -> None:
+        """Handle work unit rejection by compute (at capacity, etc).
+
+        Returns the unit to the queue and marks the compute as busy.
+        """
+        unit = self._active.pop(instance_id, None)
+        # Compute is busy (that's why it rejected) — keep in busy set
+        self._busy_computes.add(instance_id)
+
+        if unit:
+            unit.status = WorkUnitStatus.QUEUED
+            self._queue.enqueue(unit, priority=0)
+            logger.info(f"Work {unit.id} rejected by {instance_id} ({reason}) — returned to queue")
+        else:
+            logger.warning(f"Rejection for unknown work on {instance_id}: {work_unit_id}")
+
+    async def _find_available_compute(self):
+        """Find an idle compute that is NOT already busy with our work."""
         try:
             from services.sse_connection_manager import get_sse_connection_manager
             sse_manager = get_sse_connection_manager()
@@ -202,15 +225,18 @@ class Dispatcher:
             if not idle:
                 return None
 
-            # TODO: project affinity — prefer connections assigned to the
-            # next unit's project. For now, any idle connection works.
-            return idle[0]
+            # Filter out computes we've already assigned work to
+            for conn in idle:
+                if conn.compute_id not in self._busy_computes:
+                    return conn
+
+            return None
         except Exception as e:
-            logger.debug(f"Error finding idle compute: {e}")
+            logger.debug(f"Error finding available compute: {e}")
             return None
 
-    async def _dispatch_to_compute(self, unit: WorkUnit, connection) -> None:
-        """Send a work unit to a compute instance via SSE."""
+    async def _dispatch_to_compute(self, unit: WorkUnit, connection) -> bool:
+        """Send a work unit to a compute instance via SSE. Returns True on success."""
         instance_id = connection.compute_id
 
         try:
@@ -219,7 +245,7 @@ class Dispatcher:
 
             branch = f"wu/{unit.id}"
             task_data = {
-                # v1.0 compute compatibility fields
+                # v1.0 compute compatibility
                 "task_id": unit.id,
                 "title": unit.description[:120],
                 "description": unit.description,
@@ -242,9 +268,7 @@ class Dispatcher:
             )
         except Exception as e:
             logger.error(f"Failed to send work to {instance_id}: {e}")
-            # Return to queue
-            self._queue.enqueue(unit, priority=0)
-            return
+            return False
 
         # Track
         unit.status = WorkUnitStatus.EXECUTING
@@ -261,6 +285,7 @@ class Dispatcher:
         ))
 
         logger.info(f"Dispatched {unit.id} to {instance_id}")
+        return True
 
 
 # -- Singleton access --
@@ -269,11 +294,9 @@ _dispatcher: Optional[Dispatcher] = None
 
 
 def get_dispatcher() -> Optional[Dispatcher]:
-    """Get the singleton Dispatcher instance."""
     return _dispatcher
 
 
 def set_dispatcher(dispatcher: Dispatcher) -> None:
-    """Set the singleton Dispatcher instance."""
     global _dispatcher
     _dispatcher = dispatcher
