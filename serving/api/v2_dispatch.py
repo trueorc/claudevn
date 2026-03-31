@@ -143,6 +143,7 @@ async def get_dispatch_graph(project_id: str):
     with current execution status.
     """
     from services.decomposition.storage import get_project_units
+    from services.dispatch.dispatcher import get_dispatcher
 
     all_units = await get_project_units(project_id)
     if not all_units:
@@ -150,6 +151,16 @@ async def get_dispatch_graph(project_id: str):
 
     # Filter to active units only (not superseded/cancelled)
     active = [u for u in all_units if u.get("status") not in ("superseded", "cancelled")]
+
+    # Overlay live dispatcher state on top of Redis data
+    dispatcher = get_dispatcher()
+    live_queued_ids = set()
+    live_executing = {}  # unit_id -> instance_id
+    if dispatcher:
+        for wu in dispatcher.queue.queued_items:
+            live_queued_ids.add(wu.id)
+        for inst_id, wu in dispatcher._active.items():
+            live_executing[wu.id] = inst_id
 
     active_ids = {u.get("id") for u in active}
     nodes = []
@@ -160,18 +171,27 @@ async def get_dispatch_graph(project_id: str):
         deps = [d for d in u.get("independence", {}).get("depends_on", []) if d in active_ids]
         depby = [d for d in u.get("independence", {}).get("depended_by", []) if d in active_ids]
 
+        # Use live state if available, otherwise Redis state
+        status = u.get("status", "draft")
+        instance_id = u.get("assigned_instance")
+        if uid in live_executing:
+            status = "executing"
+            instance_id = live_executing[uid]
+        elif uid in live_queued_ids:
+            status = "queued"
+
         nodes.append(GraphNode(
             id=uid,
             description=u.get("description", ""),
-            status=u.get("status", "draft"),
+            status=status,
             complexity=u.get("estimated_complexity", ""),
             goal_id=u.get("goal_ref", ""),
             source_directive_id=u.get("source_directive_id"),
-            instance_id=u.get("assigned_instance"),
+            instance_id=instance_id,
             depends_on=deps,
             depended_by=depby,
-            started_at=u.get("updated_at") if u.get("status") in ("executing", "completed", "verified") else None,
-            completed_at=u.get("updated_at") if u.get("status") in ("completed", "verified") else None,
+            started_at=u.get("updated_at") if status in ("executing", "completed", "verified") else None,
+            completed_at=u.get("updated_at") if status in ("completed", "verified") else None,
         ))
 
         for dep in deps:

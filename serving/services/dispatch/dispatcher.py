@@ -201,19 +201,69 @@ class Dispatcher:
     async def _dispatch_unit(self, unit: WorkUnit) -> None:
         """Dispatch a work unit to an available Claude Code instance.
 
-        In the full implementation, this will:
-        1. Select an available instance (simple capability check)
-        2. Assemble the context package
-        3. Inject as CLAUDE.md + task prompt
-        4. Start the instance
-
-        For now, tracks the assignment and emits the event.
+        Selects an idle compute instance via the SSE connection manager,
+        pushes the work assignment via SSE, and tracks the execution.
+        Falls back to tracking-only if no compute is available.
         """
-        # TODO: integrate with actual compute spawner/instance pool
-        instance_id = f"instance-{unit.id}"
+        instance_id = None
+
+        # Try to find an available compute instance
+        try:
+            from services.sse_connection_manager import get_sse_connection_manager
+            sse_manager = get_sse_connection_manager()
+
+            if sse_manager:
+                # Find an idle connection assigned to this project
+                idle = sse_manager.get_idle_connections()
+
+                # Filter to connections assigned to this project via registry
+                connection = None
+                try:
+                    from services.registry_service import get_compute_registry
+                    registry = get_compute_registry()
+                    for conn in idle:
+                        instance = await registry.get_instance(conn.compute_id) if registry else None
+                        if instance and unit.project_id in (instance.project_ids or []):
+                            connection = conn
+                            break
+                    # Fallback: any idle connection if no project-specific one
+                    if not connection and idle:
+                        connection = idle[0]
+                except Exception:
+                    if idle:
+                        connection = idle[0]
+
+                if connection:
+                    instance_id = connection.compute_id
+
+                    # Push work assignment via SSE
+                    branch = f"wu/{unit.id}"
+                    task_data = {
+                        "work_unit_id": unit.id,
+                        "goal_id": unit.goal_ref,
+                        "project_id": unit.project_id,
+                        "description": unit.description,
+                        "branch": branch,
+                        "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
+                        "acceptance_criteria": unit.acceptance_criteria or [],
+                    }
+                    await sse_manager.send_event(
+                        compute_id=instance_id,
+                        event_type="work_assigned",
+                        data=task_data,
+                    )
+                    logger.info(f"Dispatched {unit.id} to compute {instance_id} via SSE")
+        except Exception as e:
+            logger.warning(f"Could not dispatch {unit.id} to compute: {e}")
+
+        # Fallback: track assignment even without compute
+        if not instance_id:
+            instance_id = f"pending-{unit.id}"
+            logger.info(f"No compute available for {unit.id} — queued as pending assignment")
 
         unit.status = WorkUnitStatus.EXECUTING
         unit.assigned_instance = instance_id
+        unit.branch = f"wu/{unit.id}"
         self._active[instance_id] = unit
 
         await self._bus.publish(ExecutionStarted(

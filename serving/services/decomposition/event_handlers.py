@@ -22,7 +22,82 @@ def register_decomposition_handlers():
 
     # Re-run coherence analysis when a decomposition completes
     bus.on("decomposition.updated", _on_decomposition_updated)
+
+    # Enqueue approved work units for dispatch (Plan → Execute bridge)
+    bus.on("decomposition.approved", _on_decomposition_approved)
+
     logger.info("Registered decomposition event handlers")
+
+
+async def _on_decomposition_approved(event):
+    """When a decomposition is approved, enqueue work units for dispatch.
+
+    This is the critical bridge between Layer 1 (Plan) and Layer 2 (Execute).
+    Approved work units transition from the plan into the dispatch queue
+    for execution by compute instances.
+    """
+    project_id = getattr(event, "project_id", None)
+    goal_id = getattr(event, "goal_id", None)
+    work_unit_ids = getattr(event, "work_unit_ids", [])
+
+    if not project_id or not goal_id:
+        return
+
+    asyncio.create_task(_enqueue_approved_units(project_id, goal_id, work_unit_ids))
+
+
+async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: list):
+    """Load approved work units and enqueue them for dispatch."""
+    try:
+        from services.decomposition.storage import get_work_units
+        from services.dispatch.dispatcher import get_dispatcher
+        from models.work_unit import WorkUnit
+
+        dispatcher = get_dispatcher()
+        if not dispatcher:
+            logger.warning("Dispatcher not available — approved units will not be dispatched")
+            return
+
+        # Load work units from Redis
+        units_data = await get_work_units(project_id, goal_id)
+        if not units_data:
+            logger.warning(f"No work units found for {goal_id} after approval")
+            return
+
+        # Filter to approved (ready) units
+        ready_data = [u for u in units_data if u.get("status") == "ready"]
+        if not ready_data:
+            logger.info(f"No ready units to enqueue for {goal_id}")
+            return
+
+        # Convert dicts to WorkUnit objects and enqueue
+        work_units = []
+        for ud in ready_data:
+            try:
+                wu = WorkUnit(**ud)
+                work_units.append(wu)
+            except Exception as e:
+                logger.warning(f"Could not parse work unit {ud.get('id', '?')}: {e}")
+
+        if work_units:
+            dispatcher.queue.enqueue_batch(work_units)
+            logger.info(
+                f"Enqueued {len(work_units)} approved work units from {goal_id} "
+                f"for project {project_id}"
+            )
+
+            # Emit work.ready_for_dispatch events
+            bus = get_event_bus()
+            from services.events.event_types import WorkReadyForDispatch
+            for wu in work_units:
+                await bus.publish(WorkReadyForDispatch(
+                    project_id=project_id,
+                    work_unit_id=wu.id,
+                    goal_id=goal_id,
+                ))
+
+    except Exception as e:
+        logger.error(f"Failed to enqueue approved units for {goal_id}: {e}")
 
 
 async def _on_decomposition_updated(event):
