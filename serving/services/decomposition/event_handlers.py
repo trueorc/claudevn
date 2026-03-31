@@ -26,8 +26,9 @@ def register_decomposition_handlers():
     # Enqueue approved work units for dispatch (Plan → Execute bridge)
     bus.on("decomposition.approved", _on_decomposition_approved)
 
-    # Wake the dispatcher when a compute connects
+    # Wake the dispatcher when a compute connects or is approved
     bus.on("compute.connected", _on_compute_connected)
+    bus.on("compute.instance_approved", _on_compute_available)
 
     # On startup, rebuild unified indexes for all projects with pipeline data
     asyncio.create_task(_rebuild_all_project_indexes())
@@ -148,20 +149,30 @@ async def _enqueue_ready_units_on_startup():
 
 
 async def _on_compute_connected(event):
-    """When a compute connects, evaluate for dispatch.
+    """When a compute connects, evaluate for dispatch."""
+    await _trigger_dispatch_evaluation(getattr(event, "instance_id", ""), "connected")
 
-    State changed (compute available) — trigger evaluation.
-    If work is queued, it will be dispatched to this compute.
+
+async def _on_compute_available(event):
+    """When a compute is approved, evaluate for dispatch.
+
+    A newly approved compute transitions from PENDING to ONLINE,
+    making it available for work. This is the typical flow:
+    compute connects (PENDING) → user approves → now dispatchable.
     """
+    await _trigger_dispatch_evaluation(getattr(event, "instance_id", ""), "approved")
+
+
+async def _trigger_dispatch_evaluation(instance_id: str, reason: str):
+    """Trigger dispatch evaluation when compute state changes."""
     try:
         from services.dispatch.dispatcher import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher:
-            instance_id = getattr(event, "instance_id", "")
-            logger.info(f"Compute connected ({instance_id}) — triggering dispatch evaluation")
+            logger.info(f"Compute {reason} ({instance_id}) — triggering dispatch evaluation")
             await dispatcher.evaluate()
     except Exception as e:
-        logger.debug(f"Failed to trigger dispatch evaluation on compute connect: {e}")
+        logger.debug(f"Failed to trigger dispatch evaluation on compute {reason}: {e}")
 
 
 async def _on_decomposition_approved(event):
