@@ -191,12 +191,15 @@ async def action_start_merge(unit: WorkUnit, ctx: EvaluationContext, engine: Wor
         pr_service = PRService()
 
         # Create PR
+        compute_id = unit.assigned_instance or "v2-engine"
         try:
             await pr_service.create_pr(
                 project=repo_name,
                 branch=branch,
+                compute_id=compute_id,
+                task_id=unit.id,
                 title=unit.description[:120],
-                body=f"Work unit: {unit.id}\n\n{unit.description}",
+                description=f"Work unit: {unit.id}\n\n{unit.description}",
             )
         except Exception as e:
             logger.warning(f"PR creation for {unit.id}: {e}")
