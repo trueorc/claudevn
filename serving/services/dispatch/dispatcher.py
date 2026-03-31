@@ -110,10 +110,17 @@ class Dispatcher:
         self._resume_signal.set()
         logger.info("Dispatcher resumed")
 
-    def notify_instance_available(self, instance_id: str) -> None:
-        """Signal that a compute instance is available for work."""
+    def notify_instance_available(self, instance_id: str = "") -> None:
+        """Signal that a compute instance is available for work.
+
+        Called when a compute connects or completes work. Wakes the
+        dispatch loop if it's waiting for capacity.
+        """
         self._instance_available.set()
-        logger.debug(f"Instance available: {instance_id}")
+        # Also wake the queue in case units are waiting
+        self._queue._work_available.set()
+        if instance_id:
+            logger.debug(f"Instance available: {instance_id}")
 
     async def on_execution_complete(
         self,
@@ -203,63 +210,49 @@ class Dispatcher:
 
         Selects an idle compute instance via the SSE connection manager,
         pushes the work assignment via SSE, and tracks the execution.
-        Falls back to tracking-only if no compute is available.
+        If no compute is available, returns the unit to the queue and
+        waits for a compute to connect.
         """
-        instance_id = None
-
         # Try to find an available compute instance
+        connection = await self._find_compute_for_unit(unit)
+
+        if not connection:
+            # No compute available — put unit back in queue and wait
+            self._queue.enqueue(unit, priority=0)
+            unit.status = WorkUnitStatus.QUEUED
+            logger.info(f"No compute available for {unit.id} — returned to queue, waiting for compute")
+            # Wait a bit before trying the next unit (avoids tight loop)
+            await asyncio.sleep(2)
+            return
+
+        instance_id = connection.compute_id
+
+        # Push work assignment via SSE
         try:
             from services.sse_connection_manager import get_sse_connection_manager
             sse_manager = get_sse_connection_manager()
 
-            if sse_manager:
-                # Find an idle connection assigned to this project
-                idle = sse_manager.get_idle_connections()
-
-                # Filter to connections assigned to this project via registry
-                connection = None
-                try:
-                    from services.registry_service import get_compute_registry
-                    registry = get_compute_registry()
-                    for conn in idle:
-                        instance = await registry.get_instance(conn.compute_id) if registry else None
-                        if instance and unit.project_id in (instance.project_ids or []):
-                            connection = conn
-                            break
-                    # Fallback: any idle connection if no project-specific one
-                    if not connection and idle:
-                        connection = idle[0]
-                except Exception:
-                    if idle:
-                        connection = idle[0]
-
-                if connection:
-                    instance_id = connection.compute_id
-
-                    # Push work assignment via SSE
-                    branch = f"wu/{unit.id}"
-                    task_data = {
-                        "work_unit_id": unit.id,
-                        "goal_id": unit.goal_ref,
-                        "project_id": unit.project_id,
-                        "description": unit.description,
-                        "branch": branch,
-                        "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
-                        "acceptance_criteria": unit.acceptance_criteria or [],
-                    }
-                    await sse_manager.send_event(
-                        compute_id=instance_id,
-                        event_type="work_assigned",
-                        data=task_data,
-                    )
-                    logger.info(f"Dispatched {unit.id} to compute {instance_id} via SSE")
+            branch = f"wu/{unit.id}"
+            task_data = {
+                "work_unit_id": unit.id,
+                "goal_id": unit.goal_ref,
+                "project_id": unit.project_id,
+                "description": unit.description,
+                "branch": branch,
+                "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
+                "acceptance_criteria": unit.acceptance_criteria or [],
+            }
+            await sse_manager.send_event(
+                compute_id=instance_id,
+                event_type="work_assigned",
+                data=task_data,
+            )
         except Exception as e:
-            logger.warning(f"Could not dispatch {unit.id} to compute: {e}")
-
-        # Fallback: track assignment even without compute
-        if not instance_id:
-            instance_id = f"pending-{unit.id}"
-            logger.info(f"No compute available for {unit.id} — queued as pending assignment")
+            logger.error(f"Failed to send work_assigned to {instance_id}: {e}")
+            # Put unit back in queue
+            self._queue.enqueue(unit, priority=0)
+            unit.status = WorkUnitStatus.QUEUED
+            return
 
         unit.status = WorkUnitStatus.EXECUTING
         unit.assigned_instance = instance_id
@@ -274,7 +267,41 @@ class Dispatcher:
             branch=f"wu/{unit.id}",
         ))
 
-        logger.info(f"Dispatched {unit.id} to {instance_id}")
+        logger.info(f"Dispatched {unit.id} to compute {instance_id} via SSE")
+
+    async def _find_compute_for_unit(self, unit: WorkUnit):
+        """Find an available compute instance for a work unit.
+
+        Prefers instances assigned to the unit's project.
+        Falls back to any idle instance.
+        Returns None if no compute is available.
+        """
+        try:
+            from services.sse_connection_manager import get_sse_connection_manager
+            sse_manager = get_sse_connection_manager()
+            if not sse_manager:
+                return None
+
+            idle = sse_manager.get_idle_connections()
+            if not idle:
+                return None
+
+            # Prefer connections assigned to this project
+            try:
+                from services.registry_service import get_compute_registry
+                registry = get_compute_registry()
+                for conn in idle:
+                    instance = await registry.get_instance(conn.compute_id) if registry else None
+                    if instance and unit.project_id in (instance.project_ids or []):
+                        return conn
+            except Exception:
+                pass
+
+            # Fallback: any idle connection
+            return idle[0]
+        except Exception as e:
+            logger.debug(f"Error finding compute for {unit.id}: {e}")
+            return None
 
 
 # -- Singleton access --

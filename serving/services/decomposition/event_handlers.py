@@ -26,6 +26,9 @@ def register_decomposition_handlers():
     # Enqueue approved work units for dispatch (Plan → Execute bridge)
     bus.on("decomposition.approved", _on_decomposition_approved)
 
+    # Wake the dispatcher when a compute connects
+    bus.on("compute.connected", _on_compute_connected)
+
     # On startup, rebuild unified indexes for all projects with pipeline data
     asyncio.create_task(_rebuild_all_project_indexes())
 
@@ -67,8 +70,12 @@ async def _rebuild_all_project_indexes():
         if keys:
             logger.info(f"Rebuilt unified indexes for {len(keys)} projects on startup")
 
-        # Also enqueue any ready units that were never dispatched
-        # (e.g., approved on a previous build before the event handler existed)
+        # Wait for computes to reconnect before enqueuing work
+        # (avoids the race condition where units are dispatched before any compute connects)
+        logger.info("Waiting 15s for computes to reconnect before enqueuing ready work...")
+        await asyncio.sleep(15)
+
+        # Enqueue any ready units that were never dispatched
         await _enqueue_ready_units_on_startup()
     except Exception as e:
         logger.warning(f"Failed to rebuild project indexes on startup: {e}")
@@ -121,6 +128,19 @@ async def _enqueue_ready_units_on_startup():
             logger.info(f"Startup: enqueued {total_enqueued} ready work units for dispatch")
     except Exception as e:
         logger.warning(f"Failed to enqueue ready units on startup: {e}")
+
+
+async def _on_compute_connected(event):
+    """When a compute connects, wake the dispatcher to retry pending work."""
+    try:
+        from services.dispatch.dispatcher import get_dispatcher
+        dispatcher = get_dispatcher()
+        if dispatcher:
+            instance_id = getattr(event, "instance_id", "")
+            dispatcher.notify_instance_available(instance_id)
+            logger.info(f"Compute connected ({instance_id}) — notified dispatcher")
+    except Exception as e:
+        logger.debug(f"Failed to notify dispatcher of compute connect: {e}")
 
 
 async def _on_decomposition_approved(event):
