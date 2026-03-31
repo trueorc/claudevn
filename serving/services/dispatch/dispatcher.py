@@ -267,6 +267,17 @@ class Dispatcher:
             # Look up the project's repo URL for git integration
             repo_url = await self._get_project_repo_url(unit.project_id)
 
+            # Determine base branch: if this unit depends on another,
+            # branch from the predecessor's branch so we build on their work.
+            # This is how chain continuity works — Unit B sees Unit A's code.
+            base_branch = "main"
+            if unit.independence.depends_on:
+                # Use the most recently completed dependency's branch
+                for dep_id in reversed(unit.independence.depends_on):
+                    if dep_id in self._queue._completed_ids:
+                        base_branch = f"wu/{dep_id}"
+                        break
+
             task_data = {
                 # v1.0 compute compatibility
                 "task_id": unit.id,
@@ -276,6 +287,7 @@ class Dispatcher:
                 "context": {
                     "repository": repo_url or "",
                     "repo_url": repo_url or "",
+                    "base_branch": base_branch,
                     "branch": branch,
                     "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
                     "acceptance_criteria": unit.acceptance_criteria or [],
