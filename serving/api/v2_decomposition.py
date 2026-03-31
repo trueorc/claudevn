@@ -100,7 +100,11 @@ async def approve_decomposition(goal_id: str):
                 wu["status"] = "ready"
         await redis.set(pipeline_key, _json.dumps(pipeline))
 
-    # Publish event
+    # Rebuild unified project index so plan/execute pages see the updated status
+    from services.decomposition.storage import rebuild_project_units_index
+    await rebuild_project_units_index(project_id)
+
+    # Publish event — triggers dispatch queue population via event handler
     bus = get_event_bus()
     await bus.publish(DecompositionApproved(
         project_id=project_id,

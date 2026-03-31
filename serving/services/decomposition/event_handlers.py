@@ -26,7 +26,101 @@ def register_decomposition_handlers():
     # Enqueue approved work units for dispatch (Plan → Execute bridge)
     bus.on("decomposition.approved", _on_decomposition_approved)
 
+    # On startup, rebuild unified indexes for all projects with pipeline data
+    asyncio.create_task(_rebuild_all_project_indexes())
+
     logger.info("Registered decomposition event handlers")
+
+
+async def _rebuild_all_project_indexes():
+    """Rebuild unified project indexes on startup.
+
+    Ensures the unified plan index reflects the latest per-goal data,
+    including approvals that happened on a previous build.
+    """
+    try:
+        from services.decomposition.storage import (
+            rebuild_project_units_index,
+            rebuild_project_environment,
+        )
+        from services.decomposition.storage import _get_redis
+
+        redis = await _get_redis()
+        # Find all project goal sets
+        keys = []
+        cursor = 0
+        while True:
+            cursor, batch = await redis.scan(cursor, match="claudevn:v2:goals:*", count=100)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+
+        for key in keys:
+            key_str = key.decode() if isinstance(key, bytes) else key
+            project_id = key_str.split(":")[-1]
+            try:
+                await rebuild_project_units_index(project_id)
+                await rebuild_project_environment(project_id)
+            except Exception as e:
+                logger.warning(f"Failed to rebuild index for {project_id}: {e}")
+
+        if keys:
+            logger.info(f"Rebuilt unified indexes for {len(keys)} projects on startup")
+
+        # Also enqueue any ready units that were never dispatched
+        # (e.g., approved on a previous build before the event handler existed)
+        await _enqueue_ready_units_on_startup()
+    except Exception as e:
+        logger.warning(f"Failed to rebuild project indexes on startup: {e}")
+
+
+async def _enqueue_ready_units_on_startup():
+    """Find work units in 'ready' status and enqueue them for dispatch.
+
+    Handles the case where units were approved but the dispatch queue
+    was never populated (e.g., code was deployed after approval).
+    """
+    try:
+        from services.decomposition.storage import get_project_goals, get_work_units, _get_redis
+        from services.dispatch.dispatcher import get_dispatcher
+        from models.work_unit import WorkUnit
+
+        dispatcher = get_dispatcher()
+        if not dispatcher:
+            return
+
+        redis = await _get_redis()
+        cursor = 0
+        project_ids = []
+        while True:
+            cursor, batch = await redis.scan(cursor, match="claudevn:v2:goals:*", count=100)
+            for key in batch:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                project_ids.append(key_str.split(":")[-1])
+            if cursor == 0:
+                break
+
+        total_enqueued = 0
+        for project_id in project_ids:
+            goal_ids = await get_project_goals(project_id)
+            for goal_id in goal_ids:
+                units_data = await get_work_units(project_id, goal_id)
+                ready_units = [u for u in units_data if u.get("status") == "ready"]
+                if ready_units:
+                    work_units = []
+                    for ud in ready_units:
+                        try:
+                            work_units.append(WorkUnit(**ud))
+                        except Exception:
+                            pass
+                    if work_units:
+                        dispatcher.queue.enqueue_batch(work_units)
+                        total_enqueued += len(work_units)
+
+        if total_enqueued > 0:
+            logger.info(f"Startup: enqueued {total_enqueued} ready work units for dispatch")
+    except Exception as e:
+        logger.warning(f"Failed to enqueue ready units on startup: {e}")
 
 
 async def _on_decomposition_approved(event):
