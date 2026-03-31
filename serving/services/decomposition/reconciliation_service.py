@@ -148,6 +148,27 @@ class ReconciliationService:
             if u.get("id", "") not in superseded_ids
         ]
 
+        # Rewrite dependencies: any unit depending on a superseded unit
+        # should now depend on its replacement instead
+        supersession_map = {s.old_unit_id: s.new_unit_id for s in supersessions}
+        all_project_units = list(active_existing) + list(new_units)
+        for u in all_project_units:
+            deps = u.get("independence", {}).get("depends_on", [])
+            rewritten = False
+            new_deps = []
+            for dep_id in deps:
+                if dep_id in supersession_map:
+                    new_deps.append(supersession_map[dep_id])
+                    rewritten = True
+                    logger.info(
+                        f"Rewriting dependency: {u.get('id')} depends on "
+                        f"{dep_id} → {supersession_map[dep_id]} (superseded)"
+                    )
+                else:
+                    new_deps.append(dep_id)
+            if rewritten:
+                u.get("independence", {})["depends_on"] = new_deps
+
         # Cross-goal dependency threading
         self._thread_cross_goal_deps(new_units, active_existing, superseded_ids)
 

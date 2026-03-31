@@ -110,6 +110,21 @@ async def _enqueue_ready_units_on_startup():
         total_enqueued = 0
         for project_id in project_ids:
             goal_ids = await get_project_goals(project_id)
+
+            # First pass: mark superseded/completed units as "completed" in the queue
+            # so dependents of superseded units aren't blocked
+            for goal_id in goal_ids:
+                units_data = await get_work_units(project_id, goal_id)
+                for ud in units_data:
+                    status = ud.get("status", "")
+                    uid = ud.get("id", "")
+                    if status in ("superseded", "completed", "verified", "submitted") and uid:
+                        dispatcher.queue._completed_ids.add(uid)
+                        # Also mark the replacement as "completing" the old dep
+                        if status == "superseded" and ud.get("superseded_by"):
+                            dispatcher.queue._completed_ids.add(ud["superseded_by"])
+
+            # Second pass: enqueue ready units (deps now resolvable)
             for goal_id in goal_ids:
                 units_data = await get_work_units(project_id, goal_id)
                 ready_units = [u for u in units_data if u.get("status") == "ready"]
