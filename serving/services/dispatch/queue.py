@@ -125,6 +125,20 @@ class DispatchQueue:
 
         return unblocked
 
+    def _pop_next(self) -> Optional[WorkUnit]:
+        """Non-blocking pop of the next work unit. Returns None if queue is empty.
+
+        Used by the reactive dispatcher's evaluate() method.
+        Does NOT change status — the dispatcher handles that.
+        """
+        if not self._queue:
+            return None
+        entry = self._queue.pop(0)
+        if not self._queue:
+            self._work_available.clear()
+        logger.info(f"Dispatching work unit {entry.work_unit.id}")
+        return entry.work_unit
+
     async def next(self) -> WorkUnit:
         """Wait for and return the next work unit to dispatch.
 

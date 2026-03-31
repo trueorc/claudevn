@@ -126,21 +126,27 @@ async def _enqueue_ready_units_on_startup():
 
         if total_enqueued > 0:
             logger.info(f"Startup: enqueued {total_enqueued} ready work units for dispatch")
+            # State changed (work ready) — trigger evaluation
+            await dispatcher.evaluate()
     except Exception as e:
         logger.warning(f"Failed to enqueue ready units on startup: {e}")
 
 
 async def _on_compute_connected(event):
-    """When a compute connects, wake the dispatcher to retry pending work."""
+    """When a compute connects, evaluate for dispatch.
+
+    State changed (compute available) — trigger evaluation.
+    If work is queued, it will be dispatched to this compute.
+    """
     try:
         from services.dispatch.dispatcher import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher:
             instance_id = getattr(event, "instance_id", "")
-            dispatcher.notify_instance_available(instance_id)
-            logger.info(f"Compute connected ({instance_id}) — notified dispatcher")
+            logger.info(f"Compute connected ({instance_id}) — triggering dispatch evaluation")
+            await dispatcher.evaluate()
     except Exception as e:
-        logger.debug(f"Failed to notify dispatcher of compute connect: {e}")
+        logger.debug(f"Failed to trigger dispatch evaluation on compute connect: {e}")
 
 
 async def _on_decomposition_approved(event):
@@ -199,6 +205,9 @@ async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: 
                 f"Enqueued {len(work_units)} approved work units from {goal_id} "
                 f"for project {project_id}"
             )
+
+            # State changed (work ready) — trigger evaluation
+            await dispatcher.evaluate()
 
             # Emit work.ready_for_dispatch events
             bus = get_event_bus()
