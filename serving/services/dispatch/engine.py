@@ -186,7 +186,8 @@ class WorkUnitEngine:
             for _ in range(max_passes):
                 transitioned_any = False
 
-                # Build context snapshot once per pass
+                # Build context — rebuilt after each transition so
+                # compute availability is fresh (prevents double dispatch)
                 ctx = self._build_context()
 
                 for unit_id in list(ids_to_check):
@@ -226,6 +227,9 @@ class WorkUnitEngine:
 
                             transitioned_any = True
                             logger.info(f"Engine: {unit_id} {old_state.value} → {t.to_state.value}")
+
+                            # Rebuild context — state changed, compute may now be busy
+                            ctx = self._build_context()
 
                         except StateRedirectError as e:
                             # Action redirects to a different state than the transition target
