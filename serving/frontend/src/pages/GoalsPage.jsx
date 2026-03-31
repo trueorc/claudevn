@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
-import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
+import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, resolveConflict, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
+import useProjectPlan from '../hooks/useProjectPlan'
 import useProjectDecompositionSummary, { computeAttentionItems } from '../hooks/useProjectDecompositionSummary'
 import GoalHistoryPanel from '../components/goals/GoalHistoryPanel'
 import DeleteGoalConfirmDialog from '../components/goals/DeleteGoalConfirmDialog'
@@ -63,18 +64,32 @@ function GoalsPage() {
 
   // Accumulated events for timeline
   const [decompEvents, setDecompEvents] = useState([])
+  const [conflictResolving, setConflictResolving] = useState(false)
 
-  // Project-level aggregate data
+  // Unified project plan
+  const {
+    activeUnits, supersededUnits, conflicts: planConflicts,
+    directivesContributing, loading: planLoading, refresh: refreshPlan,
+  } = useProjectPlan(projectId)
+
+  // Project-level aggregate data (for per-directive scores/chains)
   const {
     allWorkUnits, allScores, allChains, loading: summaryLoading, invalidateGoal,
   } = useProjectDecompositionSummary(projectId, goals)
 
-  // Attention items
-  const attentionItems = computeAttentionItems(goals, allWorkUnits, allScores, coherenceInsights, computeEnv)
+  // Attention items (include plan conflicts)
+  const attentionItems = [
+    ...computeAttentionItems(goals, allWorkUnits, allScores, coherenceInsights, computeEnv),
+    ...(planConflicts?.length > 0 ? [{
+      type: 'plan_conflict',
+      title: 'Plan conflicts',
+      detail: `${planConflicts.length} conflict${planConflicts.length !== 1 ? 's' : ''} need review`,
+    }] : []),
+  ]
 
   // SSE subscription
   useEventStream({
-    patterns: ['decomposition.*', 'coherence.*'],
+    patterns: ['decomposition.*', 'coherence.*', 'decomposition.plan_reconciled', 'decomposition.unit_superseded'],
     projectId,
     enabled: !!projectId,
     onEvent: useCallback((event) => {
@@ -93,6 +108,7 @@ function GoalsPage() {
 
       loadGoals()
       loadCoherence()
+      refreshPlan()
     }, [selectedGoal]), // eslint-disable-line react-hooks/exhaustive-deps
   })
 
@@ -325,6 +341,19 @@ function GoalsPage() {
     }
   }, [selectedGoal, loadWorkUnits, loadPipeline, loadScores, loadChains, invalidateGoal])
 
+  const handleResolveConflict = useCallback(async (conflictId, resolution, supersede_unit_id = null) => {
+    if (!projectId) return
+    setConflictResolving(true)
+    try {
+      await resolveConflict(projectId, conflictId, resolution, supersede_unit_id)
+      await refreshPlan()
+    } catch (err) {
+      console.error('Failed to resolve conflict:', err)
+    } finally {
+      setConflictResolving(false)
+    }
+  }, [projectId, refreshPlan])
+
   const handleApproveEnvironment = useCallback(async () => {
     const goalId = selectedGoal?.goal_id || goals.find(g => g.status !== 'failed')?.goal_id
     if (!goalId) return
@@ -404,6 +433,9 @@ function GoalsPage() {
           {viewMode === 'project' ? (
             <ProjectOverview
               goals={goals}
+              activeUnits={activeUnits}
+              supersededUnits={supersededUnits}
+              conflicts={planConflicts}
               allWorkUnits={allWorkUnits}
               allScores={allScores}
               allChains={allChains}
@@ -414,6 +446,8 @@ function GoalsPage() {
               onApproveEnvironment={handleApproveEnvironment}
               envApproving={envApproving}
               onSelectGoal={handleSelectGoal}
+              onResolveConflict={handleResolveConflict}
+              conflictResolving={conflictResolving}
               decompEvents={decompEvents}
               summaryLoading={summaryLoading}
             />
@@ -427,6 +461,7 @@ function GoalsPage() {
               chainAnalysis={chainAnalysis}
               computeEnv={computeEnv}
               unitScoreMap={buildUnitScoreMap(qualityScores)}
+              reconciliation={pipelineData?.reconciliation}
               onBack={handleBackToProject}
               onApprove={handleApproveDecomposition}
               onRefine={handleRecompose}

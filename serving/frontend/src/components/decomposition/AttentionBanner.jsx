@@ -5,6 +5,7 @@ const TYPE_CONFIG = {
   approval: { icon: CheckCircle2, className: 'ab-item--approval', label: 'Needs Approval' },
   low_confidence: { icon: Gauge, className: 'ab-item--warning', label: 'Low Confidence' },
   coherence: { icon: AlertTriangle, className: 'ab-item--warning', label: 'Coherence Issue' },
+  plan_conflict: { icon: AlertTriangle, className: 'ab-item--warning', label: 'Plan Conflict' },
   env_approval: { icon: Settings, className: 'ab-item--info', label: 'Environment' },
 }
 

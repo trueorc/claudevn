@@ -38,6 +38,28 @@ export async function triggerCoherenceAnalysis(projectId) {
   return request(`/decomposition/coherence/${projectId}/analyze`, { method: 'POST' })
 }
 
+// -- Unified project plan --
+
+export async function getProjectPlan(projectId) {
+  return request(`/decomposition/project/${projectId}/plan`)
+}
+
+export async function getPlanConflicts(projectId) {
+  return request(`/decomposition/project/${projectId}/plan/conflicts`)
+}
+
+export async function resolveConflict(projectId, conflictId, resolution, supersede_unit_id = null) {
+  return request(`/decomposition/project/${projectId}/plan/conflicts/${conflictId}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolution, supersede_unit_id }),
+  })
+}
+
+export async function getPlanHistory(projectId) {
+  return request(`/decomposition/project/${projectId}/plan/history`)
+}
+
 // -- Verification --
 
 export async function getVerificationResults(goalId) {

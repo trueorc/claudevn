@@ -33,6 +33,8 @@ from services.events.event_types import (
     DecompositionStepStarted,
     DecompositionStepCompleted,
     DecompositionStepFailed,
+    PlanReconciled,
+    WorkUnitSuperseded,
 )
 from .goal_analyzer import GoalAnalyzer
 from .work_unit_builder import WorkUnitBuilder
@@ -40,6 +42,7 @@ from .spec_validator import SpecValidator
 from .environment_analyzer import EnvironmentAnalyzer
 from .quality_scorer import QualityScorer
 from .chain_analyzer import ChainAnalyzer
+from .reconciliation_service import ReconciliationService
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,7 @@ class PipelineResult:
         self.validation_issues: List[dict] = []
         self.quality_scores: Optional[dict] = None
         self.chain_analysis: Optional[dict] = None
+        self.reconciliation: Optional[dict] = None
         self.success = False
         self.error = ""
 
@@ -104,6 +108,7 @@ class PipelineResult:
             "validation_issues": self.validation_issues,
             "quality_scores": self.quality_scores,
             "chain_analysis": self.chain_analysis,
+            "reconciliation": self.reconciliation,
             "success": self.success,
             "error": self.error,
         }
@@ -114,13 +119,14 @@ class DecompositionPipeline:
 
     Each step emits events for real-time Plan page observability.
     Steps:
-    1. llm_decompose — Claude breaks goal into structured units
+    1. llm_decompose — Claude breaks goal into structured units (with project context)
     2. codebase_analysis — static analysis of the repo
     3. build_work_units — formal spec construction
     4. resolve_dependencies — map description-based deps to unit IDs
-    5. validate — independence checking, cycle detection
-    6. score_quality — per-unit scores + overall confidence
-    7. analyze_environment — detect runtime requirements, generate Dockerfile
+    5. reconcile_plan — reconcile against existing project plan (supersede/conflict)
+    6. validate — independence checking, cycle detection
+    7. score_quality — per-unit scores + overall confidence
+    8. analyze_environment — detect runtime requirements, generate Dockerfile
     """
 
     def __init__(self, repo_path: str = "."):
@@ -135,6 +141,7 @@ class DecompositionPipeline:
         project_context: Optional[Dict[str, Any]] = None,
         existing_issues: Optional[list] = None,
         conversation_comments: Optional[list] = None,
+        existing_project_units: Optional[List[Dict[str, Any]]] = None,
     ) -> PipelineResult:
         """Run the full decomposition pipeline.
 
@@ -164,7 +171,7 @@ class DecompositionPipeline:
         step1.start()
         await self._emit_step_started(project_id, goal_id, step1)
         try:
-            raw_units = await self._llm_decompose(goal_id, goal_text, project_context, existing_issues, conversation_comments)
+            raw_units = await self._llm_decompose(goal_id, goal_text, project_context, existing_issues, conversation_comments, existing_project_units)
             step1.complete(f"{len(raw_units)} units from LLM")
             await self._emit_step_completed(project_id, goal_id, step1)
         except Exception as e:
@@ -231,11 +238,83 @@ class DecompositionPipeline:
             await self._emit_step_failed(project_id, goal_id, step4)
             logger.warning(f"Pipeline step 4 failed (non-fatal) for {goal_id}: {e}")
 
-        # Step 5: Validate
-        step5 = PipelineStep("validate")
+        # Step 5: Reconcile against existing project plan
+        step5 = PipelineStep("reconcile_plan")
         result.steps.append(step5)
         step5.start()
         await self._emit_step_started(project_id, goal_id, step5)
+        try:
+            from .storage import (
+                get_project_units,
+                update_work_unit_status,
+                store_reconciliation_result,
+                rebuild_project_units_index,
+            )
+
+            plan_units = existing_project_units or await get_project_units(project_id)
+            reconciler = ReconciliationService()
+
+            # Convert WorkUnit objects to dicts for reconciliation
+            new_unit_dicts = [json.loads(wu.model_dump_json()) for wu in work_units]
+            recon = reconciler.reconcile(project_id, goal_id, new_unit_dicts, plan_units)
+            result.reconciliation = json.loads(recon.model_dump_json())
+
+            # Apply supersessions to Redis
+            for sup in recon.supersessions:
+                old_goal = next(
+                    (u.get("source_directive_id") or u.get("goal_ref", "")
+                     for u in plan_units if u.get("id") == sup.old_unit_id),
+                    "",
+                )
+                if old_goal:
+                    await update_work_unit_status(project_id, old_goal, sup.old_unit_id, {
+                        "status": "superseded",
+                        "superseded_by": sup.new_unit_id,
+                    })
+                # Emit per-unit event
+                await self._bus.publish(WorkUnitSuperseded(
+                    project_id=project_id,
+                    old_unit_id=sup.old_unit_id,
+                    new_unit_id=sup.new_unit_id,
+                    reason=sup.reason,
+                ))
+
+            # Update supersedes field on new work units
+            for wu in work_units:
+                for new_dict in new_unit_dicts:
+                    if new_dict.get("id") == wu.id and new_dict.get("supersedes"):
+                        wu.supersedes = new_dict["supersedes"]
+
+            # Store reconciliation result
+            await store_reconciliation_result(project_id, goal_id, result.reconciliation)
+
+            # Emit plan reconciled event
+            await self._bus.publish(PlanReconciled(
+                project_id=project_id,
+                directive_id=goal_id,
+                superseded_count=recon.superseded_count,
+                conflict_count=recon.conflict_count,
+                new_unit_count=len(work_units),
+            ))
+
+            detail_parts = []
+            if recon.superseded_count > 0:
+                detail_parts.append(f"{recon.superseded_count} superseded")
+            if recon.conflict_count > 0:
+                detail_parts.append(f"{recon.conflict_count} conflicts")
+            detail_parts.append(f"{len(work_units)} new")
+            step5.complete(" | ".join(detail_parts))
+            await self._emit_step_completed(project_id, goal_id, step5)
+        except Exception as e:
+            step5.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step5)
+            logger.warning(f"Pipeline step 5 failed (non-fatal) for {goal_id}: {e}")
+
+        # Step 6: Validate
+        step6 = PipelineStep("validate")
+        result.steps.append(step6)
+        step6.start()
+        await self._emit_step_started(project_id, goal_id, step6)
         try:
             validator = SpecValidator(repo_path=self._repo_path)
             validation = validator.validate(work_units)
@@ -244,20 +323,20 @@ class DecompositionPipeline:
                 for i in validation.issues
             ]
             if validation.valid:
-                step5.complete(f"Valid — {len(validation.warnings)} warnings")
+                step6.complete(f"Valid — {len(validation.warnings)} warnings")
             else:
-                step5.complete(f"{len(validation.errors)} errors, {len(validation.warnings)} warnings")
-            await self._emit_step_completed(project_id, goal_id, step5)
+                step6.complete(f"{len(validation.errors)} errors, {len(validation.warnings)} warnings")
+            await self._emit_step_completed(project_id, goal_id, step6)
         except Exception as e:
-            step5.fail(str(e))
-            await self._emit_step_failed(project_id, goal_id, step5)
-            logger.warning(f"Pipeline step 5 failed (non-fatal) for {goal_id}: {e}")
+            step6.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step6)
+            logger.warning(f"Pipeline step 6 failed (non-fatal) for {goal_id}: {e}")
 
-        # Step 6: Quality scoring + chain analysis
-        step6 = PipelineStep("score_quality")
-        result.steps.append(step6)
-        step6.start()
-        await self._emit_step_started(project_id, goal_id, step6)
+        # Step 7: Quality scoring + chain analysis
+        step7 = PipelineStep("score_quality")
+        result.steps.append(step7)
+        step7.start()
+        await self._emit_step_started(project_id, goal_id, step7)
         try:
             scorer = QualityScorer()
             confidence = scorer.score(work_units, result.validation_issues)
@@ -269,21 +348,21 @@ class DecompositionPipeline:
             chains = chain_analyzer.analyze(work_units)
             result.chain_analysis = chains.to_dict(unit_map)
 
-            step6.complete(
+            step7.complete(
                 f"Confidence: {confidence.score}/100 ({confidence.level.value}), "
                 f"{chains.to_dict()['total_chains']} chains"
             )
-            await self._emit_step_completed(project_id, goal_id, step6)
+            await self._emit_step_completed(project_id, goal_id, step7)
         except Exception as e:
-            step6.fail(str(e))
-            await self._emit_step_failed(project_id, goal_id, step6)
-            logger.warning(f"Pipeline step 6 failed (non-fatal) for {goal_id}: {e}")
+            step7.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step7)
+            logger.warning(f"Pipeline step 7 failed (non-fatal) for {goal_id}: {e}")
 
-        # Step 7: Environment analysis
-        step7 = PipelineStep("analyze_environment")
-        result.steps.append(step7)
-        step7.start()
-        await self._emit_step_started(project_id, goal_id, step7)
+        # Step 8: Environment analysis
+        step8 = PipelineStep("analyze_environment")
+        result.steps.append(step8)
+        step8.start()
+        await self._emit_step_started(project_id, goal_id, step8)
         try:
             env_analyzer = EnvironmentAnalyzer(self._repo_path)
             environment = env_analyzer.analyze(
@@ -293,12 +372,12 @@ class DecompositionPipeline:
                 spec_id=f"env-{goal_id}",
             )
             result.environment = environment
-            step7.complete(f"Base: {environment.base_image}, {len(environment.requirements)} requirements")
-            await self._emit_step_completed(project_id, goal_id, step7)
+            step8.complete(f"Base: {environment.base_image}, {len(environment.requirements)} requirements")
+            await self._emit_step_completed(project_id, goal_id, step8)
         except Exception as e:
-            step7.fail(str(e))
-            await self._emit_step_failed(project_id, goal_id, step7)
-            logger.warning(f"Pipeline step 7 failed (non-fatal) for {goal_id}: {e}")
+            step8.fail(str(e))
+            await self._emit_step_failed(project_id, goal_id, step8)
+            logger.warning(f"Pipeline step 8 failed (non-fatal) for {goal_id}: {e}")
 
         result.success = True
         await self._emit_completed(project_id, goal_id, result)
@@ -312,6 +391,7 @@ class DecompositionPipeline:
         project_context: Optional[Dict[str, Any]],
         existing_issues: Optional[list],
         conversation_comments: Optional[list],
+        existing_project_units: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """Call Claude to decompose the goal into structured units.
 
@@ -334,6 +414,27 @@ class DecompositionPipeline:
         if conversation_comments:
             comments = [f"- {c.get('content', '')[:200]}" for c in conversation_comments[:10]]
             context_parts.append(f"# Context from Conversation\n" + "\n".join(comments))
+
+        # Inject existing project plan context
+        if existing_project_units:
+            active_units = [
+                u for u in existing_project_units
+                if u.get("status") not in ("superseded", "cancelled")
+            ]
+            if active_units:
+                summaries = []
+                for u in active_units[:20]:
+                    status = u.get("status", "?")
+                    desc = u.get("description", "")[:100]
+                    files = ", ".join(u.get("formal_spec", {}).get("target_files", [])[:3])
+                    summaries.append(f"- [{status.upper()}] {desc} (files: {files})")
+                context_parts.append(
+                    "# Existing Project Plan (active work units)\n"
+                    "These units already exist in the project. Do NOT re-create them "
+                    "unless this directive supersedes or modifies them.\n"
+                    "Only create units for genuinely NEW scope from this directive.\n"
+                    + "\n".join(summaries)
+                )
 
         prompt = "\n\n".join(context_parts)
 
@@ -403,7 +504,10 @@ Rules:
 - Acceptance criteria must be TESTABLE — not vague ("works correctly" is bad, "returns 400 for invalid input" is good)
 - Keep units small and focused (prefer more small units over fewer large ones)
 - estimated_complexity: xs=trivial config, s=single module, m=multiple files with logic, l=cross-cutting, xl=architectural
-- Order dependencies correctly — a unit cannot depend on something that depends on it"""
+- Order dependencies correctly — a unit cannot depend on something that depends on it
+- IMPORTANT: If existing project work units are listed in the context, do NOT duplicate them.
+  Only create units for genuinely new scope. If this directive modifies existing functionality,
+  create replacement units that cover the updated requirements."""
 
         response = await client.complete(prompt=prompt, system=system)
 

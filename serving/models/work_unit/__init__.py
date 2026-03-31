@@ -31,6 +31,11 @@ from .compute_environment import (
     EnvironmentStatus,
     RuntimeRequirement,
 )
+from .reconciliation import (
+    SupersessionRecord,
+    ConflictRecord,
+    ReconciliationResult,
+)
 from .quality_score import (
     ConfidenceLevel,
     ScoringFactor,
@@ -72,6 +77,10 @@ __all__ = [
     "ComputeEnvironmentSpec",
     "EnvironmentStatus",
     "RuntimeRequirement",
+    # Reconciliation
+    "SupersessionRecord",
+    "ConflictRecord",
+    "ReconciliationResult",
     # Quality scoring
     "ConfidenceLevel",
     "ScoringFactor",

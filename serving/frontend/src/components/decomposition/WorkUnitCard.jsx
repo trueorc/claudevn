@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, FileCode, GitBranch, AlertTriangle, CheckCircle2, Shield, ArrowUpRight, ArrowDownLeft, Target, Gauge } from 'lucide-react'
 import { ScoreBadge } from './ConfidencePanel'
+import ProvenanceBadge from './ProvenanceBadge'
 import './WorkUnitCard.css'
 
 const STATUS_CONFIG = {
@@ -14,23 +15,33 @@ const STATUS_CONFIG = {
   failed_verification: { label: 'Failed', className: 'wuc-status--failed' },
 }
 
-export default function WorkUnitCard({ unit, allUnits = [], unitScores = {}, onSelect }) {
+export default function WorkUnitCard({ unit, allUnits = [], unitScores = {}, goals = [], onSelect }) {
   const [expanded, setExpanded] = useState(false)
-  const statusInfo = STATUS_CONFIG[unit.status] || STATUS_CONFIG.draft
+  const statusInfo = STATUS_CONFIG[unit.status] || { label: unit.status, className: 'wuc-status--draft' }
   const hasOverlap = unit.independence?.shares_files_with?.length > 0
   const hasDeps = unit.independence?.depends_on?.length > 0
+  const isSuperseded = unit.status === 'superseded'
+  const supersedes = unit.supersedes?.length > 0
 
   return (
-    <div className={`wuc ${hasOverlap ? 'wuc--overlap-warning' : ''}`} onClick={() => onSelect?.(unit)}>
+    <div className={`wuc ${hasOverlap ? 'wuc--overlap-warning' : ''} ${isSuperseded ? 'wuc--superseded' : ''}`} onClick={() => onSelect?.(unit)}>
       <button className="wuc-header" onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}>
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="wuc-id">{unit.id}</span>
-        <span className="wuc-desc">{unit.description}</span>
+        <span className={`wuc-desc ${isSuperseded ? 'wuc-desc--superseded' : ''}`}>{unit.description}</span>
         {unit.estimated_complexity && (
           <span className={`wuc-complexity wuc-complexity--${unit.estimated_complexity}`}>
             {unit.estimated_complexity.toUpperCase()}
           </span>
         )}
+        {unit.source_directive_id && (
+          <ProvenanceBadge
+            directiveId={unit.source_directive_id}
+            directiveTitle={goals.find(g => g.goal_id === unit.source_directive_id)?.title?.slice(0, 20)}
+            directiveIndex={goals.findIndex(g => g.goal_id === unit.source_directive_id)}
+          />
+        )}
+        {supersedes && <span className="wuc-supersedes-badge">Replaces {unit.supersedes.length}</span>}
         <ScoreBadge score={unitScores[unit.id]} />
         <span className={`wuc-status ${statusInfo.className}`}>{statusInfo.label}</span>
       </button>

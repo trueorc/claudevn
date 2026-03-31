@@ -30,6 +30,7 @@ class WorkUnitStatus(str, Enum):
     NEEDS_HUMAN_REVIEW = "needs_human_review"    # Escalated to human
     COMPLETED = "completed"             # Merged and done
     CANCELLED = "cancelled"             # Cancelled by user or system
+    SUPERSEDED = "superseded"           # Replaced by a newer directive's work unit
 
 
 class WorkUnit(BaseModel):
@@ -106,6 +107,24 @@ class WorkUnit(BaseModel):
     retry_count: int = Field(
         default=0,
         description="Number of retry attempts (max 1)"
+    )
+
+    # Provenance (unified plan model)
+    superseded_by: Optional[str] = Field(
+        default=None,
+        description="ID of the work unit that replaced this one"
+    )
+    supersedes: List[str] = Field(
+        default_factory=list,
+        description="IDs of work units this one replaces"
+    )
+    source_directive_id: Optional[str] = Field(
+        default=None,
+        description="Goal/directive ID that created this unit"
+    )
+    reconciliation_pass: Optional[int] = Field(
+        default=None,
+        description="Which reconciliation pass touched this unit"
     )
 
     # Timestamps

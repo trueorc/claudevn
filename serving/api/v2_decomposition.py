@@ -386,3 +386,126 @@ async def trigger_coherence_analysis(project_id: str):
     ))
 
     return analysis_dict
+
+
+# -- Unified Project Plan endpoints --
+
+@router.get("/project/{project_id}/plan")
+async def get_project_plan(project_id: str):
+    """Get the unified project plan — all work units across all directives.
+
+    Returns active units (the current plan) and superseded units (history),
+    plus any unresolved conflicts.
+    """
+    from services.decomposition.storage import get_project_units, get_reconciliation_history
+
+    all_units = await get_project_units(project_id)
+    active = [u for u in all_units if u.get("status") not in ("superseded", "cancelled")]
+    superseded = [u for u in all_units if u.get("status") == "superseded"]
+
+    # Collect unresolved conflicts from reconciliation history
+    recon_history = await get_reconciliation_history(project_id)
+    conflicts = []
+    for r in recon_history:
+        for c in r.get("conflicts", []):
+            if not c.get("resolved", False):
+                conflicts.append(c)
+
+    # Identify contributing directives
+    directive_ids = sorted(set(
+        u.get("source_directive_id") or u.get("goal_ref", "")
+        for u in all_units
+        if u.get("source_directive_id") or u.get("goal_ref")
+    ))
+
+    return {
+        "active_units": active,
+        "superseded_units": superseded,
+        "conflicts": conflicts,
+        "total_active": len(active),
+        "total_superseded": len(superseded),
+        "unresolved_conflicts": len(conflicts),
+        "directives_contributing": directive_ids,
+    }
+
+
+@router.get("/project/{project_id}/plan/conflicts")
+async def get_plan_conflicts(project_id: str):
+    """Get unresolved conflicts in the project plan."""
+    from services.decomposition.storage import get_reconciliation_history
+
+    recon_history = await get_reconciliation_history(project_id)
+    conflicts = []
+    for r in recon_history:
+        for c in r.get("conflicts", []):
+            if not c.get("resolved", False):
+                c["directive_id"] = r.get("directive_id", "")
+                conflicts.append(c)
+
+    return {"conflicts": conflicts, "count": len(conflicts)}
+
+
+class ConflictResolutionRequest(BaseModel):
+    resolution: str = Field(description="supersede | keep_both | merge")
+    supersede_unit_id: Optional[str] = Field(default=None, description="Which unit to supersede (if resolution=supersede)")
+
+
+@router.post("/project/{project_id}/plan/conflicts/{conflict_id}/resolve")
+async def resolve_conflict(project_id: str, conflict_id: str, body: ConflictResolutionRequest):
+    """Resolve a plan conflict."""
+    import json as _json
+    from services.decomposition.storage import (
+        get_reconciliation_history,
+        get_project_goals,
+        rebuild_project_units_index,
+        update_work_unit_status,
+    )
+
+    # Find the conflict
+    recon_history = await get_reconciliation_history(project_id)
+    found = False
+    for r in recon_history:
+        for c in r.get("conflicts", []):
+            if c.get("conflict_id") == conflict_id:
+                c["resolved"] = True
+                c["resolution"] = body.resolution
+                found = True
+
+                # Apply supersession if requested
+                if body.resolution == "supersede" and body.supersede_unit_id:
+                    unit_ids = c.get("unit_ids", [])
+                    keep_id = [uid for uid in unit_ids if uid != body.supersede_unit_id]
+                    # Find the goal that owns the superseded unit
+                    all_units = []
+                    for gid in await get_project_goals(project_id):
+                        from services.decomposition.storage import get_work_units
+                        units = await get_work_units(project_id, gid)
+                        for u in units:
+                            if u.get("id") == body.supersede_unit_id:
+                                await update_work_unit_status(project_id, gid, body.supersede_unit_id, {
+                                    "status": "superseded",
+                                    "superseded_by": keep_id[0] if keep_id else "",
+                                })
+
+                # Re-store the reconciliation result
+                from services.decomposition.storage import store_reconciliation_result
+                await store_reconciliation_result(project_id, r.get("directive_id", ""), r)
+                break
+        if found:
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Conflict {conflict_id} not found")
+
+    # Rebuild unified index
+    await rebuild_project_units_index(project_id)
+
+    return {"resolved": True, "conflict_id": conflict_id, "resolution": body.resolution}
+
+
+@router.get("/project/{project_id}/plan/history")
+async def get_plan_history(project_id: str):
+    """Get reconciliation audit trail — how each directive shaped the plan."""
+    from services.decomposition.storage import get_reconciliation_history
+    history = await get_reconciliation_history(project_id)
+    return {"history": history, "count": len(history)}

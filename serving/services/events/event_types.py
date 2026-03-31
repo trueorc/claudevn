@@ -104,6 +104,39 @@ class DecompositionFeedback(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# -- Plan reconciliation events --
+
+class PlanReconciled(BaseModel):
+    """Plan reconciliation completed for a directive."""
+    event: str = "decomposition.plan_reconciled"
+    project_id: str
+    directive_id: str
+    superseded_count: int
+    conflict_count: int
+    new_unit_count: int
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkUnitSuperseded(BaseModel):
+    """A work unit was superseded by a newer directive's unit."""
+    event: str = "decomposition.unit_superseded"
+    project_id: str
+    old_unit_id: str
+    new_unit_id: str
+    reason: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PlanConflictDetected(BaseModel):
+    """A conflict was detected between work units requiring user review."""
+    event: str = "decomposition.conflict_detected"
+    project_id: str
+    conflict_id: str
+    unit_ids: List[str]
+    severity: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # -- Coherence events --
 
 class CoherenceUpdated(BaseModel):
@@ -230,6 +263,7 @@ Event = (
     DecompositionStarted | DecompositionUpdated | DecompositionApproved | DecompositionFeedback |
     DecompositionStepStarted | DecompositionStepCompleted | DecompositionStepFailed |
     DecompositionCompleted |
+    PlanReconciled | WorkUnitSuperseded | PlanConflictDetected |
     CoherenceUpdated |
     ExecutionQueued | ExecutionStarted | ExecutionCompleted | ExecutionFailed |
     VerificationStarted | VerificationCompleted | VerificationFailed | IntegrationConflict |

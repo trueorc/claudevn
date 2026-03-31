@@ -1,0 +1,138 @@
+.uwl {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.uwl-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  color: var(--text-muted);
+}
+
+.uwl-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.uwl-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.uwl-group-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.uwl-group-btn {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.uwl-group-btn:hover { color: var(--text); }
+
+.uwl-group-btn--active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.uwl-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.uwl-group-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.uwl-group-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+}
+
+.uwl-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Superseded section */
+.uwl-superseded {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.uwl-superseded-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-xs) 0;
+}
+
+.uwl-superseded-toggle:hover { color: var(--text-secondary); }
+
+.uwl-superseded-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--space-xs);
+}
+
+.uwl-superseded-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.uwl-superseded-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.uwl-superseded-desc {
+  flex: 1;
+}
+
+.uwl-superseded-by {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}

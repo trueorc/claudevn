@@ -7,6 +7,7 @@ const STEP_LABELS = {
   codebase_analysis: 'Codebase Analysis',
   build_work_units: 'Build Work Units',
   resolve_dependencies: 'Resolve Dependencies',
+  reconcile_plan: 'Reconcile Plan',
   validate: 'Validate Independence',
   score_quality: 'Quality Scoring',
   analyze_environment: 'Analyze Environment',

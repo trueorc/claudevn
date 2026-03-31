@@ -25,6 +25,7 @@ export default function DirectiveDetail({
   chainAnalysis,
   computeEnv,
   unitScoreMap,
+  reconciliation,
   onBack,
   onApprove,
   onRefine,
@@ -62,6 +63,27 @@ export default function DirectiveDetail({
       ) : (
         <div className="directive-detail-workspace">
           {hasWorkUnits && <DirectiveStateMachine workUnits={workUnits} pipelineData={pipelineData} />}
+
+          {reconciliation && (reconciliation.supersessions?.length > 0 || reconciliation.conflicts?.length > 0) && (
+            <div className="directive-contribution">
+              <span className="directive-contribution-title">This directive:</span>
+              {reconciliation.new_unit_ids?.length > 0 && (
+                <span className="directive-contrib-item directive-contrib--new">
+                  + {reconciliation.new_unit_ids.length} new unit{reconciliation.new_unit_ids.length !== 1 ? 's' : ''}
+                </span>
+              )}
+              {reconciliation.supersessions?.length > 0 && (
+                <span className="directive-contrib-item directive-contrib--superseded">
+                  ~ {reconciliation.supersessions.length} superseded
+                </span>
+              )}
+              {reconciliation.conflicts?.filter(c => !c.resolved).length > 0 && (
+                <span className="directive-contrib-item directive-contrib--conflict">
+                  ! {reconciliation.conflicts.filter(c => !c.resolved).length} conflict{reconciliation.conflicts.filter(c => !c.resolved).length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          )}
 
           {pipelineData && <PipelineStatus pipeline={pipelineData} />}
 

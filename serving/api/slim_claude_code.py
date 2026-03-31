@@ -505,7 +505,14 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
         await _set_processing_status(goal_id, ProcessingStage.DECOMPOSING)
 
         from services.decomposition.pipeline import DecompositionPipeline
-        from services.decomposition.storage import store_pipeline_result
+        from services.decomposition.storage import (
+            store_pipeline_result,
+            get_project_units,
+            rebuild_project_units_index,
+        )
+
+        # Load existing project plan for cross-directive awareness
+        existing_plan = await get_project_units(goal.project_id or "")
 
         pipeline = DecompositionPipeline(repo_path=".")
         pipeline_result = await pipeline.run(
@@ -515,6 +522,7 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
             project_context=project_context,
             existing_issues=[],
             conversation_comments=conversation_comments,
+            existing_project_units=existing_plan,
         )
 
         # Store pipeline result in Redis for Plan page
@@ -523,6 +531,9 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
             goal_id=goal_id,
             result_dict=pipeline_result.to_dict(),
         )
+
+        # Rebuild unified project index
+        await rebuild_project_units_index(goal.project_id or "")
 
         if not pipeline_result.success:
             raise ValueError(f"Decomposition pipeline failed: {pipeline_result.error}")

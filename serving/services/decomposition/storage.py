@@ -18,6 +18,8 @@ _PIPELINE_KEY = "claudevn:v2:pipeline:{project_id}:{goal_id}"
 _ENV_KEY = "claudevn:v2:environment:{project_id}:{goal_id}"
 _PROJECT_GOALS_KEY = "claudevn:v2:goals:{project_id}"
 _COHERENCE_KEY = "claudevn:v2:coherence:{project_id}"
+_PROJECT_UNITS_KEY = "claudevn:v2:project_units:{project_id}"
+_RECONCILIATION_KEY = "claudevn:v2:reconciliation:{project_id}:{goal_id}"
 
 
 async def _get_redis():
@@ -158,3 +160,100 @@ async def get_coherence(project_id: str) -> Optional[dict]:
     if not data:
         return None
     return json.loads(data)
+
+
+# -- Unified project plan storage --
+
+async def store_project_units(project_id: str, units: List[dict]) -> None:
+    """Store the unified project work unit index (all active units across directives)."""
+    redis = await _get_redis()
+    key = _PROJECT_UNITS_KEY.format(project_id=project_id)
+    await redis.set(key, json.dumps(units))
+    logger.info(f"Stored unified project index for {project_id}: {len(units)} active units")
+
+
+async def get_project_units(project_id: str) -> List[dict]:
+    """Get the unified active work units for a project."""
+    redis = await _get_redis()
+    key = _PROJECT_UNITS_KEY.format(project_id=project_id)
+    data = await redis.get(key)
+    if not data:
+        return []
+    return json.loads(data)
+
+
+async def rebuild_project_units_index(project_id: str) -> List[dict]:
+    """Rebuild the unified project index by scanning all goals.
+
+    Collects all work units across all goals, filters out
+    superseded and cancelled units, and writes the unified index.
+    """
+    goal_ids = await get_project_goals(project_id)
+    all_units = []
+    for gid in goal_ids:
+        units = await get_work_units(project_id, gid)
+        for u in units:
+            # Tag with source directive if not already set
+            if not u.get("source_directive_id"):
+                u["source_directive_id"] = gid
+            all_units.append(u)
+
+    # Unified index includes ALL units (active + superseded) for the plan view
+    # Frontend filters by status
+    await store_project_units(project_id, all_units)
+    active = [u for u in all_units if u.get("status") not in ("superseded", "cancelled")]
+    logger.info(
+        f"Rebuilt project index for {project_id}: "
+        f"{len(active)} active, {len(all_units) - len(active)} superseded/cancelled"
+    )
+    return all_units
+
+
+async def update_work_unit_status(project_id: str, goal_id: str, unit_id: str, updates: dict) -> None:
+    """Update specific fields on a work unit in its per-goal Redis key."""
+    redis = await _get_redis()
+    wu_key = _WU_KEY.format(project_id=project_id, goal_id=goal_id)
+    data = await redis.get(wu_key)
+    if not data:
+        return
+    units = json.loads(data)
+    for u in units:
+        if u.get("id") == unit_id:
+            u.update(updates)
+            break
+    await redis.set(wu_key, json.dumps(units))
+
+
+# -- Reconciliation storage --
+
+async def store_reconciliation_result(project_id: str, goal_id: str, result_dict: dict) -> None:
+    """Store reconciliation result for a directive."""
+    redis = await _get_redis()
+    key = _RECONCILIATION_KEY.format(project_id=project_id, goal_id=goal_id)
+    await redis.set(key, json.dumps(result_dict))
+    logger.info(
+        f"Stored reconciliation for {goal_id}: "
+        f"{len(result_dict.get('supersessions', []))} supersessions, "
+        f"{len(result_dict.get('conflicts', []))} conflicts"
+    )
+
+
+async def get_reconciliation_result(project_id: str, goal_id: str) -> Optional[dict]:
+    """Get reconciliation result for a specific directive."""
+    redis = await _get_redis()
+    key = _RECONCILIATION_KEY.format(project_id=project_id, goal_id=goal_id)
+    data = await redis.get(key)
+    if not data:
+        return None
+    return json.loads(data)
+
+
+async def get_reconciliation_history(project_id: str) -> List[dict]:
+    """Get all reconciliation results for a project (one per directive)."""
+    goal_ids = await get_project_goals(project_id)
+    results = []
+    for gid in goal_ids:
+        r = await get_reconciliation_result(project_id, gid)
+        if r:
+            results.append(r)
+    return results

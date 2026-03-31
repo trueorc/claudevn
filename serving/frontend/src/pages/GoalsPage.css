@@ -131,6 +131,33 @@
   gap: var(--space-lg);
 }
 
+/* Directive contribution summary */
+.directive-contribution {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-xs);
+}
+
+.directive-contribution-title {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.directive-contrib-item {
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+.directive-contrib--new { color: var(--status-online); background: color-mix(in srgb, var(--status-online) 10%, transparent); }
+.directive-contrib--superseded { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.directive-contrib--conflict { color: var(--status-degraded); background: color-mix(in srgb, var(--status-degraded) 10%, transparent); }
+
 .goals-page-section-count {
   font-size: var(--font-size-xs);
   font-weight: 600;
