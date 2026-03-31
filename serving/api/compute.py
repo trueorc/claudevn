@@ -689,15 +689,22 @@ async def receive_compute_event(
         v2_dispatcher = get_dispatcher()
         if v2_dispatcher:
             if event.event.value == "claude_code_completed":
-                # Mark as submitted (awaiting merge) — NOT complete
-                # The compute stays busy (in "merging" state) until merge finishes
-                # on_execution_complete will be called from finalize_work
+                # Mark as submitted (awaiting merge)
                 unit = v2_dispatcher._active.get(event.compute_id)
                 if unit:
                     from models.work_unit import WorkUnitStatus
                     unit.status = WorkUnitStatus.SUBMITTED
                     unit.branch = event.branch_name
                     logger.info(f"v2.0: {unit.id} submitted (awaiting merge)")
+
+                    # Trigger merge for v2.0 work units
+                    # v1.0 merge pipeline won't find these in WorkMapService,
+                    # so we handle the merge directly here
+                    branch_name = event.branch_name
+                    if branch_name and unit.project_id:
+                        asyncio.create_task(
+                            _v2_merge_and_finalize(unit, branch_name, event.compute_id, v2_dispatcher)
+                        )
             elif event.event.value == "claude_code_failed":
                 await v2_dispatcher.on_execution_complete(
                     instance_id=event.compute_id,
@@ -2871,3 +2878,95 @@ async def get_registry_stats(
         Registry statistics
     """
     return registry.get_stats()
+
+
+async def _v2_merge_and_finalize(unit, branch_name: str, compute_id: str, dispatcher) -> None:
+    """Merge a v2.0 work unit's branch to main and finalize.
+
+    v2.0 work units aren't in the v1.0 WorkMapService, so the standard
+    merge pipeline doesn't find them. This function handles the merge
+    directly using the PRService.
+
+    On success: calls dispatcher.on_execution_complete (done = merged).
+    On conflict: sends merge_conflict event to compute for resolution.
+    """
+    from git.pr_service import PRService
+
+    try:
+        pr_service = PRService()
+
+        # Get the project's repo
+        from services.project_service import get_project_service
+        ps = get_project_service()
+        project = await ps.get_project(unit.project_id)
+        if not project or not project.repos:
+            logger.warning(f"v2.0 merge: no repo for project {unit.project_id}")
+            await dispatcher.on_execution_complete(instance_id=compute_id, success=False)
+            return
+
+        repo_name = f"{project.project_id}_{project.repos[0].repo_id}"
+
+        # Create and approve a PR (required by merge flow)
+        try:
+            await pr_service.create_pr(
+                project=repo_name,
+                branch=branch_name,
+                title=unit.description[:120],
+                body=f"Work unit: {unit.id}\n\n{unit.description}",
+            )
+            # Auto-approve for v2.0 (verification happens in Layer 3)
+            await pr_service.approve(repo_name, branch_name, reviewed_by="v2-dispatcher")
+        except Exception as e:
+            logger.warning(f"v2.0 PR creation for {unit.id}: {e}")
+
+        # Attempt merge
+        result = await pr_service.merge(
+            project=repo_name,
+            branch=branch_name,
+        )
+
+        if result.get("success"):
+            logger.info(f"v2.0 merge success: {unit.id} merged to {default_branch}")
+
+            # Reset compute to idle
+            try:
+                from services.sse_connection_manager import get_sse_connection_manager
+                sse_mgr = get_sse_connection_manager()
+                conn = sse_mgr.get_connection(compute_id) if sse_mgr else None
+                if conn:
+                    conn.status = "idle"
+                    conn.current_task_id = None
+            except Exception:
+                pass
+
+            # Done = merged → notify dispatcher
+            await dispatcher.on_execution_complete(
+                instance_id=compute_id,
+                success=True,
+                branch=branch_name,
+            )
+
+        elif result.get("status") == "conflict":
+            logger.warning(f"v2.0 merge conflict: {unit.id} on {branch_name}")
+            # Send conflict back to compute for resolution
+            try:
+                from services.sse_connection_manager import get_sse_connection_manager
+                sse_mgr = get_sse_connection_manager()
+                if sse_mgr:
+                    await sse_mgr.send_event(compute_id, "merge_conflict", {
+                        "issue_id": unit.id,
+                        "branch": branch_name,
+                        "conflicting_files": result.get("conflicts", []),
+                        "main_head": result.get("main_head", ""),
+                        "message": f"Merge conflict on {branch_name}",
+                    })
+            except Exception as e:
+                logger.error(f"Failed to send merge_conflict to compute: {e}")
+        else:
+            logger.error(f"v2.0 merge failed: {unit.id} — {result}")
+            await dispatcher.on_execution_complete(instance_id=compute_id, success=False)
+
+    except Exception as e:
+        logger.error(f"v2.0 merge error for {unit.id}: {e}", exc_info=True)
+        # On merge infrastructure failure, still complete (don't block forever)
+        await dispatcher.on_execution_complete(instance_id=compute_id, success=False)
