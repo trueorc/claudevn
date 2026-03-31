@@ -709,9 +709,12 @@ async def receive_compute_event(
                 unit = engine._units.get(event.task_id)
                 if unit:
                     from models.work_unit import WorkUnitStatus
-                    unit.status = WorkUnitStatus.QUEUED  # Return to queue
-                    engine.release_compute(unit.id)
-                    logger.info(f"v2.0 engine: {unit.id} → queued (rejected by compute)")
+                    unit.status = WorkUnitStatus.WAITING_COMPUTE
+                    # Keep compute marked as busy — it rejected because it's at capacity
+                    # Don't release: engine._busy_computes retains the compute_id
+                    # The unit goes to WAITING_COMPUTE until the compute finishes its
+                    # current work and becomes truly idle
+                    logger.info(f"v2.0 engine: {unit.id} → waiting_compute (rejected, compute at capacity)")
                     await engine.on_event("rejected", unit_id=event.task_id)
         else:
             # Fallback to old dispatcher
