@@ -679,17 +679,25 @@ async def receive_compute_event(
         await _handle_rejection_redispatch(event)
 
     # v2.0 Dispatcher integration — notify reactive dispatcher of state changes
+    #
+    # IMPORTANT: claude_code_completed does NOT mean "done" — the unit still
+    # needs to be merged to main. We notify the dispatcher of the submitted
+    # state but do NOT unblock dependents or free the compute slot yet.
+    # The real "done" comes from finalize_work() after merge succeeds.
     try:
         from services.dispatch.dispatcher import get_dispatcher
         v2_dispatcher = get_dispatcher()
         if v2_dispatcher:
             if event.event.value == "claude_code_completed":
-                success = event.exit_code == 0 if event.exit_code is not None else True
-                await v2_dispatcher.on_execution_complete(
-                    instance_id=event.compute_id,
-                    success=success,
-                    branch=event.branch_name,
-                )
+                # Mark as submitted (awaiting merge) — NOT complete
+                # The compute stays busy (in "merging" state) until merge finishes
+                # on_execution_complete will be called from finalize_work
+                unit = v2_dispatcher._active.get(event.compute_id)
+                if unit:
+                    from models.work_unit import WorkUnitStatus
+                    unit.status = WorkUnitStatus.SUBMITTED
+                    unit.branch = event.branch_name
+                    logger.info(f"v2.0: {unit.id} submitted (awaiting merge)")
             elif event.event.value == "claude_code_failed":
                 await v2_dispatcher.on_execution_complete(
                     instance_id=event.compute_id,

@@ -1161,6 +1161,28 @@ class WorkMapService:
         except Exception:
             pass
 
+        # v2.0 Dispatcher: unit is now truly done (merged to main)
+        # Notify the dispatcher to unblock dependents and evaluate for next work
+        try:
+            from services.dispatch.dispatcher import get_dispatcher
+            v2_dispatcher = get_dispatcher()
+            if v2_dispatcher:
+                # Find which compute instance was running this work
+                instance_id = None
+                for inst_id, wu in list(v2_dispatcher._active.items()):
+                    if wu.id == work_id:
+                        instance_id = inst_id
+                        break
+                if instance_id:
+                    await v2_dispatcher.on_execution_complete(
+                        instance_id=instance_id,
+                        success=True,
+                        branch=work.branch_name,
+                    )
+                    logger.info(f"v2.0: {work_id} finalized — dispatcher notified, dependents unblocked")
+        except Exception as e:
+            logger.debug(f"v2.0 dispatcher finalize notification failed: {e}")
+
         return work
 
     async def cascade_dependents(self, work_id: str) -> List[str]:
