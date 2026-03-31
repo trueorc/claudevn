@@ -7,6 +7,7 @@ from ..models import (
     CompleteTaskInput, CompleteResponse, TaskAssignment,
     MergeStatus, MCPError, NotifyConflictInput
 )
+from mcp.tools import emit_tool_error
 from services.work_map_service import get_work_map_service
 from models.work_map import WorkStatus
 
@@ -152,12 +153,14 @@ async def complete_task(input: CompleteTaskInput) -> tuple[Optional[CompleteResp
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="complete_task", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error completing task: {e}")
+        await emit_tool_error(tool_name="complete_task", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

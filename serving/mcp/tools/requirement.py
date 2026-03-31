@@ -10,6 +10,7 @@ import uuid
 from typing import Optional
 
 from ..models import AddRequirementInput, RequirementResponse, MCPError
+from mcp.tools import emit_tool_error
 from services.work_map_service import get_work_map_service
 from models.work_map import IssueCreateRequest, IssueType, IssueArea, IssuePriority
 from models.feedback import FeedbackSignal, FeedbackSeverity, FeedbackType
@@ -137,12 +138,14 @@ async def add_requirement(
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="add_requirement", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error adding requirement: {e}", exc_info=True)
+        await emit_tool_error(tool_name="add_requirement", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

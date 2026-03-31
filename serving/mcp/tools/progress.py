@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ..models import ReportProgressInput, ProgressAck, MCPError, TaskStatus
+from mcp.tools import emit_tool_error
 from services.work_map_service import get_work_map_service
 from models.work_map import WorkStatus, ProgressReport
 
@@ -61,12 +62,14 @@ async def report_progress(input: ReportProgressInput) -> tuple[Optional[Progress
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="report_progress", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error reporting progress: {e}")
+        await emit_tool_error(tool_name="report_progress", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

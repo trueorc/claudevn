@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from ..models import RequestReviewInput, ReviewResponse, MCPError
+from mcp.tools import emit_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ async def request_review(input: RequestReviewInput) -> tuple[Optional[ReviewResp
 
     except Exception as e:
         logger.error(f"Failed to request review: {e}")
+        await emit_tool_error(tool_name="request_review", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

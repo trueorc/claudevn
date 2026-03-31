@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import Optional
 
+from mcp.tools import emit_tool_error
+
 from ..models import SignalBlockerInput, BlockerResponse, MCPError
 from ..models import BlockerType as MCPBlockerType
 from services.work_map_service import get_work_map_service
@@ -106,12 +108,14 @@ async def signal_blocker(input: SignalBlockerInput) -> tuple[Optional[BlockerRes
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="signal_blocker", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error signaling blocker: {e}")
+        await emit_tool_error(tool_name="signal_blocker", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

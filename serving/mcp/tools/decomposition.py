@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..models import MCPError
+from mcp.tools import emit_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,7 @@ async def submit_decomposition(
 
     except Exception as e:
         logger.error(f"Error storing decomposition: {e}", exc_info=True)
+        await emit_tool_error(tool_name="submit_decomposition", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=f"Failed to store decomposition: {str(e)}",

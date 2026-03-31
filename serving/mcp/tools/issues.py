@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ..models import MCPError
+from mcp.tools import emit_tool_error
 from pydantic import BaseModel, Field
 from services.work_map_service import get_work_map_service
 from models.work_map import (
@@ -125,12 +126,14 @@ async def add_issues(input: AddIssuesInput) -> tuple[Optional[AddIssuesResponse]
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="add_issues", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error adding issues: {e}", exc_info=True)
+        await emit_tool_error(tool_name="add_issues", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

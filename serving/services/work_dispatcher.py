@@ -204,7 +204,12 @@ class WorkDispatcher:
                 break
             except Exception as e:
                 logger.error(f"WorkDispatcher cycle error: {e}", exc_info=True)
-                # Brief pause to avoid tight error loops, then continue
+                try:
+                    from services.events.event_bus import get_event_bus
+                    from services.events.event_types import DispatchError
+                    await get_event_bus().publish(DispatchError(error_message=f"Dispatch cycle error: {e}"))
+                except Exception:
+                    pass
                 await asyncio.sleep(1.0)
 
         logger.info("WorkDispatcher loop exited")
@@ -271,6 +276,12 @@ class WorkDispatcher:
                     f"Failed to assign decomp task {task.decomp_id} "
                     f"to {connection.compute_id}: {e}"
                 )
+                try:
+                    from services.events.event_bus import get_event_bus
+                    from services.events.event_types import DispatchError
+                    await get_event_bus().publish(DispatchError(error_message=f"Decomp assignment failed: {e}", work_id=task.decomp_id))
+                except Exception:
+                    pass
                 # Signal completion event with failure so caller unblocks
                 from services.completion_events import signal as signal_event
                 signal_event(task.decomp_id)
@@ -294,6 +305,12 @@ class WorkDispatcher:
                     f"Failed to assign char task {task.char_id} "
                     f"to {connection.compute_id}: {e}"
                 )
+                try:
+                    from services.events.event_bus import get_event_bus
+                    from services.events.event_types import DispatchError
+                    await get_event_bus().publish(DispatchError(error_message=f"Char assignment failed: {e}", work_id=task.char_id))
+                except Exception:
+                    pass
                 from services.completion_events import signal as signal_event
                 signal_event(task.char_id)
 

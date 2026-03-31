@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from ..models import GetContextInput, ContextResponse, ContextType, MCPError
+from mcp.tools import emit_tool_error
 from services.work_map_service import get_work_map_service
 
 logger = logging.getLogger(__name__)
@@ -106,12 +107,14 @@ async def get_context(input: GetContextInput) -> tuple[Optional[ContextResponse]
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="get_context", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error getting context: {e}")
+        await emit_tool_error(tool_name="get_context", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)

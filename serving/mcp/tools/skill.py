@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from ..models import GetSkillInput, SkillResponse, MCPError
+from mcp.tools import emit_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ async def get_skill(input: GetSkillInput) -> tuple[Optional[SkillResponse], Opti
 
     except Exception as e:
         logger.error(f"Failed to get skill {input.skill_id}: {e}")
+        await emit_tool_error(tool_name="get_skill", error_code="SKILL_NOT_FOUND", error_msg=str(e))
         return None, MCPError(
             code="SKILL_NOT_FOUND",
             message=f"Skill '{input.skill_id}' not found",

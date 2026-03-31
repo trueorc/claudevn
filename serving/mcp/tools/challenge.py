@@ -19,6 +19,7 @@ import uuid
 from typing import Optional
 
 from ..models import ReportChallengeInput, ChallengeResponse, MCPError
+from mcp.tools import emit_tool_error
 from models.feedback import (
     ChallengeType,
     FeedbackSignal,
@@ -120,12 +121,14 @@ async def report_challenge(
 
     except RuntimeError as e:
         logger.error(f"Work map service not available: {e}")
+        await emit_tool_error(tool_name="report_challenge", error_code="SERVICE_UNAVAILABLE", error_msg=str(e))
         return None, MCPError(
             code="SERVICE_UNAVAILABLE",
             message="Work map service not initialized"
         )
     except Exception as e:
         logger.error(f"Error reporting challenge: {e}", exc_info=True)
+        await emit_tool_error(tool_name="report_challenge", error_code="INTERNAL_ERROR", error_msg=str(e))
         return None, MCPError(
             code="INTERNAL_ERROR",
             message=str(e)
