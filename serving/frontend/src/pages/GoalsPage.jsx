@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
 import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, resolveConflict, getCoherenceInsights, getComputeEnvironment, getProjectEnvironment, approveProjectEnvironment, approveComputeEnvironment } from '../api/workUnits'
+import { getActivityLog } from '../api/dispatch'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
@@ -63,9 +64,17 @@ function GoalsPage() {
   const [computeEnv, setComputeEnv] = useState(null)
   const [envApproving, setEnvApproving] = useState(false)
 
-  // Accumulated events for timeline
+  // Activity timeline — loaded from Redis, updated by SSE
   const [decompEvents, setDecompEvents] = useState([])
   const [conflictResolving, setConflictResolving] = useState(false)
+
+  // Load persisted events on mount
+  useEffect(() => {
+    if (!projectId) return
+    getActivityLog(projectId).then(data => {
+      if (data?.events) setDecompEvents(data.events)
+    }).catch(() => {})
+  }, [projectId])
 
   // Unified project plan
   const {

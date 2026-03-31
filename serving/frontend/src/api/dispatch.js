@@ -31,3 +31,7 @@ export async function pauseDispatcher() {
 export async function resumeDispatcher() {
   return request('/dispatch/resume', { method: 'POST' })
 }
+
+export async function getActivityLog(projectId, limit = 200) {
+  return request(`/dispatch/activity-log?project_id=${encodeURIComponent(projectId)}&limit=${limit}`)
+}

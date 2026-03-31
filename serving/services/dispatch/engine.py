@@ -423,7 +423,33 @@ class WorkUnitEngine:
         except Exception as e:
             logger.warning(f"Failed to emit state transition event for {unit.id}: {e}")
 
-        # 3. Log — always visible
+        # 3. Persist to activity log (Redis list, survives page navigation + restarts)
+        try:
+            import json as _json
+            redis = None
+            try:
+                from services.decomposition.storage import _get_redis
+                redis = await _get_redis()
+            except Exception:
+                pass
+            if redis:
+                event_record = _json.dumps({
+                    "event": "work_unit.state_transition",
+                    "project_id": unit.project_id,
+                    "unit_id": unit.id,
+                    "old_state": old_state_str,
+                    "new_state": new_state_str,
+                    "reason": reason,
+                    "compute_id": self._unit_compute.get(unit.id),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                log_key = f"claudevn:v2:activity_log:{unit.project_id}"
+                await redis.lpush(log_key, event_record)
+                await redis.ltrim(log_key, 0, 199)
+        except Exception:
+            pass
+
+        # 4. Log — always visible
         logger.info(f"State: {unit.id} {old_state_str} → {new_state_str} ({reason})")
 
     async def _persist_unit_status(self, unit: WorkUnit, new_status: str) -> None:

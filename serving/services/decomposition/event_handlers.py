@@ -20,6 +20,14 @@ def register_decomposition_handlers():
     """
     bus = get_event_bus()
 
+    # Persist all decomposition events to activity log (survives navigation)
+    bus.on("decomposition.started", _persist_project_event)
+    bus.on("decomposition.updated", _persist_project_event)
+    bus.on("decomposition.approved", _persist_project_event)
+    bus.on("decomposition.completed", _persist_project_event)
+    bus.on("decomposition.plan_reconciled", _persist_project_event)
+    bus.on("coherence.updated", _persist_project_event)
+
     # Re-run coherence analysis when a decomposition completes
     bus.on("decomposition.updated", _on_decomposition_updated)
 
@@ -180,6 +188,27 @@ async def _enqueue_ready_units_on_startup():
                 await dispatcher.evaluate()
     except Exception as e:
         logger.warning(f"Failed to enqueue ready units on startup: {e}")
+
+
+async def _persist_project_event(event):
+    """Persist any project-scoped event to the activity log in Redis."""
+    project_id = getattr(event, "project_id", None)
+    if not project_id:
+        return
+    try:
+        import json
+        from services.decomposition.storage import _get_redis
+        redis = await _get_redis()
+        event_data = {}
+        if hasattr(event, 'model_dump'):
+            event_data = json.loads(event.model_dump_json())
+        else:
+            event_data = {"event": getattr(event, "event", "unknown"), "project_id": project_id}
+        log_key = f"claudevn:v2:activity_log:{project_id}"
+        await redis.lpush(log_key, json.dumps(event_data))
+        await redis.ltrim(log_key, 0, 199)
+    except Exception:
+        pass
 
 
 async def _on_compute_connected(event):

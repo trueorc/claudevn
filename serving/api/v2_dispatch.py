@@ -272,6 +272,27 @@ async def resume_dispatch():
     return {"paused": False}
 
 
+@router.get("/activity-log")
+async def get_activity_log(project_id: str, limit: int = 200):
+    """Get persisted activity log for a project. Survives page navigation."""
+    import json
+    try:
+        from services.decomposition.storage import _get_redis
+        redis = await _get_redis()
+        key = f"claudevn:v2:activity_log:{project_id}"
+        raw = await redis.lrange(key, 0, limit - 1)
+        events = []
+        for item in raw:
+            try:
+                data = item.decode() if isinstance(item, bytes) else item
+                events.append(json.loads(data))
+            except Exception:
+                pass
+        return {"events": events, "count": len(events)}
+    except Exception as e:
+        return {"events": [], "count": 0, "error": str(e)}
+
+
 def _compute_critical_path(nodes: List[GraphNode]) -> List[str]:
     """Find the longest chain through non-completed nodes."""
     node_map = {n.id: n for n in nodes}

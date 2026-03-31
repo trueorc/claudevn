@@ -15,7 +15,7 @@ import useEventStream from '../hooks/useEventStream'
 import useDispatchGraph from '../hooks/useDispatchGraph'
 import useDispatchTiming from '../hooks/useDispatchTiming'
 import { useProjectContext } from '../contexts/ProjectContext'
-import { getDispatchStatus, pauseDispatcher, resumeDispatcher } from '../api/dispatch'
+import { getDispatchStatus, pauseDispatcher, resumeDispatcher, getActivityLog } from '../api/dispatch'
 import './ExecutionPlanPage.css'
 
 function ExecutionPlanPage() {
@@ -25,9 +25,29 @@ function ExecutionPlanPage() {
   const [paused, setPaused] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
 
-  // Live event stream
+  // Activity log — loaded from Redis on mount, updated by SSE in real-time
   const [activityEvents, setActivityEvents] = useState([])
   const [stuckItems, setStuckItems] = useState([])
+
+  // Load persisted activity log on mount (survives page navigation)
+  useEffect(() => {
+    if (!projectId) return
+    getActivityLog(projectId).then(data => {
+      if (data?.events) {
+        setActivityEvents(data.events)
+        // Extract stuck items from persisted events
+        const stuck = data.events
+          .filter(e => e.new_state === 'failed' || e.new_state === 'merge_conflict')
+          .map(e => ({
+            type: e.new_state === 'failed' ? 'failed' : 'stuck',
+            work_unit_id: e.unit_id,
+            description: e.reason || `Unit ${e.new_state}`,
+            id: e.unit_id,
+          }))
+        if (stuck.length > 0) setStuckItems(stuck)
+      }
+    }).catch(() => {})
+  }, [projectId])
 
   // Graph data (REST + SSE patching)
   const { nodes, edges, criticalPath, loading: graphLoading, handleEvent: patchGraph } = useDispatchGraph(projectId)
