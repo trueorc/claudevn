@@ -323,7 +323,13 @@ class WorkUnitEngine:
                 affected.add(unit_id)
 
         elif event_type == "compute_available":
-            # Any unit waiting for compute
+            # Compute connected or approved — clear from busy set
+            # (it may have been marked busy from a previous rejection)
+            compute_id = kwargs.get("compute_id", "")
+            if compute_id:
+                self._busy_computes.discard(compute_id)
+
+            # Any unit waiting for compute should re-evaluate
             for uid, u in self._units.items():
                 if u.status in (WorkUnitStatus.QUEUED, WorkUnitStatus.WAITING_COMPUTE):
                     affected.add(uid)
