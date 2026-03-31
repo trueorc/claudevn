@@ -149,7 +149,8 @@ async def _enqueue_ready_units_on_startup():
                         except Exception:
                             pass
 
-            # Also track superseded/completed units in engine
+            # Track ALL units in engine — every status, every goal
+            # The engine needs the full picture to evaluate correctly
             try:
                 from services.dispatch.engine import get_engine
                 engine = get_engine()
@@ -157,10 +158,11 @@ async def _enqueue_ready_units_on_startup():
                     for goal_id in goal_ids:
                         units_data = await get_work_units(project_id, goal_id)
                         for ud in units_data:
-                            status = ud.get("status", "")
-                            uid = ud.get("id", "")
-                            if status in ("superseded", "completed", "verified") and uid:
-                                engine.mark_completed(uid)
+                            try:
+                                wu = WorkUnit(**ud)
+                                engine.track_unit(wu)
+                            except Exception:
+                                pass
             except Exception:
                 pass
 
