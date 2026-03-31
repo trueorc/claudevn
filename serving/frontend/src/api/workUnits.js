@@ -92,6 +92,16 @@ export async function approveComputeEnvironment(goalId) {
   return request(`/decomposition/${goalId}/environment/approve`, { method: 'POST' })
 }
 
+// -- Project-level environment --
+
+export async function getProjectEnvironment(projectId) {
+  return request(`/decomposition/project/${projectId}/environment`)
+}
+
+export async function approveProjectEnvironment(projectId) {
+  return request(`/decomposition/project/${projectId}/environment/approve`, { method: 'POST' })
+}
+
 // -- Coherence --
 
 export async function getCoherenceInsights(projectId) {

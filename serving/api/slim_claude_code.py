@@ -509,6 +509,7 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
             store_pipeline_result,
             get_project_units,
             rebuild_project_units_index,
+            rebuild_project_environment,
         )
 
         # Load existing project plan for cross-directive awareness
@@ -532,8 +533,9 @@ async def _auto_process_background(goal_id: str, constraints: Optional[Dict[str,
             result_dict=pipeline_result.to_dict(),
         )
 
-        # Rebuild unified project index
+        # Rebuild unified project index and environment
         await rebuild_project_units_index(goal.project_id or "")
+        await rebuild_project_environment(goal.project_id or "")
 
         if not pipeline_result.success:
             raise ValueError(f"Decomposition pipeline failed: {pipeline_result.error}")

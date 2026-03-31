@@ -19,6 +19,7 @@ _ENV_KEY = "claudevn:v2:environment:{project_id}:{goal_id}"
 _PROJECT_GOALS_KEY = "claudevn:v2:goals:{project_id}"
 _COHERENCE_KEY = "claudevn:v2:coherence:{project_id}"
 _PROJECT_UNITS_KEY = "claudevn:v2:project_units:{project_id}"
+_PROJECT_ENV_KEY = "claudevn:v2:project_environment:{project_id}"
 _RECONCILIATION_KEY = "claudevn:v2:reconciliation:{project_id}:{goal_id}"
 
 
@@ -234,6 +235,125 @@ async def update_work_unit_status(project_id: str, goal_id: str, unit_id: str, u
             u.update(updates)
             break
     await redis.set(wu_key, json.dumps(units))
+
+
+# -- Unified project environment --
+
+async def store_project_environment(project_id: str, env_dict: dict) -> None:
+    """Store the unified project-level environment spec."""
+    redis = await _get_redis()
+    key = _PROJECT_ENV_KEY.format(project_id=project_id)
+    await redis.set(key, json.dumps(env_dict))
+    logger.info(f"Stored project environment for {project_id}: status={env_dict.get('status')}, {len(env_dict.get('requirements', []))} requirements")
+
+
+async def get_unified_project_environment(project_id: str) -> Optional[dict]:
+    """Get the unified project-level environment spec."""
+    redis = await _get_redis()
+    key = _PROJECT_ENV_KEY.format(project_id=project_id)
+    data = await redis.get(key)
+    if not data:
+        return None
+    return json.loads(data)
+
+
+async def rebuild_project_environment(project_id: str) -> Optional[dict]:
+    """Rebuild the unified project environment by merging requirements from all directives.
+
+    Collects requirements from all per-directive environments, deduplicates
+    by name, and produces a single project-level environment. If an approved
+    environment already exists, preserves its approval status when requirements
+    haven't changed.
+    """
+    goal_ids = await get_project_goals(project_id)
+    if not goal_ids:
+        return None
+
+    # Collect all per-directive environments
+    all_envs = []
+    for gid in goal_ids:
+        env = await get_environment(project_id, gid)
+        if env:
+            all_envs.append(env)
+
+    if not all_envs:
+        return None
+
+    # Merge requirements by name (deduplicate, keep most specific version)
+    merged_reqs = {}
+    all_goal_refs = set()
+    all_work_unit_ids = set()
+    base_image = "ubuntu:24.04"
+    dockerfile_content = ""
+
+    for env in all_envs:
+        for req in env.get("requirements", []):
+            name = req.get("name", "")
+            if name not in merged_reqs:
+                merged_reqs[name] = req
+            else:
+                # Keep the one with a version, or the more specific reason
+                existing = merged_reqs[name]
+                if req.get("version") and not existing.get("version"):
+                    merged_reqs[name] = req
+
+        for gref in env.get("goal_refs", []):
+            all_goal_refs.add(gref)
+        for wuid in env.get("work_unit_ids", []):
+            all_work_unit_ids.add(wuid)
+
+        # Use the most detailed Dockerfile (longest)
+        dc = env.get("dockerfile_content", "")
+        if len(dc) > len(dockerfile_content):
+            dockerfile_content = dc
+            base_image = env.get("base_image", base_image)
+
+    # Check if existing project env is still valid
+    existing_project_env = await get_unified_project_environment(project_id)
+    existing_req_names = set()
+    if existing_project_env:
+        existing_req_names = {r.get("name") for r in existing_project_env.get("requirements", [])}
+
+    new_req_names = set(merged_reqs.keys())
+    requirements_changed = new_req_names != existing_req_names
+
+    # Determine status
+    if existing_project_env and not requirements_changed:
+        # Requirements unchanged — preserve existing status (approved, etc.)
+        status = existing_project_env.get("status", "proposed")
+        project_name = existing_project_env.get("project_name")
+        run_command = existing_project_env.get("run_command")
+    elif existing_project_env and existing_project_env.get("status") == "approved" and new_req_names <= existing_req_names:
+        # New requirements are a subset — still approved
+        status = "approved"
+        project_name = existing_project_env.get("project_name")
+        run_command = existing_project_env.get("run_command")
+    else:
+        status = "proposed"
+        project_name = None
+        run_command = None
+
+    unified = {
+        "id": f"env-project-{project_id}",
+        "project_id": project_id,
+        "goal_refs": sorted(all_goal_refs),
+        "requirements": list(merged_reqs.values()),
+        "base_image": base_image,
+        "dockerfile_content": dockerfile_content,
+        "work_unit_ids": sorted(all_work_unit_ids),
+        "status": status,
+        "project_name": project_name,
+        "run_command": run_command,
+    }
+
+    await store_project_environment(project_id, unified)
+
+    logger.info(
+        f"Rebuilt project environment for {project_id}: "
+        f"{len(merged_reqs)} requirements from {len(all_envs)} directives, "
+        f"status={status}, changed={requirements_changed}"
+    )
+    return unified
 
 
 # -- Reconciliation storage --

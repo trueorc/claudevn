@@ -388,6 +388,84 @@ async def trigger_coherence_analysis(project_id: str):
     return analysis_dict
 
 
+# -- Project-level Environment endpoints --
+
+@router.get("/project/{project_id}/environment")
+async def get_project_environment_unified(project_id: str):
+    """Get the unified project-level compute environment.
+
+    Merges requirements from all directives into a single environment.
+    This is the canonical environment for the project.
+    """
+    from services.decomposition.storage import get_unified_project_environment, rebuild_project_environment
+
+    env = await get_unified_project_environment(project_id)
+    if not env:
+        # Try to build it from per-directive environments
+        env = await rebuild_project_environment(project_id)
+    if not env:
+        return {
+            "id": f"env-project-{project_id}", "project_id": project_id,
+            "status": "proposed", "requirements": [],
+            "base_image": "", "dockerfile_content": "", "work_unit_ids": [],
+            "goal_refs": [],
+        }
+    return env
+
+
+@router.post("/project/{project_id}/environment/approve")
+async def approve_project_environment(project_id: str):
+    """Approve the unified project environment.
+
+    Writes Dockerfile + metadata to disk and updates status to approved.
+    """
+    from services.decomposition.storage import get_unified_project_environment, store_project_environment
+    from services.decomposition.provisioner import write_environment
+
+    env = await get_unified_project_environment(project_id)
+    if not env:
+        raise HTTPException(status_code=404, detail="No project environment found")
+
+    if env.get("status") == "approved":
+        return {"approved": True, "project_id": project_id, "message": "Already approved"}
+
+    # Get project name
+    try:
+        from services.project_service import get_project_service
+        ps = get_project_service()
+        project = await ps.get_project(project_id)
+        project_name = project.name if project else project_id
+    except Exception:
+        project_name = project_id
+
+    # Determine description from requirements
+    runtimes = [r.get("name", "") for r in env.get("requirements", []) if r.get("name") not in ("python-packages", "node-packages")]
+    desc = "_".join(runtimes[:3]) if runtimes else "default"
+
+    safe_name = project_name.lower().replace(' ', '_')
+    await write_environment(
+        project_name=project_name,
+        project_id=project_id,
+        goal_id=f"project-{project_id}",
+        dockerfile_content=env.get("dockerfile_content", ""),
+        requirements=env.get("requirements", []),
+        description=desc,
+    )
+
+    # Update project environment status
+    env["status"] = "approved"
+    env["project_name"] = safe_name
+    env["run_command"] = f"./compute-envs/start.sh {safe_name}"
+    await store_project_environment(project_id, env)
+
+    return {
+        "approved": True,
+        "project_id": project_id,
+        "project_name": safe_name,
+        "run_command": f"./compute-envs/start.sh {safe_name}",
+    }
+
+
 # -- Unified Project Plan endpoints --
 
 @router.get("/project/{project_id}/plan")

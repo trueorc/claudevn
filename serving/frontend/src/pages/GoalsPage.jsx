@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
-import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, resolveConflict, getCoherenceInsights, getComputeEnvironment, approveComputeEnvironment } from '../api/workUnits'
+import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, resolveConflict, getCoherenceInsights, getComputeEnvironment, getProjectEnvironment, approveProjectEnvironment, approveComputeEnvironment } from '../api/workUnits'
 import { useProjectContext } from '../contexts/ProjectContext'
 import { useConversationContext } from '../contexts/ConversationContext'
 import useEventStream from '../hooks/useEventStream'
@@ -59,6 +59,7 @@ function GoalsPage() {
   // Project-level state
   const [coherenceInsights, setCoherenceInsights] = useState([])
   const [coherenceLoading, setCoherenceLoading] = useState(false)
+  const [projectEnv, setProjectEnv] = useState(null)
   const [computeEnv, setComputeEnv] = useState(null)
   const [envApproving, setEnvApproving] = useState(false)
 
@@ -79,7 +80,7 @@ function GoalsPage() {
 
   // Attention items (include plan conflicts)
   const attentionItems = [
-    ...computeAttentionItems(goals, allWorkUnits, allScores, coherenceInsights, computeEnv),
+    ...computeAttentionItems(goals, allWorkUnits, allScores, coherenceInsights, projectEnv),
     ...(planConflicts?.length > 0 ? [{
       type: 'plan_conflict',
       title: 'Plan conflicts',
@@ -109,6 +110,7 @@ function GoalsPage() {
       loadGoals()
       loadCoherence()
       refreshPlan()
+      loadProjectEnv()
     }, [selectedGoal]), // eslint-disable-line react-hooks/exhaustive-deps
   })
 
@@ -165,6 +167,16 @@ function GoalsPage() {
     }
   }, [projectId])
 
+  const loadProjectEnv = useCallback(async () => {
+    if (!projectId) { setProjectEnv(null); return }
+    try {
+      const data = await getProjectEnvironment(projectId)
+      setProjectEnv(data)
+    } catch {
+      setProjectEnv(null)
+    }
+  }, [projectId])
+
   const loadComputeEnv = useCallback(async (goalId) => {
     try {
       const data = await getComputeEnvironment(goalId)
@@ -206,11 +218,8 @@ function GoalsPage() {
   useEffect(() => { loadGoals() }, [loadGoals])
   useEffect(() => { loadCoherence() }, [loadCoherence])
 
-  // Load project-level env on project change
-  useEffect(() => {
-    if (projectId) loadComputeEnv(projectId)
-    else setComputeEnv(null)
-  }, [projectId, loadComputeEnv])
+  // Load project-level environment
+  useEffect(() => { loadProjectEnv() }, [loadProjectEnv])
 
   // Clear on project change
   useEffect(() => {
@@ -230,12 +239,12 @@ function GoalsPage() {
       loadChains(selectedGoal.goal_id)
     } else {
       setWorkUnits([])
+      setComputeEnv(null)
       setPipelineData(null)
       setQualityScores(null)
       setChainAnalysis(null)
-      if (projectId) loadComputeEnv(projectId)
     }
-  }, [selectedGoal, projectId, loadWorkUnits, loadComputeEnv, loadPipeline, loadScores, loadChains])
+  }, [selectedGoal, loadWorkUnits, loadComputeEnv, loadPipeline, loadScores, loadChains])
 
   // --- Handlers ---
 
@@ -355,20 +364,21 @@ function GoalsPage() {
   }, [projectId, refreshPlan])
 
   const handleApproveEnvironment = useCallback(async () => {
-    const goalId = selectedGoal?.goal_id || goals.find(g => g.status !== 'failed')?.goal_id
-    if (!goalId) return
+    if (!projectId) return
     setEnvApproving(true)
     try {
-      await approveComputeEnvironment(goalId)
-      await loadComputeEnv(goalId)
+      await approveProjectEnvironment(projectId)
+      await loadProjectEnv()
     } catch (err) {
       console.error('Failed to approve environment:', err)
     } finally {
       setEnvApproving(false)
     }
-  }, [selectedGoal, goals, loadComputeEnv])
+  }, [projectId, loadProjectEnv])
 
   const handleRefresh = useCallback(() => {
+    loadProjectEnv()
+    refreshPlan()
     if (selectedGoal) {
       loadWorkUnits(selectedGoal.goal_id)
       loadComputeEnv(selectedGoal.goal_id)
@@ -376,7 +386,7 @@ function GoalsPage() {
       loadScores(selectedGoal.goal_id)
       loadChains(selectedGoal.goal_id)
     }
-  }, [selectedGoal, loadWorkUnits, loadComputeEnv, loadPipeline, loadScores, loadChains])
+  }, [selectedGoal, loadProjectEnv, refreshPlan, loadWorkUnits, loadComputeEnv, loadPipeline, loadScores, loadChains])
 
   // --- Render ---
 
@@ -442,7 +452,7 @@ function GoalsPage() {
               attentionItems={attentionItems}
               coherenceInsights={coherenceInsights}
               coherenceLoading={coherenceLoading}
-              computeEnv={computeEnv}
+              computeEnv={projectEnv}
               onApproveEnvironment={handleApproveEnvironment}
               envApproving={envApproving}
               onSelectGoal={handleSelectGoal}
