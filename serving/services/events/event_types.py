@@ -258,6 +258,162 @@ class PresenceChanged(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# -- Compute lifecycle events --
+
+class InstanceRegistered(BaseModel):
+    """A compute instance was registered."""
+    event: str = "compute.instance_registered"
+    instance_id: str
+    capabilities: List[str] = []
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InstanceRemoved(BaseModel):
+    """A compute instance was deregistered."""
+    event: str = "compute.instance_removed"
+    instance_id: str
+    reason: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InstanceApproved(BaseModel):
+    """A compute instance was approved (PENDING -> ONLINE)."""
+    event: str = "compute.instance_approved"
+    instance_id: str
+    project_ids: List[str] = []
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InstanceRejected(BaseModel):
+    """A compute instance was rejected."""
+    event: str = "compute.instance_rejected"
+    instance_id: str
+    reason: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ComputeDrainStarted(BaseModel):
+    """Drain initiated for a compute instance."""
+    event: str = "compute.drain_started"
+    instance_id: str
+    reason: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ComputeDrainCancelled(BaseModel):
+    """Drain cancelled for a compute instance (DRAINING -> ONLINE)."""
+    event: str = "compute.drain_cancelled"
+    instance_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InstanceHealthChanged(BaseModel):
+    """Compute instance health status changed (ONLINE/DEGRADED/OFFLINE)."""
+    event: str = "compute.health_changed"
+    instance_id: str
+    old_status: str
+    new_status: str
+    reason: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ComputeAuthChanged(BaseModel):
+    """Compute instance auth status changed."""
+    event: str = "compute.auth_changed"
+    instance_id: str
+    old_status: str
+    new_status: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ComputeConnected(BaseModel):
+    """Compute SSE connection established."""
+    event: str = "compute.connected"
+    instance_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ComputeDisconnected(BaseModel):
+    """Compute SSE connection lost."""
+    event: str = "compute.disconnected"
+    instance_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# -- Work lifecycle events --
+
+class WorkReadyForDispatch(BaseModel):
+    """A work unit is ready for dispatch."""
+    event: str = "work.ready_for_dispatch"
+    project_id: str
+    work_unit_id: str
+    goal_id: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkStuckDetected(BaseModel):
+    """A work unit has been executing too long — timeout fired."""
+    event: str = "work.stuck_detected"
+    project_id: str
+    work_unit_id: str
+    stuck_duration_seconds: int = 0
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkTimeoutRecovered(BaseModel):
+    """Stuck work returned to PENDING for retry."""
+    event: str = "work.timeout_recovered"
+    project_id: str
+    work_unit_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkTimeoutFailed(BaseModel):
+    """Stuck work exhausted retries, marked FAILED."""
+    event: str = "work.timeout_failed"
+    project_id: str
+    work_unit_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# -- Error events (observability for silent failures) --
+
+class MCPToolError(BaseModel):
+    """Error in an MCP tool handler."""
+    event: str = "error.mcp_tool"
+    tool_name: str
+    error_code: str = ""
+    error_message: str = ""
+    compute_id: Optional[str] = None
+    project_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DispatchError(BaseModel):
+    """Error during work dispatch."""
+    event: str = "error.dispatch"
+    error_message: str = ""
+    work_id: Optional[str] = None
+    project_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class HealthCheckError(BaseModel):
+    """Error in health monitoring."""
+    event: str = "error.health_check"
+    error_message: str = ""
+    instance_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SSEConnectionError(BaseModel):
+    """Error in SSE connection management."""
+    event: str = "error.sse_connection"
+    error_message: str = ""
+    instance_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # Union type for event routing
 Event = (
     DecompositionStarted | DecompositionUpdated | DecompositionApproved | DecompositionFeedback |
@@ -267,5 +423,10 @@ Event = (
     CoherenceUpdated |
     ExecutionQueued | ExecutionStarted | ExecutionCompleted | ExecutionFailed |
     VerificationStarted | VerificationCompleted | VerificationFailed | IntegrationConflict |
+    InstanceRegistered | InstanceRemoved | InstanceApproved | InstanceRejected |
+    ComputeDrainStarted | ComputeDrainCancelled | InstanceHealthChanged | ComputeAuthChanged |
+    ComputeConnected | ComputeDisconnected |
+    WorkReadyForDispatch | WorkStuckDetected | WorkTimeoutRecovered | WorkTimeoutFailed |
+    MCPToolError | DispatchError | HealthCheckError | SSEConnectionError |
     SystemHealth | PresenceChanged
 )

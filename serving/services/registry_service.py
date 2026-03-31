@@ -41,7 +41,15 @@ class ComputeRegistry:
         self._event_queues: Dict[str, asyncio.Queue] = {}
 
         logger.info("Initialized ComputeRegistry")
-    
+
+    async def _emit_event(self, event):
+        """Emit an observability event on the EventBus. Never fails the caller."""
+        try:
+            from services.events.event_bus import get_event_bus
+            await get_event_bus().publish(event)
+        except Exception as e:
+            logger.debug(f"Failed to emit event {getattr(event, 'event', '?')}: {e}")
+
     async def initialize(self):
         """Initialize registry and load from storage if available."""
         if self._storage:
@@ -194,7 +202,13 @@ class ComputeRegistry:
             f"Registered instance {instance.instance_id} "
             f"({instance.name}) with {len(instance.capabilities.agents)} agents"
         )
-        
+
+        from services.events.event_types import InstanceRegistered
+        await self._emit_event(InstanceRegistered(
+            instance_id=instance.instance_id,
+            capabilities=[a.name for a in instance.capabilities.agents] if instance.capabilities else [],
+        ))
+
         return instance
     
     async def remove_instance(self, instance_id: str) -> bool:
@@ -224,6 +238,9 @@ class ComputeRegistry:
             await self._storage.delete_compute_instance(instance_id)
 
         logger.info(f"Deregistered instance {instance_id}")
+
+        from services.events.event_types import InstanceRemoved
+        await self._emit_event(InstanceRemoved(instance_id=instance_id))
 
         return True
     
@@ -472,6 +489,10 @@ class ComputeRegistry:
         await self._save_to_storage(instance)
 
         logger.info(f"Started draining instance {instance_id}")
+
+        from services.events.event_types import ComputeDrainStarted
+        await self._emit_event(ComputeDrainStarted(instance_id=instance_id))
+
         return instance
 
     async def cancel_drain(
@@ -503,6 +524,10 @@ class ComputeRegistry:
         await self._save_to_storage(instance)
 
         logger.info(f"Cancelled drain for instance {instance_id}")
+
+        from services.events.event_types import ComputeDrainCancelled
+        await self._emit_event(ComputeDrainCancelled(instance_id=instance_id))
+
         return instance
 
     async def get_pending_instances(self) -> List[ComputeInstance]:
@@ -654,6 +679,13 @@ class ComputeRegistry:
             f"Approved instance {instance_id}, "
             f"project_ids={instance.project_ids}"
         )
+
+        from services.events.event_types import InstanceApproved
+        await self._emit_event(InstanceApproved(
+            instance_id=instance_id,
+            project_ids=instance.project_ids,
+        ))
+
         return instance
 
     async def reject_instance(
@@ -686,6 +718,9 @@ class ComputeRegistry:
             f"Rejected instance {instance_id}"
             + (f": {reason}" if reason else "")
         )
+
+        from services.events.event_types import InstanceRejected
+        await self._emit_event(InstanceRejected(instance_id=instance_id, reason=reason))
 
         return await self.remove_instance(instance_id)
 
@@ -909,6 +944,13 @@ class ComputeRegistry:
         if old_status != auth_status:
             logger.info(f"Instance {instance_id} auth: {old_status.value} -> {auth_status.value}")
 
+            from services.events.event_types import ComputeAuthChanged
+            await self._emit_event(ComputeAuthChanged(
+                instance_id=instance_id,
+                old_status=old_status.value,
+                new_status=auth_status.value,
+            ))
+
         return instance
 
     async def check_auth_expiry(self) -> List[str]:
@@ -1049,7 +1091,16 @@ class ComputeRegistry:
                     "new_status": instance.status.value,
                     "heartbeat_age": age
                 })
-                
+
+                # Emit health change event
+                from services.events.event_types import InstanceHealthChanged
+                await self._emit_event(InstanceHealthChanged(
+                    instance_id=instance_id,
+                    old_status=old_status.value,
+                    new_status=instance.status.value,
+                    reason=f"heartbeat_age={age:.0f}s",
+                ))
+
                 # Save updated status
                 await self._save_to_storage(instance)
         
