@@ -34,44 +34,23 @@ def deps_satisfied(unit: WorkUnit, ctx: EvaluationContext) -> bool:
     return all(dep in ctx.completed_unit_ids for dep in unit.independence.depends_on)
 
 
-def _any_unit_active(ctx: EvaluationContext) -> bool:
-    """Check if ANY unit is currently executing or in merge phase.
-
-    Hard rule: only one unit can be active at a time per compute.
-    This prevents double-dispatch regardless of how busy_computes tracking works.
-    """
-    # Check the engine's units for any in active state
-    try:
-        from .engine import get_engine
-        engine = get_engine()
-        if engine:
-            for u in engine._units.values():
-                if u.status.value in ('executing', 'submitted', 'merging'):
-                    return True
-    except Exception:
-        pass
-    return False
-
-
 def compute_available(unit: WorkUnit, ctx: EvaluationContext) -> bool:
-    """An idle compute exists, not paused, and no other unit is active."""
-    if ctx.paused or len(ctx.idle_computes) == 0:
-        return False
-    return not _any_unit_active(ctx)
+    """An idle compute exists and system is not paused.
+
+    idle_computes is already filtered to exclude busy computes.
+    If a compute is idle, it can accept work. Period.
+    """
+    return not ctx.paused and len(ctx.idle_computes) > 0
 
 
 def no_compute_available(unit: WorkUnit, ctx: EvaluationContext) -> bool:
-    """No idle compute or another unit is active — unit should wait."""
-    if ctx.paused:
-        return False
-    return len(ctx.idle_computes) == 0 or _any_unit_active(ctx)
+    """No idle compute available."""
+    return not ctx.paused and len(ctx.idle_computes) == 0
 
 
 def compute_now_available(unit: WorkUnit, ctx: EvaluationContext) -> bool:
-    """A compute became available and no other unit is active."""
-    if ctx.paused or len(ctx.idle_computes) == 0:
-        return False
-    return not _any_unit_active(ctx)
+    """A compute became available for a waiting unit."""
+    return not ctx.paused and len(ctx.idle_computes) > 0
 
 
 def always_true(unit: WorkUnit, ctx: EvaluationContext) -> bool:
@@ -195,6 +174,12 @@ async def action_dispatch_to_compute(unit: WorkUnit, ctx: EvaluationContext, eng
         )
         if not success:
             raise TransientError(f"Failed to send work_assigned to {compute_id}")
+
+        # Mark the SSE connection as busy so get_idle_connections() excludes it
+        conn = sse_manager.get_connection(compute_id)
+        if conn:
+            conn.status = "busy"
+            conn.current_task_id = unit.id
 
         # Track assignment
         unit.assigned_instance = compute_id

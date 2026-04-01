@@ -711,21 +711,9 @@ async def receive_compute_event(
                 unit = engine._units.get(event.task_id)
                 if unit:
                     engine.release_compute(unit.id)
-
-                    # Track retry attempts persistently (not cleared by engine)
-                    retry_key = f"_retry_count_{unit.id}"
-                    retry_count = getattr(engine, retry_key, 0) + 1
-                    setattr(engine, retry_key, retry_count)
-
-                    if retry_count >= 3:
-                        await engine._transition_to(
-                            unit, WorkUnitStatus.FAILED,
-                            reason=f"execution failed after {retry_count} attempts: {event.error or 'unknown'}"
-                        )
-                    else:
-                        await engine._transition_to(
-                            unit, WorkUnitStatus.WAITING_COMPUTE,
-                            reason=f"execution failed (attempt {retry_count}/3), will retry: {event.error or 'unknown'}"
+                    await engine._transition_to(
+                        unit, WorkUnitStatus.FAILED,
+                        reason=f"execution failed: {event.error or 'unknown'}"
                         )
 
             elif event.event.value == "claude_code_rejected":
