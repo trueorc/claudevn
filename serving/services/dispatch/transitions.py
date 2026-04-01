@@ -107,12 +107,30 @@ async def action_dispatch_to_compute(unit: WorkUnit, ctx: EvaluationContext, eng
                     base_branch = f"f/work_{dep_short}/{compute_id}"
                     break
 
-        # Look up repo URL
+        # Look up repo URL — auto-create if project has no repo
         repo_url = ""
         try:
             from services.project_service import get_project_service
             ps = get_project_service()
             project = await ps.get_project(unit.project_id)
+
+            # Auto-create repo if none exists
+            if project and not project.repos:
+                logger.info(f"Auto-creating internal repo for project {unit.project_id}")
+                try:
+                    from models.project import RepoCreateInternalRequest
+                    await ps.create_internal_repo(
+                        unit.project_id,
+                        RepoCreateInternalRequest(
+                            name=project.name or "repo",
+                            default_branch="main",
+                        ),
+                    )
+                    # Reload project to get the new repo
+                    project = await ps.get_project(unit.project_id)
+                except Exception as e:
+                    logger.warning(f"Failed to auto-create repo: {e}")
+
             if project and project.repos:
                 primary = next(
                     (r for r in project.repos if r.repo_id == project.primary_repo_id),
