@@ -91,18 +91,18 @@ async def _rebuild_all_project_indexes():
 
 
 async def _enqueue_ready_units_on_startup():
-    """Find work units in 'ready' status and enqueue them for dispatch.
+    """Load all work units into the engine on startup.
 
-    Handles the case where units were approved but the dispatch queue
-    was never populated (e.g., code was deployed after approval).
+    The engine is the sole authority. Load everything from Redis
+    so the engine has the full picture and can evaluate correctly.
     """
     try:
         from services.decomposition.storage import get_project_goals, get_work_units, _get_redis
-        from services.dispatch.dispatcher import get_dispatcher
+        from services.dispatch.engine import get_engine
         from models.work_unit import WorkUnit
 
-        dispatcher = get_dispatcher()
-        if not dispatcher:
+        engine = get_engine()
+        if not engine:
             return
 
         redis = await _get_redis()
@@ -116,78 +116,26 @@ async def _enqueue_ready_units_on_startup():
             if cursor == 0:
                 break
 
-        total_enqueued = 0
+        total_tracked = 0
         for project_id in project_ids:
             goal_ids = await get_project_goals(project_id)
 
-            # First pass: mark superseded/completed units as "completed" in the queue
-            # so dependents of superseded units aren't blocked
+            # Load ALL units into the engine — every status, every goal
             for goal_id in goal_ids:
                 units_data = await get_work_units(project_id, goal_id)
                 for ud in units_data:
-                    status = ud.get("status", "")
-                    uid = ud.get("id", "")
-                    if status in ("superseded", "completed", "verified", "submitted") and uid:
-                        dispatcher.queue._completed_ids.add(uid)
-                        # Also mark the replacement as "completing" the old dep
-                        if status == "superseded" and ud.get("superseded_by"):
-                            dispatcher.queue._completed_ids.add(ud["superseded_by"])
+                    try:
+                        wu = WorkUnit(**ud)
+                        engine.track_unit(wu)
+                        total_tracked += 1
+                    except Exception:
+                        pass
 
-            # Second pass: enqueue ready units (deps now resolvable)
-            for goal_id in goal_ids:
-                units_data = await get_work_units(project_id, goal_id)
-                ready_units = [u for u in units_data if u.get("status") == "ready"]
-                if ready_units:
-                    work_units = []
-                    for ud in ready_units:
-                        try:
-                            work_units.append(WorkUnit(**ud))
-                        except Exception:
-                            pass
-                    if work_units:
-                        dispatcher.queue.enqueue_batch(work_units)
-                        total_enqueued += len(work_units)
-
-                        # Also track in the state machine engine
-                        try:
-                            from services.dispatch.engine import get_engine
-                            engine = get_engine()
-                            if engine:
-                                engine.track_units(work_units)
-                        except Exception:
-                            pass
-
-            # Track ALL units in engine — every status, every goal
-            # The engine needs the full picture to evaluate correctly
-            try:
-                from services.dispatch.engine import get_engine
-                engine = get_engine()
-                if engine:
-                    for goal_id in goal_ids:
-                        units_data = await get_work_units(project_id, goal_id)
-                        for ud in units_data:
-                            try:
-                                wu = WorkUnit(**ud)
-                                engine.track_unit(wu)
-                            except Exception:
-                                pass
-            except Exception:
-                pass
-
-        if total_enqueued > 0:
-            logger.info(f"Startup: enqueued {total_enqueued} ready work units for dispatch")
-            # Evaluate via engine first, fallback to old dispatcher
-            try:
-                from services.dispatch.engine import get_engine
-                engine = get_engine()
-                if engine:
-                    await engine.evaluate()
-                else:
-                    await dispatcher.evaluate()
-            except Exception:
-                await dispatcher.evaluate()
+        if total_tracked > 0:
+            logger.info(f"Startup: loaded {total_tracked} work units into engine")
+            await engine.evaluate()
     except Exception as e:
-        logger.warning(f"Failed to enqueue ready units on startup: {e}")
+        logger.warning(f"Failed to load units on startup: {e}")
 
 
 async def _persist_project_event(event):
@@ -264,12 +212,12 @@ async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: 
     """Load approved work units and enqueue them for dispatch."""
     try:
         from services.decomposition.storage import get_work_units
-        from services.dispatch.dispatcher import get_dispatcher
+        from services.dispatch.engine import get_engine
         from models.work_unit import WorkUnit
 
-        dispatcher = get_dispatcher()
-        if not dispatcher:
-            logger.warning("Dispatcher not available — approved units will not be dispatched")
+        engine = get_engine()
+        if not engine:
+            logger.warning("Engine not available — approved units will not be dispatched")
             return
 
         # Load work units from Redis
@@ -284,7 +232,7 @@ async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: 
             logger.info(f"No ready units to enqueue for {goal_id}")
             return
 
-        # Convert dicts to WorkUnit objects and enqueue
+        # Convert dicts to WorkUnit objects and track in engine
         work_units = []
         for ud in ready_data:
             try:
@@ -294,14 +242,14 @@ async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: 
                 logger.warning(f"Could not parse work unit {ud.get('id', '?')}: {e}")
 
         if work_units:
-            dispatcher.queue.enqueue_batch(work_units)
+            engine.track_units(work_units)
             logger.info(
                 f"Enqueued {len(work_units)} approved work units from {goal_id} "
                 f"for project {project_id}"
             )
 
             # State changed (work ready) — trigger evaluation
-            await dispatcher.evaluate()
+            await engine.evaluate(set(wu.id for wu in work_units))
 
             # Emit work.ready_for_dispatch events
             bus = get_event_bus()
