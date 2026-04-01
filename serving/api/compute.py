@@ -1093,8 +1093,21 @@ async def _release_compute_after_merge(compute_id: str) -> None:
             connection.current_task_id = None
             logger.info(f"Released compute {compute_id} from merging to idle")
 
-            from services.work_dispatcher import get_work_dispatcher
-            get_work_dispatcher().trigger(reason=f"compute_idle:{compute_id}")
+            # Notify engine — compute is available
+            try:
+                from services.dispatch.engine import get_engine
+                eng = get_engine()
+                if eng:
+                    eng._busy_computes.discard(compute_id)
+                    await eng.on_event("compute_available", compute_id=compute_id)
+            except Exception:
+                pass
+
+            try:
+                from services.work_dispatcher import get_work_dispatcher
+                get_work_dispatcher().trigger(reason=f"compute_idle:{compute_id}")
+            except Exception:
+                pass
     except Exception as e:
         logger.debug(f"Could not release compute {compute_id}: {e}")
 

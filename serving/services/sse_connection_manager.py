@@ -545,6 +545,15 @@ class SSEConnectionManager:
             connection.status = "idle"
             connection.current_task_id = None
 
+            # Notify engine — compute is available
+            try:
+                from services.dispatch.engine import get_engine
+                eng = get_engine()
+                if eng:
+                    eng._busy_computes.discard(compute_id)
+            except Exception:
+                pass
+
         data = {
             "issue_id": issue_id,
             "branch": branch,
