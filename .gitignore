@@ -201,3 +201,4 @@ ehthumbs_vista.db
 .claudevn.pid
 serving.pid
 *.pid
+compute-envs/
