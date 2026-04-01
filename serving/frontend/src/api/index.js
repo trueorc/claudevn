@@ -14,13 +14,16 @@ export function setTokenGetter(fn) {
 export async function request(path, options = {}) {
   const url = `${API_BASE}${path}`
   const token = _getToken ? await _getToken() : null
+
+  // Merge headers properly — don't let ...options overwrite the auth header
+  const { headers: optHeaders, ...restOptions } = options
   const response = await fetch(url, {
+    ...restOptions,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
+      ...optHeaders,
     },
-    ...options
   })
 
   if (!response.ok) {
