@@ -123,11 +123,17 @@ async def action_dispatch_to_compute(unit: WorkUnit, ctx: EvaluationContext, eng
         except Exception as e:
             logger.warning(f"Could not look up repo URL: {e}")
 
+        # Map work unit complexity to compute effort
+        complexity_map = {"xs": "simple", "s": "simple", "m": "standard", "l": "complex", "xl": "complex"}
+        complexity = complexity_map.get((unit.estimated_complexity or "m").lower(), "standard")
+
         task_data = {
             "task_id": unit.id,
             "title": unit.description[:120],
             "description": unit.description,
             "branch_name": branch,
+            "work_type": "feature",
+            "complexity_hint": complexity,
             "context": {
                 "repository": repo_url,
                 "repo_url": repo_url,
@@ -137,6 +143,7 @@ async def action_dispatch_to_compute(unit: WorkUnit, ctx: EvaluationContext, eng
                 "acceptance_criteria": unit.acceptance_criteria or [],
                 "interface_produces": unit.interface_produces or [],
                 "interface_consumes": unit.interface_consumes or [],
+                "estimated_complexity": unit.estimated_complexity or "m",
             },
             "work_unit_id": unit.id,
             "goal_id": unit.goal_ref,

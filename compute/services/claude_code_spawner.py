@@ -1035,6 +1035,31 @@ fi
         if context.get("requirements"):
             sections.append(f"\n**Requirements:**\n{context['requirements']}")
 
+        # v2.0: Target files, acceptance criteria, interface contracts
+        if context.get("target_files"):
+            sections.append("\n**Target Files:**")
+            for f in context["target_files"]:
+                sections.append(f"  - `{f}`")
+
+        if context.get("acceptance_criteria"):
+            sections.append("\n**Acceptance Criteria (ALL must pass):**")
+            for criterion in context["acceptance_criteria"]:
+                sections.append(f"  - {criterion}")
+
+        if context.get("interface_produces"):
+            sections.append("\n**This unit produces (other units depend on this):**")
+            for p in context["interface_produces"]:
+                ptype = p.get("type", "")
+                pdef = p.get("definition", "")
+                sections.append(f"  - [{ptype}] {pdef}")
+
+        if context.get("interface_consumes"):
+            sections.append("\n**This unit consumes (from dependencies):**")
+            for c in context["interface_consumes"]:
+                ctype = c.get("type", "")
+                cdef = c.get("definition", "")
+                sections.append(f"  - [{ctype}] {cdef}")
+
         # Branch assignment — task-specific details (branch name, base)
         if context.get("repository"):
             branch_name = work_assigned_event.get("branch_name", "")
@@ -1192,10 +1217,11 @@ sys.exit(1)
             env_vars["GIT_TERMINAL_PROMPT"] = "0"
 
         # Classify task complexity for effort/max_turns (#60)
+        # v2.0: use complexity_hint from decomposition if available
         title = work_assigned_event.get("title", "")
         description = work_assigned_event.get("description", "")
         work_type = work_assigned_event.get("work_type", "task")
-        complexity = self._classify_task_complexity(work_type, title, description)
+        complexity = work_assigned_event.get("complexity_hint") or self._classify_task_complexity(work_type, title, description)
         effort = self._get_effort_for_complexity(complexity)
         max_turns = self._get_max_turns_for_complexity(complexity)
         logger.info(
