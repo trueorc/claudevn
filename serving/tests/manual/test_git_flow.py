@@ -71,13 +71,13 @@ async def main():
         # ============================================================
         logger.info("Step 1: Create project with internal repo")
         from services.project_service import get_project_service
-        from models.project import ProjectCreateRequest, PendingRepo
+        from models.project import ProjectCreateRequest, PendingRepoRequest
 
         ps = get_project_service()
         project = await ps.create_project(ProjectCreateRequest(
             name=f"git-flow-test-{uuid.uuid4().hex[:6]}",
             description="Automated git flow test",
-            repos=[PendingRepo(mode="create", name="test-repo", default_branch="main")],
+            repos=[PendingRepoRequest(mode="create", name="test-repo", default_branch="main")],
         ))
         project_id = project.project_id
         check("Project created", project is not None, f"project_id={project_id}")
@@ -100,9 +100,12 @@ async def main():
         # Set up git token for HTTP auth
         git_token = ""
         try:
-            from git.git_token_service import GitTokenService
-            token_svc = GitTokenService()
-            git_token = await token_svc.create_token(compute_id)
+            from git.git_token_service import get_git_token_service
+            token_svc = get_git_token_service()
+            if token_svc:
+                git_token = await token_svc.create_compute_token(compute_id)
+            else:
+                logger.warning("  Git token service not initialized — push will fail")
         except Exception as e:
             logger.warning(f"  Could not create git token: {e}")
 
@@ -115,8 +118,13 @@ async def main():
             clone_env["GIT_ASKPASS"] = askpass
             clone_env["GIT_TERMINAL_PROMPT"] = "0"
 
-        # Use internal URL (inside docker network)
-        internal_url = f"http://localhost:8002/git/{repo_name}.git"
+        # Use URL-embedded credentials for git auth
+        if git_token:
+            internal_url = f"http://git:{git_token}@localhost:8002/git/{repo_name}.git"
+        else:
+            internal_url = f"http://localhost:8002/git/{repo_name}.git"
+        clone_env = {"GIT_TERMINAL_PROMPT": "0"}
+
         rc, out, err = run_git(["clone", internal_url, clone_dir], cwd=work_dir, env=clone_env)
         check("Clone succeeded", rc == 0, f"stderr={err}")
 
@@ -124,9 +132,13 @@ async def main():
             logger.error("FATAL: Clone failed. Cannot continue.")
             return
 
-        # Set git identity
+        # Set git identity and ensure remote has credentials
         run_git(["config", "user.email", "test@claudevn.local"], cwd=clone_dir)
         run_git(["config", "user.name", "Git Flow Test"], cwd=clone_dir)
+        # Re-set remote URL with embedded credentials (git strips them after clone)
+        if git_token:
+            auth_url = f"http://git:{git_token}@localhost:8002/git/{repo_name}.git"
+            run_git(["remote", "set-url", "origin", auth_url], cwd=clone_dir)
 
         # ============================================================
         # 3. Create feature branch
@@ -148,7 +160,18 @@ async def main():
         rc, _, err = run_git(["commit", "-m", "Add hello.txt"], cwd=clone_dir)
         check("Commit succeeded", rc == 0, f"stderr={err}")
 
-        rc, _, err = run_git(["push", "origin", branch_name], cwd=clone_dir, env=clone_env)
+        # Debug
+        rc_dbg, remote_url, _ = run_git(["remote", "get-url", "origin"], cwd=clone_dir)
+        logger.info(f"  Remote URL: {remote_url[:60]}...")
+        logger.info(f"  Token: {git_token[:20]}...")
+
+        rc, out, err = run_git(
+            ["push", "--verbose", "origin", branch_name],
+            cwd=clone_dir, env=clone_env
+        )
+        if rc != 0:
+            logger.error(f"  Push stdout: {out}")
+            logger.error(f"  Push stderr: {err}")
         check("Push succeeded", rc == 0, f"stderr={err}")
 
         # ============================================================

@@ -409,6 +409,29 @@ class RedisClient:
     # Generic Key Operations
     # ==========================================================================
 
+    async def set(self, key: str, value, **kwargs) -> bool:
+        """Set a key-value pair.
+
+        Args:
+            key: Key (will be prefixed)
+            value: Value to set
+
+        Returns:
+            True if set successfully
+        """
+        return await self._redis.set(self._key(key), value, **kwargs)
+
+    async def get(self, key: str):
+        """Get value for a key.
+
+        Args:
+            key: Key (will be prefixed)
+
+        Returns:
+            Value or None
+        """
+        return await self._redis.get(self._key(key))
+
     async def delete(self, *keys: str) -> int:
         """Delete one or more keys.
 

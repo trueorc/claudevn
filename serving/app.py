@@ -482,9 +482,12 @@ async def lifespan(app: FastAPI):
     # =========================================================================
     try:
         from git.git_token_service import GitTokenService, set_git_token_service
-        git_token_service = GitTokenService(redis_client=redis_client)
+        # Token service needs the RAW Redis connection (it manages its own key prefixes)
+        from git.redis_client import get_redis as _get_raw_redis
+        raw_redis = await _get_raw_redis()
+        git_token_service = GitTokenService(redis_client=raw_redis)
         set_git_token_service(git_token_service)
-        logger.info("Git token service initialized")
+        logger.info("Git token service initialized (with Redis)")
     except Exception as e:
         from git.git_token_service import set_git_token_service
         set_git_token_service(None)
