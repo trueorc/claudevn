@@ -1,0 +1,52 @@
+{
+  "project_name": "test16",
+  "project_id": "proj_35427bdbf811",
+  "goal_id": "project-proj_35427bdbf811",
+  "description": "node_vitest_eslint",
+  "compute_id": "test16-compute_node_vitest_eslint",
+  "requirements": [
+    {
+      "name": "node",
+      "version": null,
+      "reason": "Detected from target files and project config",
+      "install_cmd": null
+    },
+    {
+      "name": "vitest",
+      "version": null,
+      "reason": "Project devDependency (installed by npm install)",
+      "install_cmd": null
+    },
+    {
+      "name": "eslint",
+      "version": null,
+      "reason": "Project devDependency (installed by npm install)",
+      "install_cmd": null
+    },
+    {
+      "name": "vite",
+      "version": null,
+      "reason": "Project devDependency (installed by npm install)",
+      "install_cmd": null
+    },
+    {
+      "name": "python",
+      "version": null,
+      "reason": "Detected from target files and project config",
+      "install_cmd": null
+    },
+    {
+      "name": "python-packages",
+      "version": null,
+      "reason": "requirements.txt \u2014 installed at runtime after repo clone",
+      "install_cmd": null
+    },
+    {
+      "name": "node-packages",
+      "version": null,
+      "reason": "frontend/package.json \u2014 installed at runtime after repo clone",
+      "install_cmd": null
+    }
+  ],
+  "container_name": "test16-compute_node_vitest_eslint"
+}
