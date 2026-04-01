@@ -98,14 +98,9 @@ async def action_dispatch_to_compute(unit: WorkUnit, ctx: EvaluationContext, eng
         unit_short = unit.id.replace("wu-", "")
         branch = f"f/work_{unit_short}/{compute_id}"
 
-        # Determine base branch for chain continuity
+        # Base branch is always main — completed deps are merged there.
+        # Feature branches are deleted after merge, so we can't branch from them.
         base_branch = "main"
-        if unit.independence.depends_on:
-            for dep_id in reversed(unit.independence.depends_on):
-                if dep_id in ctx.completed_unit_ids:
-                    dep_short = dep_id.replace("wu-", "")
-                    base_branch = f"f/work_{dep_short}/{compute_id}"
-                    break
 
         # Look up repo URL — auto-create if project has no repo
         repo_url = ""
