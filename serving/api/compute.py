@@ -693,38 +693,47 @@ async def receive_compute_event(
     # compute events to engine events.
     try:
         from services.dispatch.engine import get_engine
+        from models.work_unit import WorkUnitStatus
         engine = get_engine()
         if engine:
             if event.event.value == "claude_code_completed":
-                # Code complete → unit enters SUBMITTED state (awaiting merge)
-                # The engine's transition table will handle SUBMITTED → MERGING
                 unit = engine._units.get(event.task_id)
                 if unit:
-                    from models.work_unit import WorkUnitStatus
-                    unit.status = WorkUnitStatus.SUBMITTED
+                    # Set state and persist through engine's transition path
                     unit.branch = event.branch_name
-                    logger.info(f"v2.0 engine: {unit.id} → submitted (code complete, awaiting merge)")
+                    await engine._transition_to(
+                        unit, WorkUnitStatus.SUBMITTED,
+                        reason="code complete, awaiting merge"
+                    )
                     await engine.on_event("code_complete", unit_id=event.task_id)
 
             elif event.event.value == "claude_code_failed":
                 unit = engine._units.get(event.task_id)
                 if unit:
-                    from models.work_unit import WorkUnitStatus
-                    unit.status = WorkUnitStatus.FAILED
                     engine.release_compute(unit.id)
-                    logger.info(f"v2.0 engine: {unit.id} → failed (code failed)")
+                    # Return to queued for retry (engine's retry policy handles max attempts)
+                    await engine._transition_to(
+                        unit, WorkUnitStatus.QUEUED,
+                        reason=f"execution failed, will retry: {event.error or 'unknown'}"
+                    )
+                    # Record error for retry tracking
+                    from services.dispatch.engine import TransitionError
+                    engine._errors[unit.id] = TransitionError(
+                        message=event.error or "execution failed",
+                        code="transient",
+                        transition="queued→executing",
+                        attempt=engine._errors.get(unit.id, TransitionError()).attempt + 1,
+                        max_attempts=3,
+                    )
                     await engine.on_event("code_failed", unit_id=event.task_id)
 
             elif event.event.value == "claude_code_rejected":
                 unit = engine._units.get(event.task_id)
                 if unit:
-                    from models.work_unit import WorkUnitStatus
-                    unit.status = WorkUnitStatus.WAITING_COMPUTE
-                    # Keep compute marked as busy — it rejected because it's at capacity
-                    # Don't release: engine._busy_computes retains the compute_id
-                    # The unit goes to WAITING_COMPUTE until the compute finishes its
-                    # current work and becomes truly idle
-                    logger.info(f"v2.0 engine: {unit.id} → waiting_compute (rejected, compute at capacity)")
+                    await engine._transition_to(
+                        unit, WorkUnitStatus.WAITING_COMPUTE,
+                        reason="rejected by compute (at capacity)"
+                    )
                     await engine.on_event("rejected", unit_id=event.task_id)
         else:
             # Fallback to old dispatcher
