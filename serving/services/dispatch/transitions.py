@@ -181,7 +181,15 @@ async def action_start_merge(unit: WorkUnit, ctx: EvaluationContext, engine: Wor
         ps = get_project_service()
         project = await ps.get_project(unit.project_id)
         if not project or not project.repos:
-            raise PermanentError(f"No repo for project {unit.project_id}")
+            # No repo — skip merge, complete directly
+            logger.warning(f"No repo for project {unit.project_id} — completing without merge")
+            engine.end_merge(unit.project_id)
+            engine.release_compute(unit.id)
+            engine.mark_completed(unit.id)
+            raise StateRedirectError(
+                "No repo — completed without merge",
+                target_state=WorkUnitStatus.COMPLETED,
+            )
 
         repo_name = f"{project.project_id}_{project.repos[0].repo_id}"
         branch = unit.branch
