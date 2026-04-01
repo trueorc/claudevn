@@ -657,6 +657,16 @@ async def receive_compute_event(
                     connection.status = "idle"
                     connection.current_task_id = None
                     logger.info(f"Reset SSE connection {event.compute_id} to idle")
+
+                    # Notify engine — compute is now truly idle
+                    try:
+                        from services.dispatch.engine import get_engine
+                        eng = get_engine()
+                        if eng:
+                            eng._busy_computes.discard(event.compute_id)
+                            await eng.on_event("compute_available", compute_id=event.compute_id)
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(
                 f"Failed to update SSE connection for {event.compute_id}: {e}"
