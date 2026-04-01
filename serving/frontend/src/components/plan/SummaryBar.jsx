@@ -1,4 +1,4 @@
-import { Activity, Clock, AlertCircle, Target, Layers, XCircle, CheckCircle2 } from 'lucide-react'
+import { Activity, Clock, AlertCircle, Target, Layers, XCircle, CheckCircle2, GitMerge } from 'lucide-react'
 import './Plan.css'
 
 function SummaryBar({ data, loading }) {
@@ -14,6 +14,7 @@ function SummaryBar({ data, loading }) {
 
   const {
     in_progress_count = 0,
+    merging_count = 0,
     ready_count = 0,
     blocked_count = 0,
     backlog_count = 0,
@@ -50,6 +51,16 @@ function SummaryBar({ data, loading }) {
             <span className="plan-stat-label">active</span>
           </div>
           <span className="plan-stat-separator" />
+          {merging_count > 0 && (
+            <>
+              <div className="plan-stat plan-stat--merging">
+                <GitMerge size={14} />
+                <span className="plan-stat-value">{merging_count}</span>
+                <span className="plan-stat-label">merging</span>
+              </div>
+              <span className="plan-stat-separator" />
+            </>
+          )}
           <div className="plan-stat plan-stat--queued">
             <Clock size={14} />
             <span className="plan-stat-value">{ready_count}</span>

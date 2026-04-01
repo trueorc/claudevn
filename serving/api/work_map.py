@@ -979,6 +979,12 @@ async def retry_goal_planning(goal_id: str):
             detail="Failed to reset goal for retry"
         )
 
+    # Trigger the decomposition pipeline in the background
+    import asyncio
+    from api.slim_claude_code import auto_process_goal
+    asyncio.create_task(auto_process_goal(goal_id, None))
+    logger.info(f"Triggered decomposition pipeline for retried goal {goal_id}")
+
     return result
 
 

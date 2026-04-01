@@ -917,51 +917,67 @@ fi
         return {"simple": 30, "standard": 50, "complex": 100}.get(complexity, 50)
 
     def _build_stable_system_instructions(self) -> str:
-        """Build stable instructions for the system_prompt append field (#58).
+        """Build stable instructions for the system_prompt append field.
 
         These instructions are identical across all tasks on this compute instance
         and benefit from prompt caching. Dynamic per-task content goes in CLAUDE.md.
 
-        Returns:
-            Stable instruction text for system_prompt append
+        Optimized for single-pass, focused execution — structure beats exploration.
         """
         sections = [
             "## ClaudeVN Compute Instance",
             "",
             f"You are running as compute instance `{self.compute_id}`.",
             "",
+            "## Execution Model",
+            "",
+            "You are executing a pre-planned work unit. Everything you need is in CLAUDE.md:",
+            "- Target files to create or modify",
+            "- Acceptance criteria that define 'done'",
+            "- Interface contracts to honor",
+            "- Branch to commit and push to",
+            "",
+            "Execute in a single focused pass:",
+            "1. Read CLAUDE.md to understand the task and constraints",
+            "2. Implement ONLY what the task asks for — nothing more",
+            "3. Write unit tests for new/modified code",
+            "4. Commit all changes and push to the assigned branch",
+            "",
+            "Your exploration should be guided by the contracts and criteria in CLAUDE.md.",
+            "Read the target files and their direct imports to understand existing code,",
+            "but do not broadly search the codebase or investigate unrelated modules.",
+            "",
+            "Do NOT:",
+            "- Refactor, improve, or document unrelated code",
+            "- Add features, config, or abstractions not requested",
+            "- Run the full test suite — only test your changes",
+            "- Create README files or detailed documentation unless that IS the task",
+            "",
             "## Git Conventions",
             "",
-            "When working on a Git branch:",
             "- Stage all changes: `git add -A`",
-            '- Commit with a descriptive message: `git commit -m "<description>"`',
-            "- Push your assigned branch explicitly (do not use `git push origin HEAD`)",
+            '- Commit with a clear message: `git commit -m "<what you did>"`',
+            "- Push your assigned branch: check CLAUDE.md for the exact push command",
             "- CRITICAL: Do NOT create or switch branches. Do NOT run: "
             "`git checkout -b`, `git switch -c`, `git branch`",
-            "- You MUST commit and push your changes before finishing",
-            "- The system relies on your branch having commits to create PRs and merge",
+            "- You MUST commit and push before finishing — the system merges your branch",
             "",
-            "## Output Format",
+            "## Testing",
             "",
-            "IMPORTANT: Output your result as valid JSON at the end of your response.",
-            "Your JSON output should be on a single line starting with `{` and ending with `}`.",
-            "The system will parse this JSON to get your result.",
-            "",
-            "For decomposition tasks, output JSON like:",
-            "```",
-            '{"issues": [...], "confidence": 0.85, "reasoning": "..."}',
-            "```",
+            "Write unit tests for the code you create or modify:",
+            "- Cover the happy path and key error cases",
+            "- Follow existing test conventions in the project",
+            "- Run ONLY your tests to verify: `npx vitest run <your-test-file>` or equivalent",
+            "- Do NOT run `npm test` or the full test suite — it wastes time and may hang",
             "",
         ]
 
-        # Serving repo availability is stable per-instance
+        # Serving repo for reference
         if self.serving_repo_url and self.SERVING_REPO_PATH.exists():
             sections.extend([
-                "## Serving Repository",
+                "## Reference Code",
                 "",
-                f"The ClaudeVN serving codebase is available at `{self.SERVING_REPO_PATH}` (shallow clone of main).",
-                "Inspect it to understand existing patterns, module structure, and conventions before making decisions.",
-                "This repo is updated with `git pull` at the start of every task.",
+                f"The ClaudeVN serving codebase is at `{self.SERVING_REPO_PATH}` for reference.",
                 "",
             ])
 
@@ -984,113 +1000,98 @@ fi
         }
 
     def _create_claude_md(self, work_assigned_event: Dict[str, Any]) -> str:
-        """Create CLAUDE.md content with per-task dynamic content (#58).
+        """Create CLAUDE.md with everything Claude needs for single-pass execution.
 
-        Stable instructions (git conventions, output format, serving repo) are
-        now in the system_prompt append field for prompt caching. This method
-        only generates task-specific content.
-
-        Args:
-            work_assigned_event: work_assigned event data
-
-        Returns:
-            CLAUDE.md content as string
+        This is the primary context document. Everything the LLM needs to
+        complete the task should be here — no exploration required.
         """
         task_id = work_assigned_event.get("task_id", "unknown")
         title = work_assigned_event.get("title", "Untitled task")
         description = work_assigned_event.get("description", "")
-        skills = work_assigned_event.get("skills", {})
         context = work_assigned_event.get("context", {})
+        branch_name = work_assigned_event.get("branch_name", "")
 
-        # Get merged instructions from skills
-        merged_instructions = skills.get("merged_instructions", "")
+        # Log what context we received for debugging
+        logger.info(
+            f"CLAUDE.md for {task_id}: "
+            f"target_files={len(context.get('target_files', []))}, "
+            f"acceptance_criteria={len(context.get('acceptance_criteria', []))}, "
+            f"interface_produces={len(context.get('interface_produces', []))}"
+        )
 
-        # Build CLAUDE.md — per-task dynamic content only
         sections = [
-            f"# Task: {title}",
-            "",
-            f"**Task ID:** {task_id}",
-            "",
-            "## Description",
+            f"# {title}",
             "",
             description,
             "",
-            "## Skills",
-            "",
-            merged_instructions if merged_instructions else "No specific skills provided.",
-            "",
-            "## Context",
-            "",
         ]
 
-        # Add context details
-        if context.get("repository"):
-            sections.append(f"**Repository:** {context['repository']}")
-        if context.get("base_branch"):
-            sections.append(f"**Base Branch:** {context['base_branch']}")
-        if context.get("relevant_files"):
-            sections.append("\n**Relevant Files:**")
-            for f in context["relevant_files"]:
-                sections.append(f"  - {f}")
-        if context.get("requirements"):
-            sections.append(f"\n**Requirements:**\n{context['requirements']}")
-
-        # v2.0: Target files, acceptance criteria, interface contracts
-        if context.get("target_files"):
-            sections.append("\n**Target Files:**")
-            for f in context["target_files"]:
-                sections.append(f"  - `{f}`")
-
-        if context.get("acceptance_criteria"):
-            sections.append("\n**Acceptance Criteria (ALL must pass):**")
-            for criterion in context["acceptance_criteria"]:
-                sections.append(f"  - {criterion}")
-
-        if context.get("interface_produces"):
-            sections.append("\n**This unit produces (other units depend on this):**")
-            for p in context["interface_produces"]:
-                ptype = p.get("type", "")
-                pdef = p.get("definition", "")
-                sections.append(f"  - [{ptype}] {pdef}")
-
-        if context.get("interface_consumes"):
-            sections.append("\n**This unit consumes (from dependencies):**")
-            for c in context["interface_consumes"]:
-                ctype = c.get("type", "")
-                cdef = c.get("definition", "")
-                sections.append(f"  - [{ctype}] {cdef}")
-
-        # Branch assignment — task-specific details (branch name, base)
-        if context.get("repository"):
-            branch_name = work_assigned_event.get("branch_name", "")
+        # Target files — THE most important guidance for focused execution
+        target_files = context.get("target_files", [])
+        if target_files:
             sections.extend([
+                "## Target Files",
                 "",
-                "## Branch Assignment",
-                "",
-                f"- **Branch:** `{branch_name}`",
-                f"- **Base:** `{context.get('base_branch', 'main')}`",
-                f"- Push command: `git push origin {branch_name}`",
+                "Create or modify ONLY these files:",
                 "",
             ])
+            for f in target_files:
+                sections.append(f"- `{f}`")
+            sections.append("")
 
-        # Scope constraints to prevent over-scoping (#60)
+        # Acceptance criteria — definition of done
+        criteria = context.get("acceptance_criteria", [])
+        if criteria:
+            sections.extend([
+                "## Acceptance Criteria",
+                "",
+                "Your implementation is complete when ALL of these pass:",
+                "",
+            ])
+            for i, c in enumerate(criteria, 1):
+                sections.append(f"{i}. {c}")
+            sections.append("")
+
+        # Interface contracts — what this unit must produce/consume
+        produces = context.get("interface_produces", [])
+        consumes = context.get("interface_consumes", [])
+        if produces or consumes:
+            sections.append("## Interface Contracts")
+            sections.append("")
+            if produces:
+                sections.append("**This unit MUST export:**")
+                for p in produces:
+                    ptype = p.get("type", "")
+                    pdef = p.get("definition", "")
+                    sections.append(f"- `[{ptype}]` {pdef}")
+                sections.append("")
+            if consumes:
+                sections.append("**This unit imports from dependencies (already available):**")
+                for c in consumes:
+                    ctype = c.get("type", "")
+                    cdef = c.get("definition", "")
+                    sections.append(f"- `[{ctype}]` {cdef}")
+                sections.append("")
+
+        # Git — branch and push command
         sections.extend([
-            "## Scope",
+            "## Git",
             "",
-            "Focus ONLY on what the task description asks for. Do not:",
-            "- Add functionality beyond what is requested",
-            "- Create detailed documentation unless documentation is the task",
-            "- Refactor or improve unrelated code",
+            f"- Branch: `{branch_name}`",
+            f"- Base: `{context.get('base_branch', 'main')}`",
+            f"- When done: `git add -A && git commit -m \"<description>\" && git push origin {branch_name}`",
             "",
-            "## Testing Requirements",
+        ])
+
+        # Scope constraints
+        sections.extend([
+            "## Rules",
             "",
-            "You MUST include Tier 1 unit tests for all new or modified functionality:",
-            "- Mock external dependencies (DB, APIs, file system, network)",
-            "- Cover the happy path and key error cases",
-            "- Place tests alongside existing test conventions in the project",
-            "- Do NOT write Tier 2 (integration/system) tests — those are handled separately",
-            "",
-            "Your PR will not be approved without accompanying unit tests.",
+            "- Implement ONLY what is described above",
+            "- Write unit tests for new/modified code",
+            "- Run only YOUR tests: `npx vitest run <your-test-file>` — do NOT run `npm test`",
+            "- Do not add features, docs, or refactoring beyond the task",
+            "- Commit and push when done",
             "",
         ])
 
@@ -1216,26 +1217,26 @@ sys.exit(1)
             env_vars["GIT_ASKPASS"] = str(askpass_script.resolve())
             env_vars["GIT_TERMINAL_PROMPT"] = "0"
 
-        # Classify task complexity for effort/max_turns (#60)
-        # v2.0: use complexity_hint from decomposition if available
+        # Task complexity — prefer the pre-computed hint from decomposition
         title = work_assigned_event.get("title", "")
         description = work_assigned_event.get("description", "")
         work_type = work_assigned_event.get("work_type", "task")
-        complexity = work_assigned_event.get("complexity_hint") or self._classify_task_complexity(work_type, title, description)
+        complexity_hint = work_assigned_event.get("complexity_hint", "")
+        if complexity_hint:
+            complexity = complexity_hint
+            logger.info(f"Task {task_id}: using decomposition complexity_hint={complexity}")
+        else:
+            complexity = self._classify_task_complexity(work_type, title, description)
+            logger.info(f"Task {task_id}: classified complexity={complexity}")
         effort = self._get_effort_for_complexity(complexity)
         max_turns = self._get_max_turns_for_complexity(complexity)
-        logger.info(
-            f"Task {task_id}: complexity={complexity}, effort={effort}, max_turns={max_turns}"
-        )
+        logger.info(f"Task {task_id}: effort={effort}, max_turns={max_turns}")
 
-        # Direct prompt with task context instead of generic "read CLAUDE.md" (#60)
+        # Focused initial prompt — CLAUDE.md has all the context
         initial_prompt = (
-            f"Complete this task: {title}\n\n"
-            f"{description}\n\n"
-            "Read CLAUDE.md for additional context and scope constraints. "
-            "Evaluate what you can accomplish but keep your focus strictly on "
-            "what the task description asks for. Do not over-deliver.\n\n"
-            "Output your final result as a JSON object on a single line."
+            "Read CLAUDE.md and implement the task. "
+            "Follow the target files, acceptance criteria, and interface contracts exactly. "
+            "Write tests, commit, and push when done."
         )
 
         # Build system prompt with claude_code preset for caching (#58)

@@ -64,6 +64,10 @@
   color: var(--error);
 }
 
+.plan-stat--merging {
+  color: #a855f7;
+}
+
 .plan-stat-separator {
   width: 1px;
   height: 16px;

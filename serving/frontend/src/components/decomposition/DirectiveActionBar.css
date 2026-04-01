@@ -85,8 +85,21 @@
   background: color-mix(in srgb, var(--status-online) 85%, black);
 }
 
+.dab-btn--retry {
+  color: #3b82f6;
+  border-color: #3b82f6;
+  padding: 10px 20px;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.dab-btn--retry:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
 .dab-btn--approve:disabled,
-.dab-btn--secondary:disabled {
+.dab-btn--secondary:disabled,
+.dab-btn--retry:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

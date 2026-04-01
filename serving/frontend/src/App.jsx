@@ -13,7 +13,7 @@ import DashboardPage from './pages/DashboardPage'
 import NetworkHealthPage from './pages/NetworkHealthPage'
 import SkillsPage from './pages/SkillsPage'
 import ProjectsPage from './pages/ProjectsPage'
-import BacklogPage from './pages/BacklogPage'
+import WorkUnitsPage from './pages/WorkUnitsPage'
 import ExecutionPlanPage from './pages/ExecutionPlanPage'
 import GoalsPage from './pages/GoalsPage'
 import ProfilePage from './pages/ProfilePage'
@@ -54,7 +54,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
               <Route path="/execute" element={<ExecutionPlanPage />} />
               <Route path="/verify" element={<VerificationPage />} />
               {/* Administrative */}
-              <Route path="/backlog" element={<BacklogPage />} />
+              <Route path="/work" element={<WorkUnitsPage />} />
               <Route path="/marketplace" element={<SkillsPage />} />
               <Route path="/network" element={<NetworkHealthPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
@@ -70,7 +70,7 @@ function AuthenticatedApp({ expired, expiringAt, onReauth }) {
               <Route path="/goals" element={<Navigate to="/plan" replace />} />
               <Route path="/skills" element={<Navigate to="/marketplace" replace />} />
               <Route path="/health" element={<Navigate to="/network" replace />} />
-              <Route path="/work" element={<Navigate to="/backlog" replace />} />
+              <Route path="/backlog" element={<Navigate to="/work" replace />} />
               <Route path="/workmap" element={<Navigate to="/execute" replace />} />
               <Route path="/traces" element={<Navigate to="/execute" replace />} />
               <Route path="/focus" element={<Navigate to="/execute" replace />} />

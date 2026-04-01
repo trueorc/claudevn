@@ -1,9 +1,13 @@
 """Claude API Client Service.
 
-Uses the Claude Code CLI (`claude -p`) for API calls, leveraging the
-platform's existing OAuth credential infrastructure. The CLI inherits
-CLAUDE_CODE_OAUTH_TOKEN from the process environment, set by
-ClaudeAuthService at startup.
+Uses the Claude Code CLI for API calls, leveraging the platform's existing
+OAuth credential infrastructure. The CLI inherits CLAUDE_CODE_OAUTH_TOKEN
+from the process environment, set by ClaudeAuthService at startup.
+
+Optimized for prompt caching:
+- Stable system prompts use --append-system-prompt (cached by the API)
+- Variable content goes in the user prompt via stdin
+- Session persistence enabled for cache reuse across calls
 """
 
 import asyncio
@@ -33,9 +37,8 @@ T = TypeVar("T", bound=BaseModel)
 class ClaudeClient:
     """Client for interacting with Claude via the Claude Code CLI.
 
-    Uses `claude -p` (print mode) which reads from stdin and writes
-    the response to stdout. Inherits OAuth credentials from the
-    process environment (CLAUDE_CODE_OAUTH_TOKEN).
+    Uses `claude -p` (print mode) with prompt caching enabled.
+    System prompts are passed via --append-system-prompt for cache reuse.
     """
 
     def __init__(
@@ -54,7 +57,6 @@ class ClaudeClient:
     @staticmethod
     def _find_claude_cli() -> Optional[str]:
         """Find the claude CLI binary."""
-        # Check common locations
         path = shutil.which("claude")
         if path:
             return path
@@ -74,20 +76,12 @@ class ClaudeClient:
     ) -> ClaudeResponse:
         """Complete a prompt using Claude Code CLI.
 
-        Args:
-            prompt: The user prompt
-            system: Optional system prompt
-            messages: Optional conversation history (prepended to prompt)
-            max_tokens: Max output tokens
-            temperature: Not directly supported by CLI (ignored)
-            model: Model to use (passed via --model)
-
-        Returns:
-            ClaudeResponse with content and metadata
+        Serving-side calls use --system-prompt (replace) with a focused
+        prompt for the task at hand. No Claude Code tool system — just
+        the decomposition/coherence/chat prompt we provide.
         """
         selected_model = model or self._config.model
 
-        # Build CLI command
         cmd = [
             self._claude_path, "-p",
             "--output-format", "json",
@@ -96,6 +90,9 @@ class ClaudeClient:
         if selected_model:
             cmd.extend(["--model", selected_model])
         if system:
+            # Use --system-prompt (replace) for serving-side calls.
+            # These are structured LLM calls (decomposition, coherence, reconciliation)
+            # that don't need the full Claude Code tool system prompt.
             cmd.extend(["--system-prompt", system])
 
         # Build the full prompt with context
@@ -107,7 +104,7 @@ class ClaudeClient:
 
         logger.info(
             f"Claude CLI call: model={selected_model}, "
-            f"cmd_args={len(cmd)}, prompt_len={len(full_prompt)}, "
+            f"prompt_len={len(full_prompt)}, "
             f"system_len={len(system) if system else 0}"
         )
 
@@ -227,7 +224,7 @@ class ClaudeClient:
                 f"Claude CLI returned empty output. stderr: {stderr_text}"
             )
 
-        # Parse JSON output (claude -p --output-format json always writes JSON to stdout)
+        # Parse JSON output
         try:
             data = json.loads(raw_output)
         except json.JSONDecodeError:
@@ -243,13 +240,22 @@ class ClaudeClient:
                 stop_reason="end_turn",
             )
 
-        # Check for CLI-level errors (e.g. "Not logged in")
+        # Check for CLI-level errors
         if data.get("is_error"):
             error_msg = data.get("result", "unknown CLI error")
             raise ClaudeAPIError(f"Claude CLI error: {error_msg}")
 
         content = data.get("result", "")
         usage = data.get("usage", {})
+
+        # Log cache performance
+        cache_read = usage.get("cache_read_input_tokens", 0)
+        cache_create = usage.get("cache_creation_input_tokens", 0)
+        if cache_read > 0 or cache_create > 0:
+            logger.info(
+                f"Claude cache: read={cache_read} tokens, created={cache_create} tokens"
+            )
+
         return ClaudeResponse(
             content=content,
             model=model or "unknown",

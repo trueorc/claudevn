@@ -1,9 +1,12 @@
-import { ArrowLeft, RefreshCw, Scissors, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Scissors, CheckCircle2, RotateCcw } from 'lucide-react'
 import './DirectiveActionBar.css'
 
 /**
  * Sticky action bar at top of directive detail view.
- * Prominent Approve button, Refine, Refresh, and Back navigation.
+ * Shows contextual actions based on goal state:
+ * - Failed: Retry button
+ * - Has work units: Refine button
+ * - Has draft units: Approve button
  */
 export default function DirectiveActionBar({
   goal,
@@ -13,10 +16,13 @@ export default function DirectiveActionBar({
   onApprove,
   onRefine,
   onRefresh,
+  onRetry,
   approving,
   recomposing,
+  retrying,
 }) {
   const title = goal?.title || goal?.description?.slice(0, 80) || 'Directive'
+  const isFailed = goal?.status === 'failed'
 
   return (
     <div className="dab">
@@ -32,7 +38,19 @@ export default function DirectiveActionBar({
           <RefreshCw size={14} />
         </button>
 
-        {hasWorkUnits && (
+        {isFailed && onRetry && (
+          <button
+            className="dab-btn dab-btn--retry"
+            onClick={onRetry}
+            disabled={retrying}
+            title="Retry decomposition"
+          >
+            <RotateCcw size={14} />
+            {retrying ? 'Retrying...' : 'Retry'}
+          </button>
+        )}
+
+        {hasWorkUnits && !isFailed && (
           <button
             className="dab-btn dab-btn--secondary"
             onClick={onRefine}

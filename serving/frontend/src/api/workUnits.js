@@ -51,7 +51,6 @@ export async function getPlanConflicts(projectId) {
 export async function resolveConflict(projectId, conflictId, resolution, supersede_unit_id = null) {
   return request(`/decomposition/project/${projectId}/plan/conflicts/${conflictId}/resolve`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ resolution, supersede_unit_id }),
   })
 }
@@ -116,4 +115,18 @@ export async function getDispatchQueue() {
 
 export async function getActiveExecutions() {
   return request('/dispatch/active')
+}
+
+// -- Unit actions --
+
+export async function retryUnit(unitId) {
+  return request(`/dispatch/unit/${unitId}/retry`, { method: 'POST' })
+}
+
+export async function skipUnit(unitId) {
+  return request(`/dispatch/unit/${unitId}/skip`, { method: 'POST' })
+}
+
+export async function cancelUnit(unitId) {
+  return request(`/dispatch/unit/${unitId}/cancel`, { method: 'POST' })
 }

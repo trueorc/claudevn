@@ -347,6 +347,58 @@
   }
 }
 
+/* Pipeline progress in chat rail */
+.chat-rail-pipeline {
+  padding: var(--space-sm) var(--space-md);
+  background: color-mix(in srgb, var(--primary) 5%, var(--bg-elevated));
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.chat-rail-pipeline-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.chat-rail-pipeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-rail-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chat-rail-step--running { color: var(--primary); }
+.chat-rail-step--completed { color: var(--status-online); }
+.chat-rail-step--failed { color: var(--error); }
+
+.chat-rail-step-time {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+@keyframes chat-rail-spin-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.chat-rail-spin {
+  animation: chat-rail-spin-anim 1s linear infinite;
+}
+
 /* Responsive: narrower rail on tablet */
 @media (max-width: 1199px) and (min-width: 769px) {
   .chat-rail {

@@ -1,22 +1,51 @@
-import { X, Clock, GitBranch, Target, FileCode, Shield } from 'lucide-react'
+import { useState } from 'react'
+import { X, Clock, GitBranch, Target, FileCode, Shield, RotateCcw, SkipForward, XCircle } from 'lucide-react'
+import { retryUnit, skipUnit, cancelUnit } from '../../api/workUnits'
 import './NodeDetailPanel.css'
 
 /**
  * Detail panel shown when a graph node is clicked.
  * Overlays the right side of the graph area.
  */
-export default function NodeDetailPanel({ node, onClose }) {
+export default function NodeDetailPanel({ node, onClose, onAction }) {
   if (!node) return null
+
+  const [acting, setActing] = useState(null)
+  const [error, setError] = useState(null)
 
   const colors = {
     draft: 'var(--text-muted)',
     ready: 'var(--primary)',
     queued: '#3b82f6',
-    executing: '#3b82f6',
+    waiting_compute: '#3b82f6',
+    executing: '#06b6d4',
+    submitted: '#8b5cf6',
+    merging: '#a855f7',
+    merge_conflict: '#f59e0b',
     completed: 'var(--status-online)',
     verified: 'var(--status-online)',
-    failed: 'var(--status-offline)',
-    failed_verification: 'var(--status-offline)',
+    failed: 'var(--error)',
+    failed_verification: 'var(--error)',
+    cancelled: 'var(--text-muted)',
+  }
+
+  const isFailed = node.status === 'failed' || node.status === 'failed_verification' || node.status === 'merge_conflict'
+  const isActive = ['executing', 'submitted', 'merging', 'verifying', 'queued', 'waiting_compute', 'ready'].includes(node.status)
+  const isTerminal = ['completed', 'verified', 'cancelled', 'superseded'].includes(node.status)
+
+  async function handleAction(action) {
+    setActing(action)
+    setError(null)
+    try {
+      if (action === 'retry') await retryUnit(node.id)
+      else if (action === 'skip') await skipUnit(node.id)
+      else if (action === 'cancel') await cancelUnit(node.id)
+      if (onAction) onAction(action, node.id)
+    } catch (e) {
+      setError(e.message || 'Action failed')
+    } finally {
+      setActing(null)
+    }
   }
 
   return (
@@ -35,6 +64,44 @@ export default function NodeDetailPanel({ node, onClose }) {
         <span className="ndp-badge">{(node.status || 'draft').toUpperCase()}</span>
         {node.complexity && <span className="ndp-badge">{node.complexity.toUpperCase()}</span>}
       </div>
+
+      {/* Actions for failed units */}
+      {isFailed && (
+        <div className="ndp-actions">
+          <button
+            className="ndp-action ndp-action--retry"
+            onClick={() => handleAction('retry')}
+            disabled={acting !== null}
+          >
+            <RotateCcw size={12} />
+            {acting === 'retry' ? 'Retrying...' : 'Retry'}
+          </button>
+          <button
+            className="ndp-action ndp-action--skip"
+            onClick={() => handleAction('skip')}
+            disabled={acting !== null}
+          >
+            <SkipForward size={12} />
+            {acting === 'skip' ? 'Skipping...' : 'Skip'}
+          </button>
+        </div>
+      )}
+
+      {/* Cancel for active units */}
+      {isActive && !isTerminal && (
+        <div className="ndp-actions">
+          <button
+            className="ndp-action ndp-action--cancel"
+            onClick={() => handleAction('cancel')}
+            disabled={acting !== null}
+          >
+            <XCircle size={12} />
+            {acting === 'cancel' ? 'Cancelling...' : 'Cancel'}
+          </button>
+        </div>
+      )}
+
+      {error && <div className="ndp-error">{error}</div>}
 
       {/* Instance / Branch */}
       {node.instance_id && (

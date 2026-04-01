@@ -19,7 +19,7 @@ const navItems = [
   { to: '/execute', icon: Play, label: 'Execute', projectRequired: true },
   { to: '/verify', icon: ShieldCheck, label: 'Verify', projectRequired: true },
   // Administrative
-  { to: '/backlog', icon: ListTodo, label: 'Backlog', projectRequired: true },
+  { to: '/work', icon: ListTodo, label: 'Work Units', projectRequired: true },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
   { to: '/network', icon: Radio, label: 'Network' },
   { to: '/marketplace', icon: Sparkles, label: 'Marketplace' },

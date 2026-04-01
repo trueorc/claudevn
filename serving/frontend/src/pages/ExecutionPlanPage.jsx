@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { FolderOpen, Pause, Play } from 'lucide-react'
+import { FolderOpen, Pause, Play, RefreshCw } from 'lucide-react'
 import ExecutionGraph from '../components/plan/ExecutionGraph'
 import NodeDetailPanel from '../components/plan/NodeDetailPanel'
 import SummaryBar from '../components/plan/SummaryBar'
@@ -50,13 +50,25 @@ function ExecutionPlanPage() {
   }, [projectId])
 
   // Graph data (REST + SSE patching)
-  const { nodes, edges, criticalPath, loading: graphLoading, handleEvent: patchGraph } = useDispatchGraph(projectId)
+  const { nodes, edges, criticalPath, loading: graphLoading, handleEvent: patchGraph, refresh: refreshGraph } = useDispatchGraph(projectId)
 
   // Summary counts
   const { data: summaryData, loading: summaryLoading } = usePlanSummary(projectId)
 
   // Timing
   const { timing } = useDispatchTiming(projectId)
+
+  // Build timing lookup for graph nodes
+  const timingMap = useMemo(() => {
+    if (!timing?.per_unit) return {}
+    const map = {}
+    for (const entry of timing.per_unit) {
+      if (entry.exec_duration_ms != null) {
+        map[entry.id] = entry.exec_duration_ms
+      }
+    }
+    return map
+  }, [timing])
 
   // SSE subscription — patches graph + feeds activity log
   useEventStream({
@@ -70,27 +82,56 @@ function ExecutionPlanPage() {
       // Patch the graph
       patchGraph(event)
 
-      // Detect failures for stuck work
-      if (event.event === 'execution.failed') {
-        setStuckItems(prev => [...prev, {
-          type: 'failed',
-          work_unit_id: event.work_unit_id,
-          description: `Execution failed: ${event.reason || 'unknown'}`,
-          reason: event.reason,
-          id: event.work_unit_id,
-        }])
+      // Detect failures for stuck work (deduplicate by unit_id)
+      const failUnitId = event.work_unit_id || event.unit_id
+      if (event.event === 'execution.failed' || (event.event === 'work_unit.state_transition' && event.new_state === 'failed')) {
+        setStuckItems(prev => {
+          if (prev.some(i => (i.id || i.work_unit_id) === failUnitId)) return prev
+          return [...prev, {
+            type: 'failed',
+            work_unit_id: failUnitId,
+            description: event.reason || `Unit failed`,
+            reason: event.reason,
+            id: failUnitId,
+          }]
+        })
       }
-      if (event.event === 'verification.failed') {
-        setStuckItems(prev => [...prev, {
-          type: 'failed',
-          work_unit_id: event.work_unit_id,
-          description: 'Verification failed',
-          reason: event.details || event.failed_checks?.join(', '),
-          id: event.work_unit_id,
-        }])
+      // Clear items when units recover (retried, completed, etc.)
+      if (event.event === 'work_unit.state_transition' && ['queued', 'executing', 'completed'].includes(event.new_state)) {
+        const recoveredId = event.unit_id
+        if (recoveredId) {
+          setStuckItems(prev => prev.filter(i => (i.id || i.work_unit_id) !== recoveredId))
+        }
       }
     }, [patchGraph]),
   })
+
+  // Manual refresh — reloads graph, activity log, stuck items from server
+  const [refreshing, setRefreshing] = useState(false)
+  const handleRefresh = useCallback(async () => {
+    if (!projectId) return
+    setRefreshing(true)
+    try {
+      refreshGraph()
+      const data = await getActivityLog(projectId)
+      if (data?.events) {
+        setActivityEvents(data.events)
+        const stuck = data.events
+          .filter(e => e.new_state === 'failed' || e.new_state === 'merge_conflict')
+          .map(e => ({
+            type: e.new_state === 'failed' ? 'failed' : 'stuck',
+            work_unit_id: e.unit_id,
+            description: e.reason || `Unit ${e.new_state}`,
+            id: e.unit_id,
+          }))
+        setStuckItems(stuck)
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      setRefreshing(false)
+    }
+  }, [projectId, refreshGraph])
 
   // Fetch dispatch status (paused state)
   useEffect(() => {
@@ -150,10 +191,15 @@ function ExecutionPlanPage() {
     )
   }
 
-  const activeCount = executingNodes.length
+  const activeCount = nodes.filter(n =>
+    ['executing', 'submitted', 'merging', 'verifying'].includes(n.status)
+  ).length
+  const mergingCount = nodes.filter(n =>
+    ['merging', 'merge_conflict'].includes(n.status)
+  ).length
   const queuedCount = queuedNodes.length
   const completedCount = nodes.filter(n => n.status === 'completed' || n.status === 'verified').length
-  const failedCount = nodes.filter(n => n.status === 'failed' || n.status === 'failed_verification').length
+  const failedCount = nodes.filter(n => n.status === 'failed' || n.status === 'failed_verification' || n.status === 'merge_conflict').length
   const blockedCount = nodes.filter(n => {
     const deps = n.depends_on || []
     return deps.length > 0 && n.status === 'ready' && deps.some(d => {
@@ -165,6 +211,7 @@ function ExecutionPlanPage() {
   // Build SummaryBar-compatible data from graph nodes
   const graphSummaryData = {
     in_progress_count: activeCount,
+    merging_count: mergingCount,
     ready_count: queuedCount,
     blocked_count: blockedCount,
     failed_count: failedCount,
@@ -181,15 +228,25 @@ function ExecutionPlanPage() {
             {activeProject?.name} — {activeCount} active, {queuedCount} queued, {completedCount} done
           </PageSubtitle>
         </div>
-        <button
-          className={`exec-pause-btn ${paused ? 'exec-pause-btn--paused' : ''}`}
-          onClick={togglePause}
-          disabled={pauseLoading}
-          title={paused ? 'Resume dispatch' : 'Pause dispatch'}
-        >
-          {paused ? <Play size={14} /> : <Pause size={14} />}
-          <span>{paused ? 'Resume' : 'Pause'}</span>
-        </button>
+        <div className="exec-header-actions">
+          <button
+            className="exec-refresh-btn"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Refresh all data"
+          >
+            <RefreshCw size={14} className={refreshing ? 'exec-spin' : ''} />
+          </button>
+          <button
+            className={`exec-pause-btn ${paused ? 'exec-pause-btn--paused' : ''}`}
+            onClick={togglePause}
+            disabled={pauseLoading}
+            title={paused ? 'Resume dispatch' : 'Pause dispatch'}
+          >
+            {paused ? <Play size={14} /> : <Pause size={14} />}
+            <span>{paused ? 'Resume' : 'Pause'}</span>
+          </button>
+        </div>
       </header>
 
       {paused && (
@@ -209,11 +266,13 @@ function ExecutionPlanPage() {
             criticalPath={criticalPath}
             selectedNodeId={selectedNodeId}
             onNodeClick={handleNodeClick}
+            timingMap={timingMap}
           />
           {selectedNode && (
             <NodeDetailPanel
               node={selectedNode}
               onClose={() => setSelectedNodeId(null)}
+              onAction={() => { refreshGraph(); setSelectedNodeId(null) }}
             />
           )}
         </div>
@@ -222,7 +281,15 @@ function ExecutionPlanPage() {
         <div className="exec-sidebar">
           <SummaryBar data={graphSummaryData} loading={graphLoading} />
 
-          <StuckWorkDetector items={stuckItems} />
+          <StuckWorkDetector
+            items={stuckItems}
+            projectId={projectId}
+            onDismiss={(id) => {
+              if (id === 'all') setStuckItems([])
+              else setStuckItems(prev => prev.filter(i => (i.id || i.work_unit_id) !== id))
+            }}
+            onAction={() => refreshGraph()}
+          />
 
           <QueuePreview items={queuedNodes} />
 

@@ -30,9 +30,11 @@ export default function DirectiveDetail({
   onApprove,
   onRefine,
   onRefresh,
+  onRetry,
   onApproveEnvironment,
   approving,
   recomposing,
+  retrying,
   envApproving,
 }) {
   const hasWorkUnits = workUnits.length > 0
@@ -48,8 +50,10 @@ export default function DirectiveDetail({
         onApprove={onApprove}
         onRefine={onRefine}
         onRefresh={onRefresh}
+        onRetry={onRetry}
         approving={approving}
         recomposing={recomposing}
+        retrying={retrying}
       />
 
       {workUnitsLoading ? (

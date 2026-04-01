@@ -193,46 +193,134 @@ async def get_dispatch_graph(project_id: str):
 
 @router.get("/timing")
 async def get_dispatch_timing(project_id: str):
-    """Get execution timing metrics."""
-    from services.decomposition.storage import get_project_units
-    from services.dispatch.dispatcher import get_dispatcher
+    """Get execution timing metrics computed from the activity log.
+
+    Walks the state transition history to compute per-unit timing:
+    dispatched, exec start, code complete, merged, and durations.
+    """
+    import json as _json
+    from services.decomposition.storage import get_project_units, _get_redis
 
     all_units = await get_project_units(project_id)
     active = [u for u in all_units if u.get("status") not in ("superseded", "cancelled")]
+    unit_descriptions = {u.get("id", ""): u.get("description", "")[:80] for u in active}
 
-    dispatcher = get_dispatcher()
-    active_count = dispatcher.active_count if dispatcher else 0
-    queue_size = dispatcher.queue.size if dispatcher else 0
-    pending_count = dispatcher.queue.pending_count if dispatcher else 0
+    # Load activity log and build per-unit timing from state transitions
+    redis = await _get_redis()
+    log_key = f"claudevn:v2:activity_log:{project_id}"
+    raw_events = await redis.lrange(log_key, 0, 299)
 
-    # Build per-unit timing
+    events = []
+    for item in raw_events:
+        try:
+            data = item.decode() if isinstance(item, bytes) else item
+            events.append(_json.loads(data))
+        except Exception:
+            pass
+
+    # Process events oldest-first
+    events.reverse()
+
+    # Track per-unit timing (last execution cycle)
+    unit_timing: Dict[str, dict] = {}
+    for e in events:
+        uid = e.get("unit_id", "")
+        ns = e.get("new_state", "")
+        os = e.get("old_state", "")
+        ts = e.get("timestamp", "")
+        if not uid or not ts:
+            continue
+
+        if uid not in unit_timing:
+            unit_timing[uid] = {}
+        t = unit_timing[uid]
+
+        # Reset on retry (new execution cycle)
+        if ns == "queued" and os in ("failed", "ready"):
+            t.clear()
+
+        if ns == "queued" and "queued_at" not in t:
+            t["queued_at"] = ts
+        if ns == "executing":
+            t["started_at"] = ts
+        if ns == "submitted":
+            t["code_done_at"] = ts
+        if ns == "merging":
+            t["merge_started_at"] = ts
+        if ns == "completed":
+            t["completed_at"] = ts
+        if ns == "failed":
+            t["failed_at"] = ts
+        t["status"] = ns
+
+    # Build response
     per_unit = []
     completed_count = 0
+    active_count = 0
+    queued_count = 0
+    total_exec_ms = 0
+
     for u in active:
+        uid = u.get("id", "")
         status = u.get("status", "draft")
+        t = unit_timing.get(uid, {})
+
         entry = TimingEntry(
-            id=u.get("id", ""),
+            id=uid,
             status=status,
+            queued_at=t.get("queued_at"),
+            started_at=t.get("started_at"),
+            completed_at=t.get("completed_at"),
         )
+
+        # Compute durations
+        if t.get("started_at") and (t.get("code_done_at") or t.get("completed_at") or t.get("failed_at")):
+            end = t.get("code_done_at") or t.get("completed_at") or t.get("failed_at")
+            entry.exec_duration_ms = _ts_diff_ms(t["started_at"], end)
+            if entry.exec_duration_ms and entry.exec_duration_ms > 0:
+                total_exec_ms += entry.exec_duration_ms
+
+        if t.get("queued_at") and t.get("started_at"):
+            entry.queue_wait_ms = _ts_diff_ms(t["queued_at"], t["started_at"])
+
         if status in ("completed", "verified"):
             completed_count += 1
+        elif status in ("executing", "submitted", "merging"):
+            active_count += 1
+        elif status in ("queued", "waiting_compute", "ready"):
+            queued_count += 1
+
         per_unit.append(entry)
 
-    # Estimate throughput and remaining time
-    remaining = len(active) - completed_count - active_count
-    estimated = None
-    if completed_count > 0 and remaining > 0:
-        # Rough estimate: avg time per unit * remaining
-        estimated = remaining * 60000  # placeholder: 1 min per unit
+    # Sort: active first, then queued, then completed
+    status_order = {"executing": 0, "submitted": 0, "merging": 0,
+                    "queued": 1, "waiting_compute": 1, "ready": 2,
+                    "failed": 3, "completed": 4, "verified": 4}
+    per_unit.sort(key=lambda e: status_order.get(e.status, 5))
+
+    # Compute throughput and estimate
+    avg_exec_ms = total_exec_ms / completed_count if completed_count > 0 else 0
+    remaining = queued_count + active_count
+    estimated = int(avg_exec_ms * remaining) if avg_exec_ms > 0 and remaining > 0 else None
 
     return DispatchTimingResponse(
         per_unit=per_unit,
-        throughput=completed_count / max(1, 1),  # units per session
+        throughput=round(completed_count / max(total_exec_ms / 60000, 0.1), 1) if total_exec_ms > 0 else 0,
         estimated_remaining_ms=estimated,
         active_count=active_count,
-        queued_count=queue_size,
-        pending_count=pending_count,
+        queued_count=queued_count,
+        pending_count=len([u for u in active if u.get("status") == "ready"]),
     )
+
+
+def _ts_diff_ms(start_iso: str, end_iso: str) -> Optional[int]:
+    """Compute milliseconds between two ISO timestamps."""
+    try:
+        s = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        return max(0, int((e - s).total_seconds() * 1000))
+    except Exception:
+        return None
 
 
 @router.get("/status")
@@ -270,6 +358,103 @@ async def resume_dispatch():
         raise HTTPException(status_code=503, detail="Dispatcher not running")
     dispatcher.resume()
     return {"paused": False}
+
+
+@router.post("/unit/{unit_id}/retry")
+async def retry_failed_unit(unit_id: str):
+    """Retry a failed work unit — resets it to QUEUED for re-dispatch.
+
+    The engine will pick it up on the next evaluate() cycle when a
+    compute is available.
+    """
+    from services.dispatch.engine import get_engine
+    from models.work_unit import WorkUnitStatus
+
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="Engine not running")
+
+    unit = engine._units.get(unit_id)
+    if not unit:
+        raise HTTPException(status_code=404, detail=f"Unit {unit_id} not found in engine")
+
+    if unit.status != WorkUnitStatus.FAILED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unit {unit_id} is {unit.status.value}, not failed — cannot retry"
+        )
+
+    # Reset to QUEUED — clear stale assignment
+    old = unit.status
+    unit.status = WorkUnitStatus.QUEUED
+    unit.assigned_instance = None
+    unit.branch = None
+    await engine._persist_and_emit(unit, old, WorkUnitStatus.QUEUED, "manual retry")
+    await engine.evaluate()
+
+    return {"unit_id": unit_id, "status": "queued", "action": "retry"}
+
+
+@router.post("/unit/{unit_id}/skip")
+async def skip_failed_unit(unit_id: str):
+    """Skip a failed work unit — marks it as completed so dependents unblock.
+
+    Use this when the failure can't be fixed or the unit's work isn't
+    critical to downstream units.
+    """
+    from services.dispatch.engine import get_engine
+    from models.work_unit import WorkUnitStatus
+
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="Engine not running")
+
+    unit = engine._units.get(unit_id)
+    if not unit:
+        raise HTTPException(status_code=404, detail=f"Unit {unit_id} not found in engine")
+
+    if unit.status not in (WorkUnitStatus.FAILED, WorkUnitStatus.MERGE_CONFLICT):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unit {unit_id} is {unit.status.value} — can only skip failed/conflict units"
+        )
+
+    # Mark as completed — dependents will unblock
+    old = unit.status
+    unit.status = WorkUnitStatus.COMPLETED
+    engine.mark_completed(unit_id)
+    await engine._persist_and_emit(unit, old, WorkUnitStatus.COMPLETED, "manually skipped")
+    await engine.evaluate()
+
+    return {"unit_id": unit_id, "status": "completed", "action": "skipped"}
+
+
+@router.post("/unit/{unit_id}/cancel")
+async def cancel_unit(unit_id: str):
+    """Cancel a work unit. Works on any non-terminal state."""
+    from services.dispatch.engine import get_engine
+    from models.work_unit import WorkUnitStatus
+
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="Engine not running")
+
+    unit = engine._units.get(unit_id)
+    if not unit:
+        raise HTTPException(status_code=404, detail=f"Unit {unit_id} not found in engine")
+
+    terminal = {WorkUnitStatus.COMPLETED, WorkUnitStatus.CANCELLED, WorkUnitStatus.SUPERSEDED}
+    if unit.status in terminal:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unit {unit_id} is {unit.status.value} — already terminal"
+        )
+
+    old = unit.status
+    unit.status = WorkUnitStatus.CANCELLED
+    await engine._persist_and_emit(unit, old, WorkUnitStatus.CANCELLED, "manually cancelled")
+
+    return {"unit_id": unit_id, "status": "cancelled", "action": "cancelled"}
 
 
 @router.get("/activity-log")

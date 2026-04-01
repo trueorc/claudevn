@@ -60,7 +60,7 @@ export default function useDispatchGraph(projectId) {
    * Handle an SSE execution event — patches the graph locally.
    */
   const handleEvent = useCallback((event) => {
-    const unitId = event.work_unit_id
+    const unitId = event.work_unit_id || event.unit_id
     if (!unitId) return
 
     switch (event.event) {

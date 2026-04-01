@@ -624,68 +624,53 @@ async def receive_compute_event(
     #
     # For everything else (failures, char/decomp tasks, rejections): reset to
     # "idle" immediately so the compute can pick up new work.
+    # v1.0 SSE connection management and dispatch — only runs when engine
+    # is NOT handling this event. When the engine is active, it owns compute
+    # state and dispatch. Running both causes thrashing (dispatch loops).
+    from services.dispatch.engine import get_engine as _get_engine
+    _engine_active = _get_engine() is not None
+
     if event.event.value in ("claude_code_completed", "claude_code_failed", "claude_code_rejected"):
-        is_work_success = (
-            event.event.value == "claude_code_completed"
-            and event.exit_code == 0
-            and not event.task_id.startswith("conflict-")
-            and not event.task_id.startswith("char-")
-            and not event.task_id.startswith("decomp-")
-        )
-        # Check if this work item has a branch (needs merge pipeline)
-        has_branch = False
-        if is_work_success:
-            try:
-                from services.work_map_service import get_work_map_service
-                w = await get_work_map_service().get_work(event.task_id)
-                has_branch = bool(w and (event.branch_name or w.branch_name) and w.project_id)
-            except Exception:
-                pass
-
-        try:
-            sse_manager = get_sse_connection_manager()
-            connection = sse_manager.get_connection(event.compute_id)
-            if connection:
-                if is_work_success and has_branch:
-                    # Hold compute for merge pipeline — don't assign new work
-                    connection.status = "merging"
-                    logger.info(
-                        f"SSE connection {event.compute_id} set to 'merging' "
-                        f"(holding for PR pipeline)"
-                    )
-                else:
-                    connection.status = "idle"
-                    connection.current_task_id = None
-                    logger.info(f"Reset SSE connection {event.compute_id} to idle")
-
-                    # Notify engine — compute is now idle
-                    try:
-                        from services.dispatch.engine import get_engine
-                        eng = get_engine()
-                        if eng:
-                            await eng.on_event("compute_available", compute_id=event.compute_id)
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning(
-                f"Failed to update SSE connection for {event.compute_id}: {e}"
+        if not _engine_active:
+            # v1.0 path: manage SSE connection status and trigger old dispatcher
+            is_work_success = (
+                event.event.value == "claude_code_completed"
+                and event.exit_code == 0
+                and not event.task_id.startswith("conflict-")
+                and not event.task_id.startswith("char-")
+                and not event.task_id.startswith("decomp-")
             )
+            has_branch = False
+            if is_work_success:
+                try:
+                    from services.work_map_service import get_work_map_service
+                    w = await get_work_map_service().get_work(event.task_id)
+                    has_branch = bool(w and (event.branch_name or w.branch_name) and w.project_id)
+                except Exception:
+                    pass
 
-        # Fire the WorkDispatcher only when compute is actually idle
-        if not (is_work_success and has_branch):
             try:
-                from services.work_dispatcher import get_work_dispatcher
-                get_work_dispatcher().trigger(
-                    reason=f"compute_idle:{event.compute_id}"
-                )
-            except RuntimeError:
-                pass
+                sse_manager = get_sse_connection_manager()
+                connection = sse_manager.get_connection(event.compute_id)
+                if connection:
+                    if is_work_success and has_branch:
+                        connection.status = "merging"
+                    else:
+                        connection.status = "idle"
+                        connection.current_task_id = None
             except Exception as e:
-                logger.debug(f"Could not fire dispatcher on compute idle: {e}")
+                logger.warning(f"Failed to update SSE connection for {event.compute_id}: {e}")
 
-    # On rejection, attempt to re-dispatch the task to another compute
-    if event.event.value == "claude_code_rejected":
-        await _handle_rejection_redispatch(event)
+            if not (is_work_success and has_branch):
+                try:
+                    from services.work_dispatcher import get_work_dispatcher
+                    get_work_dispatcher().trigger(reason=f"compute_idle:{event.compute_id}")
+                except Exception:
+                    pass
+
+            # v1.0 rejection re-dispatch
+            if event.event.value == "claude_code_rejected":
+                await _handle_rejection_redispatch(event)
 
     # v2.0 State Machine Engine — route compute events to the engine
     # The engine handles ALL state transitions. We just translate
@@ -725,25 +710,13 @@ async def receive_compute_event(
                         unit, WorkUnitStatus.WAITING_COMPUTE,
                         reason="rejected by compute (at capacity)"
                     )
-                    # Compute is busy (that's why it rejected)
-                    await engine.on_event("rejected",
-                        unit_id=event.task_id, compute_id=event.compute_id)
+                    # Mark compute as busy — it rejected because it's working.
+                    # Do NOT evaluate here: the compute is busy, nothing can
+                    # be dispatched. The next code_complete will release the
+                    # compute and trigger evaluate naturally.
+                    engine.set_compute_state(event.compute_id, "busy")
         else:
-            # Fallback to old dispatcher
-            from services.dispatch.dispatcher import get_dispatcher
-            v2_dispatcher = get_dispatcher()
-            if v2_dispatcher:
-                if event.event.value == "claude_code_completed":
-                    success = event.exit_code == 0 if event.exit_code is not None else True
-                    await v2_dispatcher.on_execution_complete(
-                        instance_id=event.compute_id, success=success, branch=event.branch_name)
-                elif event.event.value == "claude_code_failed":
-                    await v2_dispatcher.on_execution_complete(
-                        instance_id=event.compute_id, success=False)
-                elif event.event.value == "claude_code_rejected":
-                    await v2_dispatcher.on_execution_rejected(
-                        instance_id=event.compute_id, work_unit_id=event.task_id,
-                        reason=event.error or "rejected")
+            logger.error("Engine not available — compute event dropped")
     except Exception as e:
         logger.debug(f"v2.0 engine notification failed: {e}")
 
@@ -2920,93 +2893,3 @@ async def get_registry_stats(
     return registry.get_stats()
 
 
-async def _v2_merge_and_finalize(unit, branch_name: str, compute_id: str, dispatcher) -> None:
-    """Merge a v2.0 work unit's branch to main and finalize.
-
-    v2.0 work units aren't in the v1.0 WorkMapService, so the standard
-    merge pipeline doesn't find them. This function handles the merge
-    directly using the PRService.
-
-    On success: calls dispatcher.on_execution_complete (done = merged).
-    On conflict: sends merge_conflict event to compute for resolution.
-    """
-    from git.pr_service import PRService
-
-    try:
-        pr_service = PRService()
-
-        # Get the project's repo
-        from services.project_service import get_project_service
-        ps = get_project_service()
-        project = await ps.get_project(unit.project_id)
-        if not project or not project.repos:
-            logger.warning(f"v2.0 merge: no repo for project {unit.project_id}")
-            await dispatcher.on_execution_complete(instance_id=compute_id, success=False)
-            return
-
-        repo_name = f"{project.project_id}_{project.repos[0].repo_id}"
-
-        # Create and approve a PR (required by merge flow)
-        try:
-            await pr_service.create_pr(
-                project=repo_name,
-                branch=branch_name,
-                title=unit.description[:120],
-                body=f"Work unit: {unit.id}\n\n{unit.description}",
-            )
-            # Auto-approve for v2.0 (verification happens in Layer 3)
-            await pr_service.approve(repo_name, branch_name, reviewed_by="v2-dispatcher")
-        except Exception as e:
-            logger.warning(f"v2.0 PR creation for {unit.id}: {e}")
-
-        # Attempt merge
-        result = await pr_service.merge(
-            project=repo_name,
-            branch=branch_name,
-        )
-
-        if result.get("success"):
-            logger.info(f"v2.0 merge success: {unit.id} merged to {default_branch}")
-
-            # Reset compute to idle
-            try:
-                from services.sse_connection_manager import get_sse_connection_manager
-                sse_mgr = get_sse_connection_manager()
-                conn = sse_mgr.get_connection(compute_id) if sse_mgr else None
-                if conn:
-                    conn.status = "idle"
-                    conn.current_task_id = None
-            except Exception:
-                pass
-
-            # Done = merged → notify dispatcher
-            await dispatcher.on_execution_complete(
-                instance_id=compute_id,
-                success=True,
-                branch=branch_name,
-            )
-
-        elif result.get("status") == "conflict":
-            logger.warning(f"v2.0 merge conflict: {unit.id} on {branch_name}")
-            # Send conflict back to compute for resolution
-            try:
-                from services.sse_connection_manager import get_sse_connection_manager
-                sse_mgr = get_sse_connection_manager()
-                if sse_mgr:
-                    await sse_mgr.send_event(compute_id, "merge_conflict", {
-                        "issue_id": unit.id,
-                        "branch": branch_name,
-                        "conflicting_files": result.get("conflicts", []),
-                        "main_head": result.get("main_head", ""),
-                        "message": f"Merge conflict on {branch_name}",
-                    })
-            except Exception as e:
-                logger.error(f"Failed to send merge_conflict to compute: {e}")
-        else:
-            logger.error(f"v2.0 merge failed: {unit.id} — {result}")
-            await dispatcher.on_execution_complete(instance_id=compute_id, success=False)
-
-    except Exception as e:
-        logger.error(f"v2.0 merge error for {unit.id}: {e}", exc_info=True)
-        # On merge infrastructure failure, still complete (don't block forever)
-        await dispatcher.on_execution_complete(instance_id=compute_id, success=False)

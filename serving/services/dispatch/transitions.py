@@ -4,6 +4,7 @@ Every valid state transition, its conditions, and its action.
 The transition table IS the system definition.
 """
 
+import asyncio
 import logging
 from typing import List
 
@@ -41,10 +42,6 @@ def no_compute_available(unit: WorkUnit, snap: Snapshot) -> bool:
 
 def compute_now_available(unit: WorkUnit, snap: Snapshot) -> bool:
     return not snap.paused and len(snap.idle_compute_ids) > 0
-
-
-def always_true(unit: WorkUnit, snap: Snapshot) -> bool:
-    return True
 
 
 def merge_slot_available(unit: WorkUnit, snap: Snapshot) -> bool:
@@ -98,6 +95,17 @@ async def action_dispatch_to_compute(unit: WorkUnit, snap: Snapshot, engine: Wor
     complexity_map = {"xs": "simple", "s": "simple", "m": "standard", "l": "complex", "xl": "complex"}
     complexity = complexity_map.get((unit.estimated_complexity or "m").lower(), "standard")
 
+    target_files = unit.formal_spec.target_files if unit.formal_spec else []
+    acceptance_criteria = unit.acceptance_criteria or []
+    interface_produces = unit.interface_produces or []
+    interface_consumes = unit.interface_consumes or []
+
+    logger.info(
+        f"Dispatch {unit.id}: target_files={len(target_files)}, "
+        f"criteria={len(acceptance_criteria)}, produces={len(interface_produces)}, "
+        f"formal_spec={'yes' if unit.formal_spec else 'NO'}, complexity={complexity}"
+    )
+
     task_data = {
         "task_id": unit.id,
         "title": unit.description[:120],
@@ -110,10 +118,10 @@ async def action_dispatch_to_compute(unit: WorkUnit, snap: Snapshot, engine: Wor
             "repo_url": repo_url,
             "base_branch": "main",
             "branch": branch,
-            "target_files": unit.formal_spec.target_files if unit.formal_spec else [],
-            "acceptance_criteria": unit.acceptance_criteria or [],
-            "interface_produces": unit.interface_produces or [],
-            "interface_consumes": unit.interface_consumes or [],
+            "target_files": target_files,
+            "acceptance_criteria": acceptance_criteria,
+            "interface_produces": interface_produces,
+            "interface_consumes": interface_consumes,
             "estimated_complexity": unit.estimated_complexity or "m",
         },
         "work_unit_id": unit.id,
@@ -143,8 +151,13 @@ async def action_dispatch_to_compute(unit: WorkUnit, snap: Snapshot, engine: Wor
     unit.branch = branch
 
 
-async def action_start_merge(unit: WorkUnit, snap: Snapshot, engine: WorkUnitEngine) -> None:
-    """Merge unit's branch to main."""
+async def action_enter_merge(unit: WorkUnit, snap: Snapshot, engine: WorkUnitEngine) -> None:
+    """Lightweight entry into merge phase. Validates preconditions, then
+    kicks off the actual merge as a background task.
+
+    The unit enters MERGING state immediately (visible in UI).
+    The background task calls back into the engine when done.
+    """
     from services.project_service import get_project_service
     ps = get_project_service()
     project = await ps.get_project(unit.project_id)
@@ -154,64 +167,87 @@ async def action_start_merge(unit: WorkUnit, snap: Snapshot, engine: WorkUnitEng
         engine.mark_completed(unit.id)
         raise StateRedirectError("No repo — completed without merge", target_state=WorkUnitStatus.COMPLETED)
 
-    repo_name = f"{project.project_id}_{project.repos[0].repo_id}"
-    branch = unit.branch
-    if not branch:
+    if not unit.branch:
         raise PermanentError(f"No branch on unit {unit.id}")
 
-    from git.pr_service import PRService
-    pr_service = PRService()
+    # Start merge in background — unit is now MERGING (observable)
+    asyncio.create_task(_run_merge(unit, project, engine))
+
+
+async def _run_merge(unit: WorkUnit, project, engine: WorkUnitEngine) -> None:
+    """Execute the actual merge. Calls back into the engine when done.
+
+    NOT fire-and-forget — every outcome transitions the unit to a new state.
+    """
+    repo_name = f"{project.project_id}_{project.repos[0].repo_id}"
+    branch = unit.branch
     compute_id = unit.assigned_instance or "v2-engine"
 
     try:
-        await pr_service.create_pr(
-            project=repo_name, branch=branch, compute_id=compute_id,
-            task_id=unit.id, title=unit.description[:120],
-            description=f"Work unit: {unit.id}",
-        )
+        from git.pr_service import PRService
+        pr_service = PRService()
+
+        try:
+            await pr_service.create_pr(
+                project=repo_name, branch=branch, compute_id=compute_id,
+                task_id=unit.id, title=unit.description[:120],
+                description=f"Work unit: {unit.id}",
+            )
+        except Exception as e:
+            logger.warning(f"PR creation for {unit.id}: {e}")
+
+        try:
+            await pr_service.approve(repo_name, branch, reviewed_by="v2-engine")
+        except Exception as e:
+            logger.warning(f"PR approval for {unit.id}: {e}")
+
+        result = await pr_service.merge(project=repo_name, branch=branch)
+
+        if result.get("success"):
+            _release_compute(engine, unit)
+            engine.mark_completed(unit.id)
+            await engine._transition_to(unit, WorkUnitStatus.COMPLETED, "merged to main")
+            await engine.evaluate()  # Unblock dependents
+        elif result.get("reason") == "conflict":
+            conflicts = result.get("conflicts", [])[:3]
+            unit._conflict_files = conflicts
+            await engine._transition_to(
+                unit, WorkUnitStatus.MERGE_CONFLICT,
+                f"merge conflict: {', '.join(conflicts)}",
+            )
+            # Dispatch conflict resolution to compute immediately
+            await _dispatch_conflict_to_compute(unit)
+            await engine.evaluate()
+        else:
+            reason = result.get("reason", "unknown")
+            await engine._transition_to(unit, WorkUnitStatus.FAILED, f"merge failed: {reason}")
+            await engine.evaluate()
+
     except Exception as e:
-        logger.warning(f"PR creation for {unit.id}: {e}")
-
-    try:
-        await pr_service.approve(repo_name, branch, reviewed_by="v2-engine")
-    except Exception as e:
-        logger.warning(f"PR approval for {unit.id}: {e}")
-
-    result = await pr_service.merge(project=repo_name, branch=branch)
-
-    if result.get("success"):
-        _release_compute(engine, unit)
-        engine.mark_completed(unit.id)
-        logger.info(f"Engine: {unit.id} completed (merged)")
-    elif result.get("reason") == "conflict":
-        raise StateRedirectError(
-            f"Merge conflict: {', '.join(result.get('conflicts', [])[:3])}",
-            target_state=WorkUnitStatus.MERGE_CONFLICT,
-        )
-    else:
-        raise PermanentError(f"Merge failed: {result.get('reason', 'unknown')}")
+        logger.error(f"Merge error for {unit.id}: {e}")
+        await engine._transition_to(unit, WorkUnitStatus.FAILED, f"merge error: {e}")
+        await engine.evaluate()
 
 
-async def action_finalize_merge(unit: WorkUnit, snap: Snapshot, engine: WorkUnitEngine) -> None:
-    pass
-
-
-async def action_dispatch_conflict_resolution(unit: WorkUnit, snap: Snapshot, engine: WorkUnitEngine) -> None:
+async def _dispatch_conflict_to_compute(unit: WorkUnit) -> None:
+    """Send merge conflict details to the compute for resolution."""
     compute_id = unit.assigned_instance
     if not compute_id:
-        raise PermanentError("No compute for conflict resolution")
+        logger.error(f"No compute for conflict resolution on {unit.id}")
+        return
 
-    from services.sse_connection_manager import get_sse_connection_manager
-    sse = get_sse_connection_manager()
-    if not sse:
-        raise PermanentError("SSE manager not available")
-
-    await sse.send_event(compute_id, "merge_conflict", {
-        "issue_id": unit.id,
-        "branch": unit.branch or "",
-        "conflicting_files": getattr(unit, '_conflict_files', []),
-        "message": f"Merge conflict on {unit.branch}",
-    })
+    try:
+        from services.sse_connection_manager import get_sse_connection_manager
+        sse = get_sse_connection_manager()
+        if sse:
+            await sse.send_event(compute_id, "merge_conflict", {
+                "issue_id": unit.id,
+                "branch": unit.branch or "",
+                "conflicting_files": getattr(unit, '_conflict_files', []),
+                "message": f"Merge conflict on {unit.branch}",
+            })
+    except Exception as e:
+        logger.error(f"Failed to send conflict to compute {compute_id}: {e}")
 
 
 def _release_compute(engine: WorkUnitEngine, unit: WorkUnit) -> None:
@@ -257,17 +293,7 @@ def build_transition_table() -> List[Transition]:
         ),
         Transition(
             from_state=WorkUnitStatus.SUBMITTED, to_state=WorkUnitStatus.MERGING,
-            condition=merge_slot_available, action=action_start_merge,
+            condition=merge_slot_available, action=action_enter_merge,
             description="merge started",
-        ),
-        Transition(
-            from_state=WorkUnitStatus.MERGING, to_state=WorkUnitStatus.COMPLETED,
-            condition=always_true, action=action_finalize_merge,
-            description="merged to main",
-        ),
-        Transition(
-            from_state=WorkUnitStatus.MERGE_CONFLICT, to_state=WorkUnitStatus.MERGE_CONFLICT,
-            condition=always_true, action=action_dispatch_conflict_resolution,
-            description="conflict resolution dispatched",
         ),
     ]

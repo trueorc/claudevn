@@ -251,3 +251,7 @@ export async function getBucketTree(projectId) {
 export async function getBucketDetail(bucketId, projectId) {
   return request(`/workmap/bucket-tree/${encodeURIComponent(bucketId)}?project_id=${encodeURIComponent(projectId)}`)
 }
+
+export async function retryGoalPlanning(goalId) {
+  return request(`/workmap/goals/${goalId}/retry-planning`, { method: 'POST' })
+}

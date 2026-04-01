@@ -38,7 +38,7 @@ class ClaudeConfig(BaseModel):
         description="Sampling temperature (lower = more deterministic)"
     )
     timeout_seconds: int = Field(
-        default=120,
+        default=300,
         ge=1,
         le=600,
         description="Request timeout in seconds"

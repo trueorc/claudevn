@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FolderOpen } from 'lucide-react'
-import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress } from '../api/workmap'
+import { getGoals, deleteGoal, archiveGoal, unarchiveGoal, getGoalProgress, retryGoalPlanning } from '../api/workmap'
 import { getWorkUnits, getPipelineStatus, getQualityScores, getDependencyChains, approveDecomposition, recomposeDecomposition, resolveConflict, getCoherenceInsights, getComputeEnvironment, getProjectEnvironment, approveProjectEnvironment, approveComputeEnvironment } from '../api/workUnits'
 import { getActivityLog } from '../api/dispatch'
 import { useProjectContext } from '../contexts/ProjectContext'
@@ -114,6 +114,10 @@ function GoalsPage() {
       // Reload directive detail if viewing the changed goal
       if (selectedGoal && event.goal_id === selectedGoal.goal_id) {
         loadWorkUnits(selectedGoal.goal_id)
+        // Reload pipeline on step events so PipelineStatus updates in real-time
+        if (event.event?.startsWith('decomposition.step') || event.event === 'decomposition.completed') {
+          loadPipeline(selectedGoal.goal_id)
+        }
       }
 
       loadGoals()
@@ -338,6 +342,21 @@ function GoalsPage() {
     }
   }, [selectedGoal, loadWorkUnits, invalidateGoal])
 
+  const [retrying, setRetrying] = useState(false)
+  const handleRetryPlanning = useCallback(async () => {
+    if (!selectedGoal) return
+    setRetrying(true)
+    try {
+      await retryGoalPlanning(selectedGoal.goal_id)
+      await loadGoals()
+      // Goal resets to planning, pipeline will re-run automatically
+    } catch (err) {
+      console.error('Failed to retry planning:', err)
+    } finally {
+      setRetrying(false)
+    }
+  }, [selectedGoal, loadGoals])
+
   const handleRecompose = useCallback(async () => {
     if (!selectedGoal) return
     const refinement = window.prompt('What would you like to change about the decomposition?')
@@ -485,9 +504,11 @@ function GoalsPage() {
               onApprove={handleApproveDecomposition}
               onRefine={handleRecompose}
               onRefresh={handleRefresh}
+              onRetry={handleRetryPlanning}
               onApproveEnvironment={handleApproveEnvironment}
               approving={approving}
               recomposing={recomposing}
+              retrying={retrying}
               envApproving={envApproving}
             />
           )}

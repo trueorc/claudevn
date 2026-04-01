@@ -95,11 +95,15 @@ async def _enqueue_ready_units_on_startup():
 
     The engine is the sole authority. Load everything from Redis
     so the engine has the full picture and can evaluate correctly.
+
+    After loading, recover stale in-flight units. On restart, no compute
+    is running — units stuck in EXECUTING/MERGING/WAITING_COMPUTE must
+    be reset so the engine can re-dispatch them.
     """
     try:
         from services.decomposition.storage import get_project_goals, get_work_units, _get_redis
         from services.dispatch.engine import get_engine
-        from models.work_unit import WorkUnit
+        from models.work_unit import WorkUnit, WorkUnitStatus
 
         engine = get_engine()
         if not engine:
@@ -133,6 +137,34 @@ async def _enqueue_ready_units_on_startup():
 
         if total_tracked > 0:
             logger.info(f"Startup: loaded {total_tracked} work units into engine")
+
+        # Recover stale in-flight units.
+        # On restart, all computes start offline. Any unit in an in-flight
+        # state has no compute running it — reset so the engine can act.
+        recovered = 0
+        for unit_id, unit in list(engine._units.items()):
+            if unit.status == WorkUnitStatus.EXECUTING:
+                old = unit.status
+                unit.status = WorkUnitStatus.QUEUED
+                unit.assigned_instance = None
+                unit.branch = None
+                await engine._persist_and_emit(unit, old, WorkUnitStatus.QUEUED, "startup recovery: stale executing")
+                recovered += 1
+            elif unit.status == WorkUnitStatus.MERGING:
+                old = unit.status
+                unit.status = WorkUnitStatus.SUBMITTED
+                await engine._persist_and_emit(unit, old, WorkUnitStatus.SUBMITTED, "startup recovery: stale merging")
+                recovered += 1
+            elif unit.status == WorkUnitStatus.WAITING_COMPUTE:
+                old = unit.status
+                unit.status = WorkUnitStatus.QUEUED
+                await engine._persist_and_emit(unit, old, WorkUnitStatus.QUEUED, "startup recovery: stale waiting")
+                recovered += 1
+
+        if recovered > 0:
+            logger.info(f"Startup recovery: reset {recovered} stale in-flight units")
+
+        if total_tracked > 0:
             await engine.evaluate()
     except Exception as e:
         logger.warning(f"Failed to load units on startup: {e}")
@@ -177,18 +209,10 @@ async def _trigger_engine_evaluation(instance_id: str, reason: str):
         engine = get_engine()
         if engine:
             await engine.on_event("compute_available", compute_id=instance_id)
-            return
+        else:
+            logger.error("Engine not available — compute event dropped")
     except Exception as e:
-        logger.debug(f"Engine evaluation failed: {e}")
-
-    # Fallback to old dispatcher if engine not available
-    try:
-        from services.dispatch.dispatcher import get_dispatcher
-        dispatcher = get_dispatcher()
-        if dispatcher:
-            await dispatcher.evaluate()
-    except Exception:
-        pass
+        logger.error(f"Engine evaluation failed: {e}")
 
 
 async def _on_decomposition_approved(event):
@@ -209,7 +233,13 @@ async def _on_decomposition_approved(event):
 
 
 async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: list):
-    """Load approved work units and enqueue them for dispatch."""
+    """Load approved work units and enqueue them for dispatch.
+
+    Loads ALL units for this goal into the engine — not just ready ones.
+    The engine needs to know about superseded/completed units too, because
+    other units may depend on them. Terminal units go into _completed_ids
+    so deps_satisfied works correctly.
+    """
     try:
         from services.decomposition.storage import get_work_units
         from services.dispatch.engine import get_engine
@@ -220,36 +250,31 @@ async def _enqueue_approved_units(project_id: str, goal_id: str, work_unit_ids: 
             logger.warning("Engine not available — approved units will not be dispatched")
             return
 
-        # Load work units from Redis
+        # Load ALL work units for this goal — engine needs the complete picture
         units_data = await get_work_units(project_id, goal_id)
         if not units_data:
             logger.warning(f"No work units found for {goal_id} after approval")
             return
 
-        # Filter to approved (ready) units
-        ready_data = [u for u in units_data if u.get("status") == "ready"]
-        if not ready_data:
-            logger.info(f"No ready units to enqueue for {goal_id}")
-            return
-
-        # Convert dicts to WorkUnit objects and track in engine
+        # Convert to WorkUnit objects and track ALL in engine
         work_units = []
-        for ud in ready_data:
+        for ud in units_data:
             try:
                 wu = WorkUnit(**ud)
                 work_units.append(wu)
             except Exception as e:
                 logger.warning(f"Could not parse work unit {ud.get('id', '?')}: {e}")
 
+        ready_count = sum(1 for wu in work_units if wu.status.value == "ready")
         if work_units:
             engine.track_units(work_units)
             logger.info(
-                f"Enqueued {len(work_units)} approved work units from {goal_id} "
+                f"Loaded {len(work_units)} units ({ready_count} ready) from {goal_id} "
                 f"for project {project_id}"
             )
 
             # State changed (work ready) — trigger evaluation
-            await engine.evaluate(set(wu.id for wu in work_units))
+            await engine.evaluate()
 
             # Emit work.ready_for_dispatch events
             bus = get_event_bus()

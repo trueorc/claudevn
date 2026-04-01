@@ -41,12 +41,21 @@ const DEFAULT_COLOR = { fill: '#1a1a1a', stroke: '#444', text: '#71717a' }
  * Renders work units as nodes in a DAG, colored by execution status.
  * Critical path is highlighted. Click a node for detail.
  */
+function formatDuration(ms) {
+  if (ms == null || ms < 0) return null
+  const secs = Math.floor(ms / 1000)
+  const mins = Math.floor(secs / 60)
+  if (mins > 0) return `${mins}m${secs % 60}s`
+  return `${secs}s`
+}
+
 export default function ExecutionGraph({
   nodes = [],
   edges = [],
   criticalPath = [],
   selectedNodeId = null,
   onNodeClick,
+  timingMap = {},
 }) {
   const [hoveredId, setHoveredId] = useState(null)
   const criticalSet = useMemo(() => new Set(criticalPath), [criticalPath])
@@ -189,16 +198,18 @@ export default function ExecutionGraph({
                 {node.id.slice(-8)}
                 {node.complexity && ` [${node.complexity.toUpperCase()}]`}
               </text>
-              {/* Execution order / status badge */}
+              {/* Timing or status badge */}
               {queueOrder[node.id] === 'done' && (
                 <text
-                  x={pos.x + NODE_WIDTH - 16}
+                  x={pos.x + NODE_WIDTH - 8}
                   y={pos.y + NODE_HEIGHT / 2 + 4}
                   fill={colors.stroke}
-                  fontSize={12}
-                  textAnchor="middle"
+                  fontSize={9}
+                  textAnchor="end"
+                  fontFamily="monospace"
+                  opacity={0.8}
                 >
-                  ✓
+                  {formatDuration(timingMap[node.id]) || '✓'}
                 </text>
               )}
               {queueOrder[node.id] === 'now' && (

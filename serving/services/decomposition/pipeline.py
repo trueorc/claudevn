@@ -256,7 +256,7 @@ class DecompositionPipeline:
 
             # Convert WorkUnit objects to dicts for reconciliation
             new_unit_dicts = [json.loads(wu.model_dump_json()) for wu in work_units]
-            recon = reconciler.reconcile(project_id, goal_id, new_unit_dicts, plan_units)
+            recon = await reconciler.reconcile(project_id, goal_id, new_unit_dicts, plan_units)
             result.reconciliation = json.loads(recon.model_dump_json())
 
             # Apply supersessions to Redis
@@ -409,29 +409,26 @@ class DecompositionPipeline:
         conversation_comments: Optional[list],
         existing_project_units: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
-        """Call Claude to decompose the goal into structured units.
+        """Decompose goal into work units using a multi-step LLM approach.
 
-        Returns a list of dicts with: description, target_files,
-        interface_contracts, expected_outputs, depends_on.
+        Step A: Scope & plan (Haiku) — fast high-level breakdown
+        Step B: Enrich each unit (Haiku) — target files, criteria, interfaces
+        Step C: Wire dependencies (Haiku) — connect the units
+
+        Each step is small, fast, and independently cacheable.
         """
         from services.claude_client import get_claude_client
-
         client = get_claude_client()
 
-        # Build prompt
+        # Build context
         context_parts = [f"# Goal\n{goal_text}"]
         if project_context:
             tech = project_context.get("tech_stack", "")
             if tech:
                 context_parts.append(f"# Tech Stack\n{tech}")
-        if existing_issues:
-            summaries = [f"- {i.title} ({i.status.value})" for i in existing_issues[:15]]
-            context_parts.append(f"# Existing Backlog\n" + "\n".join(summaries))
         if conversation_comments:
             comments = [f"- {c.get('content', '')[:200]}" for c in conversation_comments[:10]]
             context_parts.append(f"# Context from Conversation\n" + "\n".join(comments))
-
-        # Inject existing project plan context
         if existing_project_units:
             active_units = [
                 u for u in existing_project_units
@@ -445,105 +442,121 @@ class DecompositionPipeline:
                     files = ", ".join(u.get("formal_spec", {}).get("target_files", [])[:3])
                     summaries.append(f"- [{status.upper()}] {desc} (files: {files})")
                 context_parts.append(
-                    "# Existing Project Plan (active work units)\n"
-                    "These units already exist in the project. Do NOT re-create them "
-                    "unless this directive supersedes or modifies them.\n"
-                    "Only create units for genuinely NEW scope from this directive.\n"
+                    "# Existing Project Plan\n"
+                    "Do NOT duplicate these. Only create NEW scope.\n"
                     + "\n".join(summaries)
                 )
+        context = "\n\n".join(context_parts)
 
-        prompt = "\n\n".join(context_parts)
+        # ── Step A: Scope & Plan ──────────────────────────────────
+        logger.info(f"Decompose {goal_id}: Step A — scope & plan")
+        plan_response = await client.complete(
+            prompt=context,
+            system=(
+                "Break this goal into independent work units. For each unit provide:\n"
+                "- description: what to build/change\n"
+                "- estimated_complexity: xs|s|m|l|xl\n\n"
+                "Keep units small and focused. Each should touch separate files.\n"
+                "Respond with JSON only: {\"units\": [{\"description\": \"...\", \"estimated_complexity\": \"s\"}]}"
+            ),
+            model="haiku",
+        )
+        plan_data = self._parse_json(plan_response.content)
+        plan_units = plan_data.get("units", [])
+        if not plan_units:
+            raise ValueError("LLM returned no work units in plan step")
+        logger.info(f"Decompose {goal_id}: Step A produced {len(plan_units)} units")
 
-        system = """You are decomposing a software goal into independent, executable work units.
+        # ── Step B: Enrich each unit ──────────────────────────────
+        logger.info(f"Decompose {goal_id}: Step B — enriching {len(plan_units)} units")
+        enriched_units = []
+        # Batch all units in one call for efficiency
+        unit_list = "\n".join(
+            f"{i+1}. {u.get('description','')} (complexity: {u.get('estimated_complexity','m')})"
+            for i, u in enumerate(plan_units)
+        )
+        enrich_response = await client.complete(
+            prompt=(
+                f"# Goal\n{goal_text}\n\n"
+                f"# Units to enrich\n{unit_list}"
+            ),
+            system=(
+                "For each unit listed, provide:\n"
+                "- description: the unit description (keep as-is)\n"
+                "- target_files: specific file paths to create/modify (include test files)\n"
+                "- acceptance_criteria: testable conditions proving the unit is done\n"
+                "- interface_contracts: {produces: [{type, definition}], consumes: [{type, definition}]}\n"
+                "- estimated_complexity: xs|s|m|l|xl\n\n"
+                "Rules:\n"
+                "- File paths must be specific and realistic\n"
+                "- Acceptance criteria must be testable (not vague)\n"
+                "- Interface contracts define how units connect\n"
+                "- Each unit should touch SEPARATE files\n\n"
+                "Respond with JSON only: {\"units\": [...]}"
+            ),
+            model="haiku",
+        )
+        enrich_data = self._parse_json(enrich_response.content)
+        enriched_units = enrich_data.get("units", [])
 
-For each work unit, provide ALL of the following:
+        # Fall back to plan units if enrichment failed
+        if not enriched_units:
+            logger.warning(f"Decompose {goal_id}: enrichment returned no units, using plan units")
+            enriched_units = plan_units
 
-- description: concise statement of what to build/change
-- target_files: specific file paths that will be modified or created
-- depends_on: list of other unit descriptions this depends on (empty if independent)
-- interface_contracts: what this unit PRODUCES that other units consume, and what it CONSUMES from other units
-  - produces: list of {type, definition} — e.g., {type: "exports", definition: "function add(a: number, b: number): number"}
-  - consumes: list of {type, definition} — what this unit expects from dependencies
-- acceptance_criteria: specific, testable conditions that prove this unit is DONE
-  - Each criterion should be verifiable (a test, a check, an observable behavior)
-- estimated_complexity: "xs" | "s" | "m" | "l" | "xl" based on scope
+        logger.info(f"Decompose {goal_id}: Step B enriched {len(enriched_units)} units")
 
-Respond with JSON only:
-{
-  "units": [
-    {
-      "description": "Implement calculator math operations module",
-      "target_files": ["server/src/calculator.js", "server/src/calculator.test.js"],
-      "depends_on": [],
-      "interface_contracts": {
-        "produces": [
-          {"type": "exports", "definition": "functions: add, subtract, multiply, divide — each takes (a, b) returns number"}
-        ],
-        "consumes": []
-      },
-      "acceptance_criteria": [
-        "All four operations return correct results for valid inputs",
-        "Division by zero throws descriptive error",
-        "Unit tests pass for all operations including edge cases"
-      ],
-      "estimated_complexity": "s"
-    },
-    {
-      "description": "REST API endpoint for calculator operations",
-      "target_files": ["server/src/routes/calculate.js", "server/src/routes/calculate.test.js"],
-      "depends_on": ["Implement calculator math operations module"],
-      "interface_contracts": {
-        "produces": [
-          {"type": "api", "definition": "POST /calculate — accepts {operation, operands} returns {result} or {error}"}
-        ],
-        "consumes": [
-          {"type": "imports", "definition": "calculator module — add, subtract, multiply, divide functions"}
-        ]
-      },
-      "acceptance_criteria": [
-        "POST /calculate returns correct result for valid operations",
-        "Returns 400 with error message for invalid operation or operands",
-        "API tests cover success and error paths"
-      ],
-      "estimated_complexity": "s"
-    }
-  ],
-  "confidence": 0.85,
-  "reasoning": "Split by module boundaries — calculator logic, API layer, frontend shell, frontend UI, integration..."
-}
+        # ── Step C: Wire dependencies ─────────────────────────────
+        logger.info(f"Decompose {goal_id}: Step C — wiring dependencies")
+        dep_list = "\n".join(
+            f"{i+1}. {u.get('description','')}"
+            f" (files: {', '.join(u.get('target_files',[])[:3])})"
+            for i, u in enumerate(enriched_units)
+        )
+        dep_response = await client.complete(
+            prompt=f"# Units\n{dep_list}",
+            system=(
+                "For each unit, determine which other units it depends on.\n"
+                "A unit depends on another if it imports/consumes what the other produces.\n"
+                "Return the dependency graph.\n\n"
+                "Respond with JSON only:\n"
+                "{\"dependencies\": [{\"unit\": 1, \"depends_on\": []},"
+                " {\"unit\": 2, \"depends_on\": [1]}]}\n\n"
+                "Unit numbers are 1-indexed as listed above. depends_on is a list of unit numbers."
+            ),
+            model="haiku",
+        )
+        dep_data = self._parse_json(dep_response.content)
+        deps = dep_data.get("dependencies", [])
 
-Rules:
-- Each unit should touch SEPARATE files (true independence — no shared mutable state)
-- Include test files alongside implementation in the same unit
-- Be specific about file paths — use realistic project structure
-- Interface contracts are CRITICAL — they define how units connect
-- Acceptance criteria must be TESTABLE — not vague ("works correctly" is bad, "returns 400 for invalid input" is good)
-- Keep units small and focused (prefer more small units over fewer large ones)
-- estimated_complexity: xs=trivial config, s=single module, m=multiple files with logic, l=cross-cutting, xl=architectural
-- Order dependencies correctly — a unit cannot depend on something that depends on it
-- IMPORTANT: If existing project work units are listed in the context, do NOT duplicate them.
-  Only create units for genuinely new scope. If this directive modifies existing functionality,
-  create replacement units that cover the updated requirements."""
+        # Apply dependencies to enriched units
+        for dep_entry in deps:
+            idx = dep_entry.get("unit", 0) - 1
+            dep_indices = dep_entry.get("depends_on", [])
+            if 0 <= idx < len(enriched_units):
+                dep_descriptions = []
+                for di in dep_indices:
+                    di_idx = di - 1
+                    if 0 <= di_idx < len(enriched_units):
+                        dep_descriptions.append(enriched_units[di_idx].get("description", ""))
+                enriched_units[idx]["depends_on"] = dep_descriptions
 
-        response = await client.complete(prompt=prompt, system=system)
+        logger.info(f"Decompose {goal_id}: complete — {len(enriched_units)} units")
+        return enriched_units
 
-        # Parse response
+    def _parse_json(self, content: str) -> dict:
+        """Parse JSON from LLM response, handling markdown code blocks."""
+        text = content.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         try:
-            data = json.loads(response.content)
+            return json.loads(text)
         except json.JSONDecodeError:
-            match = re.search(r'\{[\s\S]*\}', response.content)
+            match = re.search(r'\{[\s\S]*\}', text)
             if match:
-                data = json.loads(match.group())
-            else:
-                raise ValueError(f"Unparseable LLM response: {response.content[:300]}")
-
-        units = data.get("units", [])
-        if not units:
-            raise ValueError("LLM returned no work units")
-
-        # Convert depends_on from descriptions to indices for builder
-        # (builder uses IDs, but LLM returns description references)
-        return units
+                return json.loads(match.group())
+            raise ValueError(f"Unparseable LLM response: {content[:300]}")
 
     def _resolve_dependencies(self, work_units: List[WorkUnit], raw_units: List[Dict[str, Any]]) -> None:
         """Resolve description-based depends_on to actual work unit IDs.

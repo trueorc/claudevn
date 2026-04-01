@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectContext } from '../../contexts/ProjectContext'
 import { useConversationContext } from '../../contexts/ConversationContext'
 import useIssues from '../../hooks/useIssues'
 import useDirectivePrompts from '../../hooks/useDirectivePrompts'
 import useChatTransition from '../../hooks/useChatTransition'
-import { Send, ChevronLeft, ChevronRight, MessageSquare, ExternalLink } from 'lucide-react'
+import useEventStream from '../../hooks/useEventStream'
+import { Send, ChevronLeft, ChevronRight, MessageSquare, ExternalLink, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import './ChatRail.css'
 
 const CHATRAIL_MAX_MESSAGES = 500
@@ -55,6 +56,54 @@ function ChatRail() {
   // Load issue stats for context-aware prompts (only when a project is active)
   const { stats } = useIssues({ useWebSocket: !!activeProject, pollInterval: activeProject ? 30000 : 0 })
   const prompts = useDirectivePrompts(activeProject ? stats : null)
+
+  // Pipeline progress — tracks active decomposition steps via SSE
+  const [pipelineSteps, setPipelineSteps] = useState([])
+  const [pipelineActive, setPipelineActive] = useState(false)
+
+  const STEP_LABELS = {
+    llm_decompose: 'Decomposing',
+    codebase_analysis: 'Analyzing codebase',
+    build_work_units: 'Building work units',
+    resolve_dependencies: 'Resolving dependencies',
+    reconcile_plan: 'Reconciling plan',
+    validate: 'Validating',
+    score_quality: 'Scoring quality',
+    analyze_environment: 'Analyzing environment',
+  }
+
+  useEventStream({
+    patterns: ['decomposition.*'],
+    projectId: activeProject?.project_id,
+    enabled: !!activeProject,
+    onEvent: useCallback((event) => {
+      if (event.event === 'decomposition.started') {
+        setPipelineActive(true)
+        setPipelineSteps([])
+      }
+      if (event.event === 'decomposition.step_started') {
+        setPipelineSteps(prev => [
+          ...prev.filter(s => s.name !== event.step_name),
+          { name: event.step_name, status: 'running' },
+        ])
+      }
+      if (event.event === 'decomposition.step_completed') {
+        setPipelineSteps(prev => prev.map(s =>
+          s.name === event.step_name
+            ? { ...s, status: 'completed', duration_ms: event.duration_ms, detail: event.detail }
+            : s
+        ))
+      }
+      if (event.event === 'decomposition.step_failed') {
+        setPipelineSteps(prev => prev.map(s =>
+          s.name === event.step_name ? { ...s, status: 'failed', error: event.error } : s
+        ))
+      }
+      if (event.event === 'decomposition.completed') {
+        setPipelineActive(false)
+      }
+    }, []),
+  })
 
   const recentMessages = messages
     .filter(m => CHATRAIL_VISIBLE_TYPES.has(m.type))
@@ -163,6 +212,27 @@ function ChatRail() {
               <ChevronLeft size={14} />
             </button>
           </div>
+
+          {/* Pipeline progress — shows during active decomposition */}
+          {(pipelineActive || pipelineSteps.length > 0) && (
+            <div className="chat-rail-pipeline">
+              <div className="chat-rail-pipeline-header">
+                {pipelineActive ? <Loader2 size={12} className="chat-rail-spin" /> : <CheckCircle2 size={12} />}
+                <span>{pipelineActive ? 'Decomposing...' : 'Decomposition complete'}</span>
+              </div>
+              <div className="chat-rail-pipeline-steps">
+                {pipelineSteps.map(s => (
+                  <div key={s.name} className={`chat-rail-step chat-rail-step--${s.status}`}>
+                    {s.status === 'running' && <Loader2 size={10} className="chat-rail-spin" />}
+                    {s.status === 'completed' && <CheckCircle2 size={10} />}
+                    {s.status === 'failed' && <XCircle size={10} />}
+                    <span>{STEP_LABELS[s.name] || s.name}</span>
+                    {s.duration_ms != null && <span className="chat-rail-step-time">{s.duration_ms < 1000 ? `${s.duration_ms}ms` : `${Math.round(s.duration_ms / 1000)}s`}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="chat-rail-messages" ref={messagesContainerRef}>
             {messages.length === 0 && (

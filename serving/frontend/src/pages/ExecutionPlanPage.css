@@ -27,6 +27,45 @@
   margin: 0 0 4px;
 }
 
+.exec-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.exec-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.exec-refresh-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.exec-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes exec-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.exec-spin {
+  animation: exec-spin 0.8s linear infinite;
+}
+
 .exec-pause-btn {
   display: flex;
   align-items: center;
@@ -253,6 +292,49 @@
 .exec-timing-label {
   color: var(--text-muted);
   font-size: 10px;
+}
+
+/* Execution Timing Summary */
+.ett-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ett-stat-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 3px var(--space-xs);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+}
+
+.ett-stat-row:hover {
+  background: var(--bg-hover);
+}
+
+.ett-stat-row--failed {
+  color: var(--error);
+}
+
+.ett-stat-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ett-stat-icon--active { color: #06b6d4; }
+.ett-stat-icon--done { color: var(--status-online); }
+
+.ett-stat-label {
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.ett-stat-value {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 /* Responsive: stack on narrow */
