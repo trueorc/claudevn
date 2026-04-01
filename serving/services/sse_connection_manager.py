@@ -550,7 +550,7 @@ class SSEConnectionManager:
                 from services.dispatch.engine import get_engine
                 eng = get_engine()
                 if eng:
-                    eng._busy_computes.discard(compute_id)
+                    eng.set_compute_state(compute_id, "idle", assigned_unit_id=None)
             except Exception:
                 pass
 

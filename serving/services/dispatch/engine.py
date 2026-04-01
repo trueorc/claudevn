@@ -2,12 +2,17 @@
 
 The single mechanism that drives all work unit lifecycle transitions.
 Every phase — dispatch, execution, merge, conflict resolution, verification
-— is a state. Every action is a transition. Every failure is handled
-as error metadata on the current state.
+— is a state. Every action is a transition. Every failure is a state.
 
 One evaluate() function. One pattern. One way things move forward.
 
-See docs/design/specifications/state-machine-engine.md for the full spec.
+**Critical design:**
+- Engine owns BOTH work unit state AND compute state
+- evaluate() takes an immutable snapshot — no external queries during evaluation
+- State changes are atomic — both sides update together
+- No polling, no querying SSE connections, no _busy_computes tracking
+
+See docs/design/specifications/state-machine-engine.md
 """
 
 import asyncio
@@ -34,110 +39,74 @@ TERMINAL_STATES = {
 
 @dataclass
 class RetryPolicy:
-    """Retry configuration for a transition."""
-    max_attempts: int = 3
-    backoff_seconds: float = 5.0
+    max_attempts: int = 1
+    backoff_seconds: float = 0.0
 
 
 @dataclass
-class TransitionError:
-    """Error metadata tracked on a work unit."""
-    message: str = ""
-    code: str = ""  # "transient", "permanent", "timeout"
-    transition: str = ""  # "queued→executing", etc.
-    attempt: int = 0
-    max_attempts: int = 3
-    first_at: Optional[datetime] = None
-    last_at: Optional[datetime] = None
-    backoff_until: Optional[datetime] = None
-
-    def should_retry(self) -> bool:
-        """Can this error be retried?"""
-        if self.code == "permanent":
-            return False
-        if self.attempt >= self.max_attempts:
-            return False
-        if self.backoff_until and datetime.now(timezone.utc) < self.backoff_until:
-            return False
-        return True
-
-    def to_dict(self) -> dict:
-        return {
-            "message": self.message,
-            "code": self.code,
-            "transition": self.transition,
-            "attempt": self.attempt,
-            "max_attempts": self.max_attempts,
-        }
+class ComputeState:
+    """Engine's view of a compute instance."""
+    compute_id: str
+    status: str = "offline"  # offline, idle, assigned, busy, merging
+    assigned_unit_id: Optional[str] = None
+    project_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
-class EvaluationContext:
-    """Snapshot of system state for condition checking."""
-    idle_computes: List[str] = field(default_factory=list)
-    busy_computes: Set[str] = field(default_factory=set)
-    merging_project_ids: Set[str] = field(default_factory=set)
-    completed_unit_ids: Set[str] = field(default_factory=set)
-    paused: bool = False
+class Snapshot:
+    """Immutable snapshot of system state for evaluation.
+
+    Built once at the start of evaluate(). No external queries
+    during evaluation — everything comes from this snapshot.
+    """
+    idle_compute_ids: List[str]
+    completed_unit_ids: Set[str]
+    paused: bool
 
 
 @dataclass
 class Transition:
-    """A single valid state transition."""
     from_state: WorkUnitStatus
     to_state: WorkUnitStatus
-    condition: Callable[['WorkUnit', EvaluationContext], bool]
-    action: Callable[['WorkUnit', EvaluationContext, 'WorkUnitEngine'], Awaitable[None]]
+    condition: Callable[['WorkUnit', Snapshot], bool]
+    action: Callable[['WorkUnit', Snapshot, 'WorkUnitEngine'], Awaitable[None]]
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     description: str = ""
 
 
 class WorkUnitEngine:
-    """Unified state machine engine for work unit lifecycle.
+    """Unified state machine engine.
 
-    evaluate() is the ONLY function that advances state.
-    External events call on_event() which identifies affected
-    units and triggers evaluation.
+    Owns work unit state AND compute state. evaluate() uses an
+    immutable snapshot so concurrent events can't cause inconsistency.
     """
 
     def __init__(self):
-        self._units: Dict[str, WorkUnit] = {}  # unit_id → WorkUnit
-        self._errors: Dict[str, TransitionError] = {}  # unit_id → error
+        self._units: Dict[str, WorkUnit] = {}
+        self._computes: Dict[str, ComputeState] = {}
         self._transitions: List[Transition] = []
         self._evaluating = False
-        self._pending_eval: Set[str] = set()
+        self._eval_requested = False
         self._paused = False
-
-        # Merge coordination: one merge at a time per project
-        self._merging_project_ids: Set[str] = set()
-
-        # Compute tracking
-        self._busy_computes: Set[str] = set()
-        self._unit_compute: Dict[str, str] = {}  # unit_id → compute_id
-
-        # Completed tracking for dependency resolution
         self._completed_ids: Set[str] = set()
-
         self._bus = get_event_bus()
 
+    # -- Setup --
+
     def register_transitions(self, transitions: List[Transition]) -> None:
-        """Set the transition table. Called once at startup."""
         self._transitions = transitions
         logger.info(f"Engine registered {len(transitions)} transitions")
 
     def track_unit(self, unit: WorkUnit) -> None:
-        """Add a unit to the engine's tracking."""
         self._units[unit.id] = unit
         if unit.status in TERMINAL_STATES:
             self._completed_ids.add(unit.id)
 
     def track_units(self, units: List[WorkUnit]) -> None:
-        """Add multiple units to tracking."""
         for u in units:
             self.track_unit(u)
 
     def mark_completed(self, unit_id: str) -> None:
-        """Mark a unit as completed for dependency tracking."""
         self._completed_ids.add(unit_id)
 
     def pause(self) -> None:
@@ -147,269 +116,186 @@ class WorkUnitEngine:
     def resume(self) -> None:
         self._paused = False
         logger.info("Engine resumed")
-        asyncio.create_task(self.evaluate(set(self._units.keys())))
+        asyncio.create_task(self.evaluate())
 
     @property
     def is_paused(self) -> bool:
         return self._paused
 
+    # -- Compute state management --
+
+    def set_compute_state(self, compute_id: str, status: str,
+                          assigned_unit_id: str = None,
+                          project_ids: List[str] = None) -> None:
+        """Update engine's view of a compute. This is THE source of truth."""
+        if compute_id not in self._computes:
+            self._computes[compute_id] = ComputeState(compute_id=compute_id)
+
+        cs = self._computes[compute_id]
+        old_status = cs.status
+        cs.status = status
+        if assigned_unit_id is not None:
+            cs.assigned_unit_id = assigned_unit_id
+        if project_ids is not None:
+            cs.project_ids = project_ids
+
+        if old_status != status:
+            logger.info(f"Compute {compute_id}: {old_status} → {status}")
+
+    def get_compute_state(self, compute_id: str) -> Optional[ComputeState]:
+        return self._computes.get(compute_id)
+
+    def get_idle_compute_ids(self) -> List[str]:
+        """Get compute IDs that are idle. Used only for snapshot building."""
+        return [cs.compute_id for cs in self._computes.values()
+                if cs.status == "idle"]
+
+    # -- Events --
+
     async def on_event(self, event_type: str, **kwargs) -> None:
-        """Handle an external event. Identifies affected units and evaluates.
+        """Handle an external event. Updates state, then evaluates."""
+        self._handle_event_state(event_type, **kwargs)
+        await self.evaluate()
 
-        This is the single entry point for all external state changes.
-        """
-        affected = self._get_affected_units(event_type, **kwargs)
-        if affected:
-            await self.evaluate(affected)
+    def _handle_event_state(self, event_type: str, **kwargs) -> None:
+        """Update internal state based on an event. No async, no side effects."""
+        if event_type == "compute_available":
+            compute_id = kwargs.get("compute_id", "")
+            if compute_id:
+                self.set_compute_state(compute_id, "idle")
 
-    async def evaluate(self, unit_ids: Optional[Set[str]] = None) -> None:
-        """Evaluate units for possible state transitions.
+        elif event_type == "compute_offline":
+            compute_id = kwargs.get("compute_id", "")
+            if compute_id:
+                self.set_compute_state(compute_id, "offline")
 
-        The core of the engine. For each affected unit, checks all
-        transitions from its current state. If conditions are met,
-        executes the transition action and advances state.
+        elif event_type == "code_complete":
+            unit_id = kwargs.get("unit_id", "")
+            compute_id = kwargs.get("compute_id")
+            # Unit state already set by caller. Release compute to idle.
+            if compute_id:
+                self.set_compute_state(compute_id, "idle", assigned_unit_id=None)
 
-        One transition per unit per evaluate pass. Re-evaluates
-        if any transition fired (cascading).
+        elif event_type == "code_failed":
+            unit_id = kwargs.get("unit_id", "")
+            compute_id = kwargs.get("compute_id")
+            if compute_id:
+                self.set_compute_state(compute_id, "idle", assigned_unit_id=None)
+
+        elif event_type == "rejected":
+            compute_id = kwargs.get("compute_id")
+            if compute_id:
+                # Compute rejected because it's busy — keep it busy
+                self.set_compute_state(compute_id, "busy")
+
+    # -- Core evaluate --
+
+    async def evaluate(self) -> None:
+        """Evaluate all non-terminal units for state transitions.
+
+        Takes an immutable snapshot at the start. No external queries.
+        No concurrent modification. Atomic.
         """
         if self._evaluating:
-            # Queue for re-evaluation after current pass
-            if unit_ids:
-                self._pending_eval.update(unit_ids)
+            self._eval_requested = True
             return
 
         self._evaluating = True
         try:
-            ids_to_check = unit_ids or set(self._units.keys())
-            max_passes = 20  # Safety limit
+            max_passes = 20
 
             for _ in range(max_passes):
-                transitioned_any = False
+                # Immutable snapshot — this is what we evaluate against
+                snap = Snapshot(
+                    idle_compute_ids=list(self.get_idle_compute_ids()),
+                    completed_unit_ids=set(self._completed_ids),
+                    paused=self._paused,
+                )
 
-                # Build context — rebuilt after each transition so
-                # compute availability is fresh (prevents double dispatch)
-                ctx = self._build_context()
+                transitioned = False
 
-                for unit_id in list(ids_to_check):
-                    unit = self._units.get(unit_id)
-                    if not unit or unit.status in TERMINAL_STATES:
+                for unit_id, unit in list(self._units.items()):
+                    if unit.status in TERMINAL_STATES:
                         continue
 
-                    # Find applicable transitions for this unit's state
                     for t in self._transitions:
                         if t.from_state != unit.status:
                             continue
-
-                        # Check error/retry state
-                        error = self._errors.get(unit_id)
-                        if error and not error.should_retry():
-                            # Retries exhausted — fail
-                            await self._transition_to(unit, WorkUnitStatus.FAILED,
-                                                      reason=f"Retries exhausted: {error.message}")
-                            transitioned_any = True
-                            break
-
-                        # Check condition
-                        if not t.condition(unit, ctx):
+                        if not t.condition(unit, snap):
                             continue
 
                         # Execute transition
                         old_state = unit.status
                         try:
-                            await t.action(unit, ctx, self)
+                            await t.action(unit, snap, self)
                             unit.status = t.to_state
-                            self._errors.pop(unit_id, None)
-
-                            await self._emit_transition(unit, old_state, t.to_state, t.description)
+                            await self._persist_and_emit(unit, old_state, t.to_state, t.description)
 
                             if t.to_state in TERMINAL_STATES:
                                 self._completed_ids.add(unit_id)
 
-                            transitioned_any = True
-                            logger.info(f"Engine: {unit_id} {old_state.value} → {t.to_state.value}")
-
-                            # Rebuild context — state changed, compute may now be busy
-                            ctx = self._build_context()
+                            transitioned = True
 
                         except StateRedirectError as e:
-                            # Action redirects to a different state than the transition target
-                            # Example: merge action detects conflict → redirect to MERGE_CONFLICT
                             unit.status = e.target_state
-                            self._errors.pop(unit_id, None)
-                            await self._emit_transition(unit, old_state, e.target_state, str(e))
-                            transitioned_any = True
-                            logger.info(
-                                f"Engine: {unit_id} {old_state.value} → {e.target_state.value} "
-                                f"(redirect: {e})"
-                            )
+                            await self._persist_and_emit(unit, old_state, e.target_state, str(e))
+                            if e.target_state in TERMINAL_STATES:
+                                self._completed_ids.add(unit_id)
+                            transitioned = True
 
                         except Exception as e:
-                            self._record_error(unit_id, t, e)
-                            logger.warning(
-                                f"Engine: {unit_id} transition {old_state.value}→{t.to_state.value} "
-                                f"failed: {e}"
+                            # Transition failed — mark unit as failed
+                            unit.status = WorkUnitStatus.FAILED
+                            await self._persist_and_emit(
+                                unit, old_state, WorkUnitStatus.FAILED,
+                                f"transition failed: {e}"
                             )
+                            transitioned = True
+                            logger.error(f"Engine: {unit_id} transition {old_state.value}→{t.to_state.value} failed: {e}")
 
-                        break  # One transition attempt per unit per pass
+                        break  # One transition per unit per pass
 
-                if not transitioned_any:
-                    break  # No more progress possible
+                    # Rebuild snapshot after each transition (state changed)
+                    if transitioned:
+                        break  # Restart the unit loop with fresh snapshot
 
-                # Widen check to include dependents of transitioned units
-                ids_to_check = set(self._units.keys())
+                if not transitioned:
+                    break
 
-            # Process any evaluations queued during this pass
-            if self._pending_eval:
-                pending = self._pending_eval.copy()
-                self._pending_eval.clear()
+            # Process queued re-evaluation
+            if self._eval_requested:
+                self._eval_requested = False
                 self._evaluating = False
-                await self.evaluate(pending)
+                await self.evaluate()
                 return
 
         finally:
             self._evaluating = False
 
-    def _build_context(self) -> EvaluationContext:
-        """Build a snapshot of current system state for condition checking."""
-        idle = []
-        try:
-            from services.sse_connection_manager import get_sse_connection_manager
-            sse = get_sse_connection_manager()
-            if sse:
-                idle = [c.compute_id for c in sse.get_idle_connections()
-                        if c.compute_id not in self._busy_computes]
-        except Exception:
-            pass
+    # -- Persistence + Events --
 
-        return EvaluationContext(
-            idle_computes=idle,
-            busy_computes=set(self._busy_computes),
-            merging_project_ids=set(self._merging_project_ids),
-            completed_unit_ids=set(self._completed_ids),
-            paused=self._paused,
-        )
+    async def _persist_and_emit(self, unit: WorkUnit, old_state, new_state, reason: str = "") -> None:
+        """Single method: persist to Redis + emit event + log to activity + log to console.
 
-    def _get_affected_units(self, event_type: str, **kwargs) -> Set[str]:
-        """Map an external event to the set of unit IDs that need re-evaluation."""
-        affected = set()
-
-        if event_type == "code_complete":
-            unit_id = kwargs.get("unit_id", "")
-            if unit_id:
-                affected.add(unit_id)
-                # Also evaluate dependents
-                for uid, u in self._units.items():
-                    if unit_id in (u.independence.depends_on or []):
-                        affected.add(uid)
-
-        elif event_type == "code_failed":
-            unit_id = kwargs.get("unit_id", "")
-            if unit_id:
-                affected.add(unit_id)
-
-        elif event_type == "merge_complete":
-            unit_id = kwargs.get("unit_id", "")
-            if unit_id:
-                affected.add(unit_id)
-                # Dependents may now be unblocked
-                for uid, u in self._units.items():
-                    if unit_id in (u.independence.depends_on or []):
-                        affected.add(uid)
-
-        elif event_type == "merge_conflict":
-            unit_id = kwargs.get("unit_id", "")
-            if unit_id:
-                affected.add(unit_id)
-
-        elif event_type == "conflict_resolved":
-            unit_id = kwargs.get("unit_id", "")
-            if unit_id:
-                affected.add(unit_id)
-
-        elif event_type == "compute_available":
-            # Compute connected or approved — clear from busy set
-            # (it may have been marked busy from a previous rejection)
-            compute_id = kwargs.get("compute_id", "")
-            if compute_id:
-                self._busy_computes.discard(compute_id)
-
-            # Any unit waiting for compute should re-evaluate
-            for uid, u in self._units.items():
-                if u.status in (WorkUnitStatus.QUEUED, WorkUnitStatus.WAITING_COMPUTE):
-                    affected.add(uid)
-
-        elif event_type == "approved":
-            # All units in the approved goal
-            goal_id = kwargs.get("goal_id", "")
-            for uid, u in self._units.items():
-                if u.goal_ref == goal_id:
-                    affected.add(uid)
-
-        elif event_type == "rejected":
-            unit_id = kwargs.get("unit_id", "")
-            if unit_id:
-                affected.add(unit_id)
-
-        else:
-            # Unknown event — evaluate everything
-            affected = set(self._units.keys())
-
-        return affected
-
-    def _record_error(self, unit_id: str, transition: Transition, error: Exception) -> None:
-        """Record an error on a unit for retry tracking."""
-        now = datetime.now(timezone.utc)
-        existing = self._errors.get(unit_id)
-        is_transient = not isinstance(error, PermanentError)
-
-        if existing and existing.transition == f"{transition.from_state.value}→{transition.to_state.value}":
-            existing.attempt += 1
-            existing.last_at = now
-            existing.message = str(error)
-            if is_transient:
-                from datetime import timedelta
-                existing.backoff_until = now + timedelta(seconds=transition.retry_policy.backoff_seconds)
-        else:
-            self._errors[unit_id] = TransitionError(
-                message=str(error),
-                code="transient" if is_transient else "permanent",
-                transition=f"{transition.from_state.value}→{transition.to_state.value}",
-                attempt=1,
-                max_attempts=transition.retry_policy.max_attempts,
-                first_at=now,
-                last_at=now,
-            )
-
-    async def _transition_to(self, unit: WorkUnit, new_state: WorkUnitStatus, reason: str = "") -> None:
-        """Direct state transition (for terminal states like failed)."""
-        old_state = unit.status
-        unit.status = new_state
-        await self._emit_transition(unit, old_state, new_state, reason)
-        if new_state in TERMINAL_STATES:
-            self._completed_ids.add(unit.id)
-
-    async def _emit_transition(self, unit: WorkUnit, old_state, new_state, reason: str = "") -> None:
-        """Persist state change to Redis AND emit event.
-
-        This is the SINGLE place all state changes pass through.
-        Redis is the source of truth. Events are for real-time UI.
-        Both happen on every transition. No exceptions.
+        Every state change goes through here. No exceptions.
         """
         new_state_str = new_state.value if hasattr(new_state, 'value') else str(new_state)
         old_state_str = old_state.value if hasattr(old_state, 'value') else str(old_state)
 
-        # 1. Persist to Redis — source of truth
+        # Find assigned compute
+        compute_id = None
+        for cs in self._computes.values():
+            if cs.assigned_unit_id == unit.id:
+                compute_id = cs.compute_id
+                break
+
+        # 1. Persist to Redis
         try:
             await self._persist_unit_status(unit, new_state_str)
         except Exception as e:
-            logger.error(f"CRITICAL: Failed to persist state {unit.id} → {new_state_str}: {e}")
+            logger.error(f"CRITICAL: persist failed {unit.id} → {new_state_str}: {e}")
 
-        # 2. Emit event — real-time UI updates
-        error_dict = None
-        err = self._errors.get(unit.id)
-        if err:
-            error_dict = err.to_dict()
-
+        # 2. Emit SSE event
         try:
             await self._bus.publish(WorkUnitStateTransition(
                 project_id=unit.project_id,
@@ -417,55 +303,45 @@ class WorkUnitEngine:
                 old_state=old_state_str,
                 new_state=new_state_str,
                 reason=reason,
-                error=error_dict,
-                compute_id=self._unit_compute.get(unit.id),
+                compute_id=compute_id,
             ))
         except Exception as e:
-            logger.warning(f"Failed to emit state transition event for {unit.id}: {e}")
+            logger.warning(f"Event emit failed for {unit.id}: {e}")
 
-        # 3. Persist to activity log (Redis list, survives page navigation + restarts)
+        # 3. Persist to activity log
         try:
             import json as _json
-            redis = None
-            try:
-                from services.decomposition.storage import _get_redis
-                redis = await _get_redis()
-            except Exception:
-                pass
-            if redis:
-                event_record = _json.dumps({
-                    "event": "work_unit.state_transition",
-                    "project_id": unit.project_id,
-                    "unit_id": unit.id,
-                    "old_state": old_state_str,
-                    "new_state": new_state_str,
-                    "reason": reason,
-                    "compute_id": self._unit_compute.get(unit.id),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-                log_key = f"claudevn:v2:activity_log:{unit.project_id}"
-                await redis.lpush(log_key, event_record)
-                await redis.ltrim(log_key, 0, 199)
+            from services.decomposition.storage import _get_redis
+            redis = await _get_redis()
+            event_record = _json.dumps({
+                "event": "work_unit.state_transition",
+                "project_id": unit.project_id,
+                "unit_id": unit.id,
+                "old_state": old_state_str,
+                "new_state": new_state_str,
+                "reason": reason,
+                "compute_id": compute_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            log_key = f"claudevn:v2:activity_log:{unit.project_id}"
+            await redis.lpush(log_key, event_record)
+            await redis.ltrim(log_key, 0, 199)
         except Exception:
             pass
 
-        # 4. Log — always visible
+        # 4. Console log
         logger.info(f"State: {unit.id} {old_state_str} → {new_state_str} ({reason})")
 
     async def _persist_unit_status(self, unit: WorkUnit, new_status: str) -> None:
-        """Write unit status to Redis. Updates both per-goal and project index."""
+        """Write unit status to Redis."""
         try:
-            from services.decomposition.storage import (
-                get_work_units,
-                _get_redis,
-            )
             import json
-
+            from services.decomposition.storage import _get_redis
             redis = await _get_redis()
             project_id = unit.project_id
             goal_id = unit.goal_ref
 
-            # Update in per-goal key
+            # Update per-goal key
             wu_key = f"claudevn:v2:work_units:{project_id}:{goal_id}"
             data = await redis.get(wu_key)
             if data:
@@ -480,7 +356,7 @@ class WorkUnitEngine:
                         break
                 await redis.set(wu_key, json.dumps(units))
 
-            # Update in project index
+            # Update project index
             proj_key = f"claudevn:v2:project_units:{project_id}"
             data = await redis.get(proj_key)
             if data:
@@ -494,48 +370,29 @@ class WorkUnitEngine:
                             u["branch"] = unit.branch
                         break
                 await redis.set(proj_key, json.dumps(units))
-
         except Exception as e:
             logger.error(f"Redis persist failed for {unit.id}: {e}")
 
-    # -- Helpers for transition actions --
+    # -- Helper for transition_to (used by external event handlers) --
 
-    def assign_compute(self, unit_id: str, compute_id: str) -> None:
-        """Track a compute assignment."""
-        self._busy_computes.add(compute_id)
-        self._unit_compute[unit_id] = compute_id
-
-    def release_compute(self, unit_id: str) -> None:
-        """Release a compute assignment."""
-        compute_id = self._unit_compute.pop(unit_id, None)
-        if compute_id:
-            self._busy_computes.discard(compute_id)
-
-    def start_merge(self, project_id: str) -> None:
-        """Mark a project as having a merge in progress."""
-        self._merging_project_ids.add(project_id)
-
-    def end_merge(self, project_id: str) -> None:
-        """Mark a project's merge as complete."""
-        self._merging_project_ids.discard(project_id)
+    async def _transition_to(self, unit: WorkUnit, new_state: WorkUnitStatus, reason: str = "") -> None:
+        """Direct state transition. Used by external event handlers (compute.py)."""
+        old_state = unit.status
+        unit.status = new_state
+        await self._persist_and_emit(unit, old_state, new_state, reason)
+        if new_state in TERMINAL_STATES:
+            self._completed_ids.add(unit.id)
 
 
 class PermanentError(Exception):
-    """An error that should not be retried."""
     pass
 
 
 class TransientError(Exception):
-    """An error that can be retried."""
     pass
 
 
 class StateRedirectError(Exception):
-    """Raised by an action to redirect to a different state than the transition target.
-
-    Example: merge action detects conflict → raises StateRedirectError(MERGE_CONFLICT)
-    instead of completing the SUBMITTED→MERGING transition normally.
-    """
     def __init__(self, message: str, target_state: WorkUnitStatus):
         super().__init__(message)
         self.target_state = target_state

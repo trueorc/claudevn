@@ -658,12 +658,11 @@ async def receive_compute_event(
                     connection.current_task_id = None
                     logger.info(f"Reset SSE connection {event.compute_id} to idle")
 
-                    # Notify engine — compute is now truly idle
+                    # Notify engine — compute is now idle
                     try:
                         from services.dispatch.engine import get_engine
                         eng = get_engine()
                         if eng:
-                            eng._busy_computes.discard(event.compute_id)
                             await eng.on_event("compute_available", compute_id=event.compute_id)
                     except Exception:
                         pass
@@ -699,22 +698,25 @@ async def receive_compute_event(
             if event.event.value == "claude_code_completed":
                 unit = engine._units.get(event.task_id)
                 if unit:
-                    # Set state and persist through engine's transition path
                     unit.branch = event.branch_name
                     await engine._transition_to(
                         unit, WorkUnitStatus.SUBMITTED,
                         reason="code complete, awaiting merge"
                     )
-                    await engine.on_event("code_complete", unit_id=event.task_id)
+                    # Compute state: code done, holding for merge
+                    await engine.on_event("code_complete",
+                        unit_id=event.task_id, compute_id=event.compute_id)
 
             elif event.event.value == "claude_code_failed":
                 unit = engine._units.get(event.task_id)
                 if unit:
-                    engine.release_compute(unit.id)
                     await engine._transition_to(
                         unit, WorkUnitStatus.FAILED,
                         reason=f"execution failed: {event.error or 'unknown'}"
-                        )
+                    )
+                    # Compute is now idle (failed work releases it)
+                    await engine.on_event("code_failed",
+                        unit_id=event.task_id, compute_id=event.compute_id)
 
             elif event.event.value == "claude_code_rejected":
                 unit = engine._units.get(event.task_id)
@@ -723,7 +725,9 @@ async def receive_compute_event(
                         unit, WorkUnitStatus.WAITING_COMPUTE,
                         reason="rejected by compute (at capacity)"
                     )
-                    await engine.on_event("rejected", unit_id=event.task_id)
+                    # Compute is busy (that's why it rejected)
+                    await engine.on_event("rejected",
+                        unit_id=event.task_id, compute_id=event.compute_id)
         else:
             # Fallback to old dispatcher
             from services.dispatch.dispatcher import get_dispatcher
@@ -1096,7 +1100,6 @@ async def _release_compute_after_merge(compute_id: str) -> None:
                 from services.dispatch.engine import get_engine
                 eng = get_engine()
                 if eng:
-                    eng._busy_computes.discard(compute_id)
                     await eng.on_event("compute_available", compute_id=compute_id)
             except Exception:
                 pass
