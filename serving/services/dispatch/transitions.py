@@ -34,19 +34,44 @@ def deps_satisfied(unit: WorkUnit, ctx: EvaluationContext) -> bool:
     return all(dep in ctx.completed_unit_ids for dep in unit.independence.depends_on)
 
 
+def _any_unit_active(ctx: EvaluationContext) -> bool:
+    """Check if ANY unit is currently executing or in merge phase.
+
+    Hard rule: only one unit can be active at a time per compute.
+    This prevents double-dispatch regardless of how busy_computes tracking works.
+    """
+    # Check the engine's units for any in active state
+    try:
+        from .engine import get_engine
+        engine = get_engine()
+        if engine:
+            for u in engine._units.values():
+                if u.status.value in ('executing', 'submitted', 'merging'):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def compute_available(unit: WorkUnit, ctx: EvaluationContext) -> bool:
-    """An idle compute exists and system is not paused."""
-    return not ctx.paused and len(ctx.idle_computes) > 0
+    """An idle compute exists, not paused, and no other unit is active."""
+    if ctx.paused or len(ctx.idle_computes) == 0:
+        return False
+    return not _any_unit_active(ctx)
 
 
 def no_compute_available(unit: WorkUnit, ctx: EvaluationContext) -> bool:
-    """No idle compute — unit should wait."""
-    return not ctx.paused and len(ctx.idle_computes) == 0
+    """No idle compute or another unit is active — unit should wait."""
+    if ctx.paused:
+        return False
+    return len(ctx.idle_computes) == 0 or _any_unit_active(ctx)
 
 
 def compute_now_available(unit: WorkUnit, ctx: EvaluationContext) -> bool:
-    """A compute became available for a waiting unit."""
-    return not ctx.paused and len(ctx.idle_computes) > 0
+    """A compute became available and no other unit is active."""
+    if ctx.paused or len(ctx.idle_computes) == 0:
+        return False
+    return not _any_unit_active(ctx)
 
 
 def always_true(unit: WorkUnit, ctx: EvaluationContext) -> bool:
